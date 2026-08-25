@@ -27,6 +27,14 @@ const VERBS: Record<string, { load: () => Promise<Verb>; summary: string }> = {
     load: async () => (await import("./verbs/capture.js")).capture,
     summary: "screenshots + deterministic findings, no AI",
   },
+  check: {
+    load: async () => (await import("./verbs/check.js")).check,
+    summary: "capture + AI judge against best practices",
+  },
+  ask: {
+    load: async () => (await import("./verbs/ask.js")).ask,
+    summary: "answer a question about the rendered app, with evidence",
+  },
   targets: {
     load: async () => (await import("./verbs/targets.js")).targets,
     summary: "list configured targets and probe reachability",

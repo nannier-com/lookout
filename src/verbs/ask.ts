@@ -1,0 +1,80 @@
+/**
+ * `lookout ask "question"`: capture the relevant evidence, then answer the
+ * question grounded in what the screenshots actually show. The fact-check
+ * verb: an agent unsure whether its change worked, or whether an assumption
+ * holds ("does the sidebar collapse below 640px?"), asks instead of guessing.
+ *
+ * Defaults are lighter than a sweep: desktop + phone, dark only. Narrow the
+ * scope with the usual flags (--targets, --routes, --viewports, --schemes).
+ * Always exits 0 unless execution failed: an answer is not a defect.
+ */
+import { evidenceDir } from "../config.js";
+import { invokeClaude } from "../judge/engine.js";
+import { LookoutError } from "../types.js";
+import { printJson, str, type Parsed } from "../util.js";
+import { runCapture } from "./capture.js";
+
+export async function ask(parsed: Parsed): Promise<number> {
+  const question = parsed.positionals.join(" ").trim();
+  if (!question) {
+    throw new LookoutError(
+      'ask needs a question, e.g. lookout ask "does the sidebar collapse below 640px?"',
+    );
+  }
+
+  // Lighter default matrix for a question; explicit flags win.
+  if (!parsed.flags.viewports) parsed.flags.viewports = "desktop,phone";
+  if (!parsed.flags.schemes) parsed.flags.schemes = "dark";
+
+  const { resolved } = await runCapture(parsed);
+  const { loadReport } = await import("../capture/store.js");
+  const report = await loadReport(resolved);
+  if (!report) throw new LookoutError("capture produced no report");
+
+  // Only this run's shots ground the answer: stale evidence answers nothing.
+  const latestRun = report.runs[report.runs.length - 1]!;
+  const shots = report.shots.filter((s) => s.runId === latestRun.id);
+  if (shots.length === 0) throw new LookoutError("no shots captured for the question's scope");
+
+  const evDir = evidenceDir(resolved);
+  const manifest = shots
+    .map(
+      (s) =>
+        `- shotId: ${s.id}\n  file: ${evDir}/${s.path}\n  route: ${s.route}  state: ${s.state}  formFactor: ${s.formFactor} (${s.width}x${s.height})  scheme: ${s.scheme}`,
+    )
+    .join("\n");
+
+  const prompt = [
+    `You are lookout's fact-checker for the project "${resolved.project}".`,
+    `Answer the question below using ONLY what the listed screenshots show.`,
+    `Read each screenshot with the Read tool before answering. Do not read other files.`,
+    ``,
+    `QUESTION: ${question}`,
+    ``,
+    `=== SHOTS (${shots.length}) ===`,
+    manifest,
+    `=== END SHOTS ===`,
+    ``,
+    `Answer format: a direct answer first (yes / no / a number / a description),`,
+    `then the evidence: which shotIds show it and what you see in them. If the`,
+    `evidence cannot answer the question (wrong route, missing state, needs`,
+    `interaction), say exactly that and name what capture would be needed.`,
+    `State your confidence (high / medium / low) on the last line.`,
+  ].join("\n");
+
+  const model = str(parsed.flags.model) ?? "sonnet";
+  const res = await invokeClaude({ prompt, cwd: evDir, model });
+
+  if (parsed.flags.json) {
+    printJson({
+      question,
+      answer: res.text,
+      shots: shots.map((s) => ({ id: s.id, path: `.lookout/evidence/${s.path}` })),
+      costUsd: res.costUsd,
+    });
+  } else {
+    console.log(`\n${res.text}\n`);
+    console.log(`evidence: ${evDir} (${shots.length} shot(s))`);
+  }
+  return 0;
+}
