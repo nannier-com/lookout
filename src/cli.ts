@@ -39,6 +39,10 @@ const VERBS: Record<string, { load: () => Promise<Verb>; summary: string }> = {
     load: async () => (await import("./verbs/verify.js")).verify,
     summary: "judge the app against acceptance criteria (--criteria)",
   },
+  backlog: {
+    load: async () => (await import("./verbs/backlog.js")).backlog,
+    summary: "adjudicate findings (merge/set/reopen/regen/check/stats)",
+  },
   targets: {
     load: async () => (await import("./verbs/targets.js")).targets,
     summary: "list configured targets and probe reachability",

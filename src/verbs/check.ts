@@ -172,7 +172,16 @@ export async function runCheck(parsed: Parsed): Promise<{
 }
 
 export async function check(parsed: Parsed): Promise<number> {
-  const { outcome, shotsById } = await runCheck(parsed);
+  const { outcome, resolved, shotsById } = await runCheck(parsed);
+
+  // Projects with a config file track findings in the backlog automatically;
+  // zero-config runs stay report-only (a backlog in a random cwd is noise).
+  let backlogNote = "";
+  if (resolved.configPath) {
+    const { mergeLatest } = await import("./backlog.js");
+    const merged = await mergeLatest(resolved, { judgeOutcome: outcome });
+    backlogNote = `backlog: ${merged.added} added, ${merged.reopened} reopened, ${merged.refreshed} refreshed`;
+  }
 
   if (parsed.flags.json) {
     printJson(outcome);
@@ -191,6 +200,7 @@ export async function check(parsed: Parsed): Promise<number> {
       );
     }
     console.log(`\nreport: ${outcome.reportPath}`);
+    if (backlogNote) console.log(backlogNote);
   }
   return outcome.findings.length > 0 || outcome.deterministicErrors > 0 ? 1 : 0;
 }
