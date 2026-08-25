@@ -64,7 +64,110 @@ machine-readable output.
 
 ## Per-project config
 
-`.lookout/config.ts` declares targets, routes, viewport overrides, the scheme
-mechanism (`emulate` | `url-param` | `recipe`), named interaction recipes
-(open an overlay, switch an in-app form factor), a rubric extension, and
-never-file exclusions. See `lookout init` for a commented template.
+`.lookout/config.ts` is a TypeScript module (the CLI runs under bun, so
+recipes are real functions) default-exporting a `LookoutConfig`. Everything
+below is optional except `targets`.
+
+```ts
+import type { LookoutConfig } from "@nannier/lookout";
+import type { Page } from "playwright";
+
+const config: LookoutConfig = {
+  project: "myapp",
+
+  targets: [
+    {
+      name: "app",                       // handle for --targets and fingerprints
+      url: "http://localhost:3000",
+      startHint: "bun run dev",          // printed when down; lookout never starts services
+      readyPath: "/",                    // polled for reachability
+      routes: [
+        "/",                             // string shorthand
+        { path: "/checkout", name: "Checkout", states: ["cart-open"] },
+        { path: "/settings", element: "main" },  // element screenshot instead of full page
+      ],
+    },
+  ],
+
+  // Viewport presets (desktop-first defaults: 1440x900 / 834x1112 / 390x844).
+  viewports: { phone: { width: 375, height: 812 } },
+
+  // How the app switches dark/light:
+  //   emulate (default)  prefers-color-scheme emulation
+  //   url-param          lookout appends ?<param>=dark|light to every route
+  //   recipe             this module also exports setScheme(page, scheme)
+  scheme: { mode: "url-param", param: "scheme" },
+
+  // Named interaction recipes. A route opts in via states: ["name"]; each
+  // state is captured at every requested form factor and scheme, right after
+  // prepare() returns. restore() puts the page back; without it lookout
+  // reloads between states.
+  states: {
+    "cart-open": {
+      prepare: async (page: Page) => {
+        await page.getByRole("button", { name: "Cart" }).click();
+        await page.getByRole("dialog").waitFor();
+      },
+      restore: async (page: Page) => {
+        await page.keyboard.press("Escape");
+      },
+    },
+  },
+
+  // Project judging rules, layered onto rubric/BASE.md in every judge prompt.
+  // The extension can carry its own `rubricVersion: N` header; the higher of
+  // base and extension versions keys the ledger cache, so bumping either
+  // forces fresh judging.
+  rubric: "./rubric.md",
+
+  // One-line suppressions for things the base rubric would flag but this
+  // project does on purpose.
+  neverFile: ["the marketing hero intentionally overflows on phone"],
+
+  // Native apps (capture with --platforms ios,android). Both schemes on a
+  // device need appearanceParam: the app must read the scheme from the deep
+  // link, because OS-level appearance flips cannot reach apps that manage
+  // their own theme.
+  native: {
+    target: "app",
+    ios: { deepLinkScheme: "myapp", bundleId: "com.example.myapp" },
+    android: { deepLinkScheme: "myapp", bundleId: "com.example.myapp", settleMs: 14000 },
+  },
+};
+
+export default config;
+```
+
+### What the judge reads
+
+Every judge prompt is assembled from `rubric/BASE.md` (severity ladder, the
+closed category vocabulary, the judging procedure, the universal never-file
+list), then the project's `rubric` file, then its `neverFile` lines. Findings
+outside the category vocabulary are rejected at ingestion, so project
+extensions refine judgment; they cannot invent new taxonomies.
+
+### Where things land
+
+```
+.lookout/
+  config.ts        committed: the project's targets and recipes
+  backlog.json     committed: adjudicated findings (managed via `lookout backlog`)
+  BACKLOG.md       committed: generated report (regen via `lookout backlog regen`)
+  ledger.json      committed if you want cross-machine judge caching
+  evidence/        gitignored: screenshots + capture-report.json + judge-report.json
+```
+
+### The fix loop (for agents)
+
+lookout never edits code. The loop it is built for:
+
+1. `lookout check` in the target repo: findings merge into the backlog.
+2. Fix the code in that repo, per that repo's own conventions.
+3. `lookout check --targets x --routes /y` to re-capture and re-judge just
+   the affected scope; unchanged pixels stay ledger-cached.
+4. `lookout backlog set <fingerprint> --status fixed --commit <sha>`; use
+   `--status by-design --reason "..."` for intended behavior (suppressed in
+   every later merge) and `--status blocked --reason "..."` after repeated
+   failed attempts.
+5. `lookout backlog check` as the gate: schema, mandatory reasons, markdown
+   freshness, and drift detection all fail loud.
