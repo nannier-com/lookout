@@ -218,7 +218,11 @@ async function captureRoute(
           await page.waitForTimeout(250);
         }
 
-        const element = await resolveElement(page, recipe?.element ?? route.element);
+        // A recipe's element wins even when null (null = full page: portaled
+        // overlays render outside the route's element).
+        const elementSel =
+          recipe && recipe.element !== undefined ? recipe.element : route.element;
+        const element = await resolveElement(page, elementSel ?? undefined);
         const axes: ShotAxes = {
           target: target.def.name,
           route: route.path,
@@ -243,7 +247,7 @@ async function captureRoute(
         const axeHere =
           ctx.axe === "all" || (ctx.axe === "route" && formFactor === ctx.formFactors[0]);
         if (axeHere && stateName === "rest") {
-          findings.push(...(await runAxe(page, recipe?.element ?? route.element ?? null, { contrast: ctx.axeContrast })));
+          findings.push(...(await runAxe(page, elementSel ?? null, { contrast: ctx.axeContrast })));
         }
         findings.push(...ctx.collectorDrain());
 

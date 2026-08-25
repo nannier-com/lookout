@@ -75,8 +75,12 @@ export interface StateRecipe {
    * lookout reloads between states.
    */
   restore?: (page: Page) => Promise<void>;
-  /** CSS selector to element-screenshot for this state (overrides route/element). */
-  element?: string;
+  /**
+   * CSS selector to element-screenshot for this state. Overrides the route's
+   * element; pass null to force a FULL-PAGE shot (needed when the state
+   * renders outside the route's element, e.g. a portaled overlay).
+   */
+  element?: string | null;
 }
 
 export interface NativeAppConfig {
