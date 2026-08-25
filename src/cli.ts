@@ -23,6 +23,10 @@ type Verb = (parsed: Parsed) => Promise<number>;
 // Verbs register here as their phases land; the registry is the single source
 // for dispatch and help.
 const VERBS: Record<string, { load: () => Promise<Verb>; summary: string }> = {
+  capture: {
+    load: async () => (await import("./verbs/capture.js")).capture,
+    summary: "screenshots + deterministic findings, no AI",
+  },
   targets: {
     load: async () => (await import("./verbs/targets.js")).targets,
     summary: "list configured targets and probe reachability",
