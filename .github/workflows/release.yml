@@ -1,0 +1,134 @@
+name: Release
+
+# npm publishes itself on every push to main: `changeset publish` is a no-op unless
+# a changeset bumped the version. Mirrors the canvas deploy pipeline, including the
+# guard that a MAJOR bump never releases automatically.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      npm:
+        description: "Publish @nannier/lookout to npm"
+        type: boolean
+        default: false
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  npm:
+    if: ${{ github.event_name == 'push' || inputs.npm }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install --frozen-lockfile
+
+      # A MAJOR bump is never allowed to happen automatically; a breaking release is
+      # a deliberate act via the manual run. (Lesson inherited from canvas, where a
+      # major changeset once rode a push straight to a published 2.0.0.)
+      - name: Block automatic major releases
+        id: major_guard
+        run: |
+          major=$(grep -lE "^['\"]?@nannier/lookout['\"]?:[[:space:]]*major" .changeset/*.md 2>/dev/null | wc -l | tr -d ' ')
+          echo "major=$major" >> "$GITHUB_OUTPUT"
+          if [ "$major" != "0" ] && [ "${{ github.event_name }}" = "push" ]; then
+            echo "blocked=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "### npm release held back"
+              echo ""
+              echo "$major pending changeset(s) request a **major** version bump, and automatic"
+              echo "publishing is limited to minor and patch releases."
+              echo ""
+              echo "Run the Release workflow manually with the npm box ticked to publish it,"
+              echo "or downgrade the changeset to \`minor\` if a breaking release was not intended."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice::Major bump pending; skipping the automatic release."
+          else
+            echo "blocked=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check for pending changesets
+        if: steps.major_guard.outputs.blocked != 'true'
+        id: has_changesets
+        run: |
+          # Mirror changesets' own filter (no dotfiles, case-insensitive README).
+          count=$(find .changeset -maxdepth 1 -name "*.md" ! -iname "README.md" ! -name ".*" 2>/dev/null | wc -l | tr -d ' ')
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "Found $count pending changeset(s)."
+
+      - name: Configure git
+        if: steps.major_guard.outputs.blocked != 'true' && steps.has_changesets.outputs.count != '0'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Version packages
+        if: steps.major_guard.outputs.blocked != 'true' && steps.has_changesets.outputs.count != '0'
+        run: |
+          bun run version-packages
+          git add .
+          if git diff --cached --quiet; then
+            echo "No version changes to commit."
+          else
+            git commit -m "chore: version packages [skip ci]"
+            for attempt in 1 2 3; do
+              git fetch origin main
+              git rebase origin/main
+              if git push origin HEAD:main; then
+                break
+              fi
+              if [ "$attempt" = "3" ]; then
+                echo "::error::could not push the version commit after 3 attempts. Re-run the release."
+                exit 1
+              fi
+              echo "Push rejected (main advanced); retrying ($attempt/3)..."
+            done
+          fi
+
+      - name: Authenticate npm (npmjs.org)
+        if: steps.major_guard.outputs.blocked != 'true'
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" >> .npmrc
+          echo "@nannier:registry=https://registry.npmjs.org" >> .npmrc
+
+      # Unconditional: publish is idempotent, so this also retries any version
+      # already on main but missing from npm.
+      - name: Publish to npmjs.org
+        if: steps.major_guard.outputs.blocked != 'true'
+        run: bun run release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Push release tags
+        if: steps.major_guard.outputs.blocked != 'true'
+        run: git push --tags
+
+      - name: Summarise the release
+        if: always()
+        run: |
+          version=$(node -p "require('./package.json').version")
+          {
+            echo "### npm"
+            if [ "${{ steps.has_changesets.outputs.count }}" = "0" ]; then
+              echo "No pending changesets, so nothing was published. Current version is \`$version\`."
+            else
+              echo "Published **@nannier/lookout@$version**"
+              echo ""
+              echo "- [View on npm](https://www.npmjs.com/package/@nannier/lookout/v/$version)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
