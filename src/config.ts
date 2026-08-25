@@ -159,12 +159,22 @@ export function validateConfig(raw: unknown, path: string): LookoutConfig {
         return r as unknown as RouteDef;
       });
     }
+    let query: Record<string, string> | undefined;
+    if (t.query !== undefined) {
+      if (!isRecord(t.query)) fail(path, `targets[${i}].query must be an object of strings`);
+      query = {};
+      for (const [k, v] of Object.entries(t.query)) {
+        if (typeof v !== "string") fail(path, `targets[${i}].query.${k} must be a string`);
+        query[k] = v;
+      }
+    }
     return {
       name: t.name,
       url: t.url.replace(/\/$/, ""),
       routes: validRoutes,
       readyPath: typeof t.readyPath === "string" ? t.readyPath : undefined,
       startHint: typeof t.startHint === "string" ? t.startHint : undefined,
+      query,
     };
   });
 

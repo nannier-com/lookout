@@ -41,10 +41,16 @@ export function resolveRoutes(target: TargetDef, defaultElement?: string): Resol
   return raw.map((r) => {
     const def: RouteDef = typeof r === "string" ? { path: r } : r;
     const path = def.path.startsWith("/") ? def.path : `/${def.path}`;
+    let url = `${target.url}${path === "/" ? "" : path}`;
+    if (target.query && Object.keys(target.query).length > 0) {
+      const u = new URL(url);
+      for (const [k, v] of Object.entries(target.query)) u.searchParams.set(k, v);
+      url = u.toString();
+    }
     return {
       path,
       name: def.name ?? path,
-      url: `${target.url}${path === "/" ? "" : path}`,
+      url,
       states: def.states ?? [],
       element: def.element ?? defaultElement,
     };

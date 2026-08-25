@@ -46,6 +46,11 @@ export interface TargetDef {
    * services itself; it tells the operator what to start.
    */
   startHint?: string;
+  /**
+   * Query params appended to every route URL (e.g. { surface: "solid" } to
+   * pin an app mode for capture). The scheme url-param rides on top.
+   */
+  query?: Record<string, string>;
 }
 
 /** How a target switches color scheme. */
