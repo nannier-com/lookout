@@ -132,8 +132,12 @@ export function isLocalUrl(url: string): boolean {
   }
 }
 
-/** Fetch with a timeout; returns the status or null when unreachable. */
-export async function probe(url: string, timeoutMs = 3000): Promise<number | null> {
+/**
+ * Fetch with a timeout; returns the status or null when unreachable. The
+ * default is generous because dev servers compile routes on first hit (a
+ * cold Next.js page can take several seconds before its first byte).
+ */
+export async function probe(url: string, timeoutMs = 15_000): Promise<number | null> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
