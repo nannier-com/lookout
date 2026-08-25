@@ -76,21 +76,29 @@ export function resolveTargets(
     }
     defs = defs.filter((t) => only.includes(t.name));
   }
-  return defs.map((def) => {
+  const resolved = defs.map((def) => {
     let routes = resolveRoutes(def, config.element);
     if (routesFilter && routesFilter.length > 0) {
       routes = routes.filter((r) =>
         routesFilter.some((f) => r.path === f || r.path === `/${f}` || r.name === f),
       );
-      if (routes.length === 0) {
-        throw new LookoutError(
-          `--routes matched nothing on target "${def.name}"`,
-          `its routes: ${resolveRoutes(def).map((r) => r.path).join(", ")}`,
-        );
-      }
     }
     return { def, routes };
   });
+  if (routesFilter && routesFilter.length > 0) {
+    // A route filter narrows across targets: targets it misses entirely drop
+    // out; only a filter matching NOTHING anywhere is an error.
+    const withRoutes = resolved.filter((t) => t.routes.length > 0);
+    if (withRoutes.length === 0) {
+      const all = defs.flatMap((d) => resolveRoutes(d).map((r) => `${d.name}:${r.path}`));
+      throw new LookoutError(
+        `--routes matched nothing on any selected target`,
+        `available: ${all.slice(0, 20).join(", ")}${all.length > 20 ? ", ..." : ""}`,
+      );
+    }
+    return withRoutes;
+  }
+  return resolved;
 }
 
 /** Probe each target's readyPath. Never starts anything. */

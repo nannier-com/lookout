@@ -66,10 +66,13 @@ describe("resolveRoutes / resolveTargets", () => {
     }
   });
 
-  test("--routes filter matches by path or name and rejects empty matches", () => {
+  test("--routes filter matches by path or name, drops empty targets, rejects total misses", () => {
     const [t] = resolveTargets(config, ["docs"], ["Badge"]);
     expect(t!.routes.map((r) => r.path)).toEqual(["/components/badge"]);
-    expect(() => resolveTargets(config, ["site"], ["/nope"])).toThrow(/matched nothing/);
+    // A filter that misses one target but hits another drops the miss.
+    const across = resolveTargets(config, undefined, ["Badge"]);
+    expect(across.map((x) => x.def.name)).toEqual(["docs"]);
+    expect(() => resolveTargets(config, ["site"], ["/nope"])).toThrow(/matched nothing on any/);
   });
 });
 
