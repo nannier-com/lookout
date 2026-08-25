@@ -12,7 +12,11 @@ const p = argv.indexOf("-p");
 const promptText = p !== -1 ? argv[p + 1] ?? "" : "";
 let mode = process.env.MOCK_MODE ?? "auto";
 if (mode === "auto") {
-  mode = promptText.includes("adversarial verifier") ? "verify" : "judge";
+  mode = promptText.includes("adversarial verifier")
+    ? "verify"
+    : promptText.includes("acceptance-criteria verifier")
+      ? "criteria"
+      : "judge";
 }
 
 const shotIds = [...promptText.matchAll(/^- shotId: (.+)$/gm)].map((m) => m[1]!);
@@ -62,6 +66,22 @@ if (mode === "judge") {
         verdict: i === 0 ? "confirmed" : "refuted",
         note: i === 0 ? "plainly visible" : "not visible in evidence",
       })),
+    }) +
+    "\n```";
+} else if (mode === "criteria") {
+  result =
+    "```json\n" +
+    JSON.stringify({
+      criteria: [
+        { id: 1, text: "The settings page shows a Security section", verdict: "pass",
+          reasoning: "visible", evidence: shotIds.slice(0, 1) },
+        { id: 2, text: "Subscription copy is legible", verdict: "fail",
+          reasoning: "low contrast", evidence: shotIds.slice(0, 1),
+          suggestion: "darken the text color" },
+        { id: 3, text: "Saving emits an audit log entry", verdict: "not-verifiable",
+          reasoning: "backend behavior; needs log capture", evidence: [] },
+      ],
+      summary: "1 pass, 1 fail, 1 not verifiable",
     }) +
     "\n```";
 } else if (mode === "prose") {
