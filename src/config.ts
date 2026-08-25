@@ -209,6 +209,9 @@ export function validateConfig(raw: unknown, path: string): LookoutConfig {
 
   if (raw.native !== undefined) {
     if (!isRecord(raw.native)) fail(path, "native must be an object");
+    if (raw.native.target !== undefined && typeof raw.native.target !== "string") {
+      fail(path, "native.target must be a target name string");
+    }
     for (const os of ["ios", "android"] as const) {
       const n = (raw.native as Record<string, unknown>)[os];
       if (n === undefined) continue;

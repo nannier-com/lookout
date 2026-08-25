@@ -71,8 +71,48 @@ export async function runCapture(parsed: Parsed): Promise<{
     onProgress: quiet ? undefined : (line) => console.log(line),
   };
 
-  const { run, shots } = await captureWeb(resolved, targets, opts);
-  await mergeRun(resolved, run, shots);
+  const platforms = list(parsed.flags.platforms) ?? ["web"];
+  for (const p of platforms) {
+    if (!["web", "ios", "android"].includes(p)) {
+      throw new LookoutError(`unknown platform "${p}" (web | ios | android)`);
+    }
+  }
+
+  let run: Awaited<ReturnType<typeof captureWeb>>["run"] | null = null;
+  let shots: Awaited<ReturnType<typeof captureWeb>>["shots"] = [];
+  if (platforms.includes("web")) {
+    const web = await captureWeb(resolved, targets, opts);
+    run = web.run;
+    shots = web.shots;
+    await mergeRun(resolved, web.run, web.shots);
+  }
+
+  const nativePlatforms = platforms.filter((p): p is "ios" | "android" => p !== "web");
+  if (nativePlatforms.length > 0) {
+    const { captureNative } = await import("../capture/native.js");
+    // The native app's routes come from the config-named target (default first).
+    const nativeTargetName = resolved.config.native?.target;
+    const nativeTargets = nativeTargetName
+      ? targets.filter((t) => t.def.name === nativeTargetName)
+      : targets;
+    if (nativeTargets.length === 0) {
+      throw new LookoutError(`native.target "${nativeTargetName}" is not among the selected targets`);
+    }
+    const native = await captureNative(resolved, nativeTargets, {
+      platforms: nativePlatforms,
+      schemes,
+      runId: opts.runId + "-native",
+      onProgress: quiet ? undefined : (line) => console.log(line),
+    });
+    await mergeRun(resolved, native.run, native.shots);
+    shots = [...shots, ...native.shots];
+    run = run ?? native.run;
+    if (run !== native.run) {
+      run.failures.push(...native.run.failures);
+      run.skips.push(...native.run.skips);
+    }
+  }
+  if (!run) throw new LookoutError("nothing captured (no platforms selected)");
 
   const all = shots.flatMap((s) => s.deterministicFindings);
   const outcome: CaptureOutcome = {

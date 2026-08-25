@@ -104,7 +104,12 @@ export interface LookoutConfig {
   rubric?: string;
   /** Extra never-file lines appended to the judge's exclusion list. */
   neverFile?: string[];
-  native?: { ios?: NativeAppConfig; android?: NativeAppConfig };
+  native?: {
+    /** Which target's routes the native app mirrors (default: the first). */
+    target?: string;
+    ios?: NativeAppConfig;
+    android?: NativeAppConfig;
+  };
 }
 
 /** A LookoutConfig plus where it came from, after validation. */
