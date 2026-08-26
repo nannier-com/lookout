@@ -123,6 +123,25 @@ export class EventLog {
     this.emit("run-start", message, data);
   }
 
+  /**
+   * Append to an existing board without claiming to be a run.
+   *
+   * `lookout agent` reports on work somebody else is doing; it captures
+   * nothing, judges nothing, and takes no time. Opening a run for it made the
+   * board show a run in flight that never ended, and put "agent note
+   * app--render-failure--..." in the header where the phase goes. Its events
+   * name their own cluster, so they need no run around them.
+   */
+  attach(): void {
+    try {
+      mkdirSync(dirname(this.path), { recursive: true });
+      if (!existsSync(this.path)) writeFileSync(this.path, "");
+      else prune(this.path);
+    } catch {
+      this.enabled = false;
+    }
+  }
+
   emit(kind: EventKind, message: string, data?: Record<string, unknown>, severity?: LookoutEvent["severity"]): void {
     if (!this.enabled) return;
     const ev: LookoutEvent = {
@@ -243,6 +262,14 @@ export interface BoardAgent {
   notes: { at: string; text: string }[];
 }
 
+/** One line in a cluster's running account of itself. */
+export interface BoardStep {
+  at: string;
+  /** Coarse type, so the UI can mark lookout's own rulings apart from an agent's. */
+  kind: "dispatch" | "start" | "note" | "done" | "verify" | "verdict";
+  text: string;
+}
+
 export interface BoardEntry {
   id: string;
   label: string;
@@ -260,6 +287,13 @@ export interface BoardEntry {
   amended: boolean;
   status: AgentStatus;
   agent: BoardAgent | null;
+  /**
+   * Everything that has happened to this cluster, oldest first: dispatch, the
+   * session picking it up, every progress note it reported, its hand-back, and
+   * lookout's ruling. A status word says where a session got to; this says what
+   * it has been doing.
+   */
+  timeline: BoardStep[];
   attempt: number;
   verdict: string | null;
   judgeNote: string | null;
@@ -267,6 +301,12 @@ export interface BoardEntry {
 
 export interface RunStatus {
   runId: string | null;
+  /**
+   * When the run last said anything. A process that dies without emitting
+   * `run-end` leaves `running` true forever, and lookout cannot see that it
+   * died; callers compare this against the clock to tell live from abandoned.
+   */
+  lastEventAt: string | null;
   /** The run that defined the board, which later runs report against. */
   boardRunId: string | null;
   phase: string;
@@ -310,10 +350,20 @@ function dedupeShots(shots: BoardShot[]): BoardShot[] {
 
 const RESOLVED: ReadonlySet<AgentStatus> = new Set<AgentStatus>(["passed", "blocked"]);
 
+/** Steps kept per cluster. A chatty session must not grow the board unboundedly. */
+const MAX_STEPS = 200;
+
+function step(entry: BoardEntry | undefined, at: string, kind: BoardStep["kind"], text: string): void {
+  if (!entry || !text) return;
+  entry.timeline.push({ at, kind, text });
+  if (entry.timeline.length > MAX_STEPS) entry.timeline.splice(0, entry.timeline.length - MAX_STEPS);
+}
+
 /** Fold the log into the answer to "what is lookout doing right now". */
 export function summarise(events: LookoutEvent[]): RunStatus {
   const s: RunStatus = {
     runId: null,
+    lastEventAt: null,
     boardRunId: null,
     phase: "idle",
     running: false,
@@ -341,6 +391,7 @@ export function summarise(events: LookoutEvent[]): RunStatus {
 
   for (const e of events) {
     s.runId = e.runId;
+    s.lastEventAt = e.at;
     s.lastMessage = e.message;
     const cid = typeof e.data?.cluster === "string" ? e.data.cluster : null;
 
@@ -361,13 +412,14 @@ export function summarise(events: LookoutEvent[]): RunStatus {
         run = { id: e.runId, isBoard, cluster: verifying ? cid : null };
         s.running = true;
         s.endedAt = null;
-        s.phase = isBoard ? "starting" : e.message;
+        s.phase = isBoard ? "starting" : verifying && cid ? `re-judging ${cid}` : s.phase;
         if (verifying && cid) {
           const entry = board.get(cid);
           if (entry && !RESOLVED.has(entry.status)) {
             entry.status = "verifying";
             entry.recheck = [];
           }
+          step(entry, e.at, "verify", "lookout is re-judging this cluster");
         }
         break;
       }
@@ -428,10 +480,19 @@ export function summarise(events: LookoutEvent[]): RunStatus {
           amended: e.data?.amended === true,
           status: "queued",
           agent: null,
+          timeline: prior?.timeline ?? [],
           attempt: prior?.attempt ?? 0,
           verdict: null,
           judgeNote: null,
         });
+        step(
+          board.get(id),
+          e.at,
+          "dispatch",
+          e.data?.amended === true
+            ? "re-dispatched: the cluster grew after it was first sent out"
+            : "dispatched by lookout",
+        );
         break;
       }
       case "agent-start": {
@@ -447,6 +508,7 @@ export function summarise(events: LookoutEvent[]): RunStatus {
           note: null,
           notes: [],
         };
+        step(entry, e.at, "start", `${entry.agent.name} picked this up`);
         break;
       }
       case "agent-note": {
@@ -454,6 +516,7 @@ export function summarise(events: LookoutEvent[]): RunStatus {
         if (!entry?.agent) break;
         entry.agent.lastSeenAt = e.at;
         entry.agent.notes.push({ at: e.at, text: e.message });
+        step(entry, e.at, "note", e.message);
         break;
       }
       case "agent-done": {
@@ -470,6 +533,14 @@ export function summarise(events: LookoutEvent[]): RunStatus {
           note: typeof e.data?.note === "string" ? e.data.note : null,
           notes: entry.agent?.notes ?? [],
         };
+        step(
+          entry,
+          e.at,
+          "done",
+          "reported back" +
+            (entry.agent.commit ? ` at ${entry.agent.commit}` : "") +
+            (entry.agent.note ? `: ${entry.agent.note}` : ""),
+        );
         break;
       }
       case "verdict": {
@@ -492,6 +563,12 @@ export function summarise(events: LookoutEvent[]): RunStatus {
         ) {
           entry.status = verdict;
         }
+        step(
+          entry,
+          e.at,
+          "verdict",
+          `lookout ruled it ${verdict}` + (entry.judgeNote ? `: ${entry.judgeNote}` : ""),
+        );
         break;
       }
       case "error":

@@ -265,6 +265,106 @@ describe("an amendment puts the cluster back in the queue", () => {
   });
 });
 
+describe("a run that was killed is not reported as live", () => {
+  // lookout cannot see a process die. `verify-fix` that is killed mid-judge
+  // never emits run-end, so the log says running forever: the page showed a
+  // pulsing live dot and a clock climbing past five hours over an empty board.
+  // Silence is the only evidence available, so the fold surfaces it.
+  test("the fold reports when the run last said anything", () => {
+    const events = checkRun();
+    const s = summarise(events);
+    expect(s.lastEventAt).toBe(events[events.length - 1]!.at);
+    // The check run ended cleanly, so nothing is claimed to be in flight.
+    expect(s.running).toBe(false);
+  });
+
+  test("a run with no run-end still says running, and says when it last spoke", () => {
+    const events = checkRun().filter((e) => e.kind !== "run-end");
+    events.push(
+      ev("verify-1", "run-start", "lookout verify-fix", {
+        cluster: "app--a11y--contrast",
+        verb: "verify-fix",
+      }),
+      ev("verify-1", "phase", "judging"),
+    );
+    const s = summarise(events);
+    expect(s.running).toBe(true);
+    // Callers compare this against the clock; the fold stays pure and does not
+    // decide staleness itself, so `status` and the page can share one rule.
+    expect(s.lastEventAt).toBe(events[events.length - 1]!.at);
+    expect(Date.parse(s.lastEventAt!)).toBeGreaterThan(Date.parse(s.startedAt!));
+  });
+
+  test("an empty log has nothing to report rather than a bogus timestamp", () => {
+    const s = summarise([]);
+    expect(s.lastEventAt).toBeNull();
+    expect(s.running).toBe(false);
+  });
+});
+
+describe("a cluster keeps a running account of itself", () => {
+  test("dispatch, pickup, every note, the hand-back and the ruling, in order", () => {
+    const events = checkRun();
+    events.push(
+      ev("agent-1", "agent-start", "started", {
+        cluster: "app--a11y--contrast",
+        name: "contrast fixer",
+      }),
+      ev("agent-1", "agent-note", "opened both screenshots", { cluster: "app--a11y--contrast" }),
+      ev("agent-1", "agent-note", "the token is never applied to the dark palette", {
+        cluster: "app--a11y--contrast",
+      }),
+      ev("agent-1", "agent-done", "reported back", {
+        cluster: "app--a11y--contrast",
+        commit: "abc1234",
+        note: "raised the token",
+      }),
+      ev("verify-1", "run-start", "lookout verify-fix", {
+        cluster: "app--a11y--contrast",
+        verb: "verify-fix",
+      }),
+      ev("verify-1", "verdict", "passed", {
+        cluster: "app--a11y--contrast",
+        verdict: "passed",
+        attempt: 1,
+      }),
+    );
+    const t = summarise(events).board[0]!.timeline;
+    expect(t.map((x) => x.kind)).toEqual([
+      "dispatch", "start", "note", "note", "done", "verify", "verdict",
+    ]);
+    expect(t[2]!.text).toBe("opened both screenshots");
+    expect(t[4]!.text).toContain("abc1234");
+    expect(t[6]!.text).toContain("passed");
+    // Oldest first, so a feed reads top to bottom like a log.
+    expect([...t].sort((a, b) => a.at.localeCompare(b.at))).toEqual(t);
+  });
+
+  test("a report is not a run, so it never leaves the board looking busy", () => {
+    // `lookout agent` opening a run left `running` true forever (reporting is
+    // instantaneous and has no end to emit) and put its raw run message where
+    // the header shows the phase.
+    const events = checkRun();
+    events.push(
+      ev("agent-1", "agent-note", "still going", { cluster: "app--a11y--contrast" }),
+    );
+    const s = summarise(events);
+    expect(s.running).toBe(false);
+    expect(s.phase).toBe("done");
+  });
+
+  test("a re-judge names the cluster it is re-judging, not its raw run message", () => {
+    const events = checkRun();
+    events.push(
+      ev("verify-1", "run-start", "lookout verify-fix app--a11y--contrast", {
+        cluster: "app--a11y--contrast",
+        verb: "verify-fix",
+      }),
+    );
+    expect(summarise(events).phase).toBe("re-judging app--a11y--contrast");
+  });
+});
+
 describe("the board is ordered by what needs attention", () => {
   test("live work first, settled work last", () => {
     const events = checkRun();

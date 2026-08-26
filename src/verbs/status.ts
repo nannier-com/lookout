@@ -10,6 +10,14 @@ import { loadConfig } from "../config.js";
 import { readEvents, summarise, type LookoutEvent } from "../report/events.js";
 import { num, printJson, str, type Parsed } from "../util.js";
 
+/**
+ * How long a run may say nothing before it is presumed dead. A judge batch can
+ * take three minutes on a slow model, and a capture with a sign-in hook longer,
+ * so this is deliberately generous: it exists to catch runs that were killed,
+ * not runs that are merely slow.
+ */
+export const STALE_MS = 10 * 60 * 1000;
+
 function elapsed(from: string, to: string | null): string {
   const ms = new Date(to ?? new Date().toISOString()).getTime() - new Date(from).getTime();
   const s = Math.max(0, Math.round(ms / 1000));
@@ -35,9 +43,16 @@ export async function status(parsed: Parsed): Promise<number> {
     return 0;
   }
 
+  // A run that died without emitting `run-end` stays `running` in the log. Say
+  // how long it has been silent rather than reporting a dead run as live.
+  const silentFor = s.lastEventAt
+    ? Date.now() - new Date(s.lastEventAt).getTime()
+    : 0;
+  const stalled = s.running && silentFor > STALE_MS;
   console.log(
-    `${s.running ? "RUNNING" : "done"}  ${s.runId}  phase: ${s.phase}` +
-      (s.startedAt ? `  elapsed: ${elapsed(s.startedAt, s.endedAt)}` : ""),
+    `${stalled ? "STALLED" : s.running ? "RUNNING" : "done"}  ${s.runId}  phase: ${s.phase}` +
+      (s.startedAt ? `  elapsed: ${elapsed(s.startedAt, s.endedAt)}` : "") +
+      (stalled ? `  silent for ${elapsed(s.lastEventAt!, null)}` : ""),
   );
   console.log(
     `  ${s.shots} shot(s) captured` +

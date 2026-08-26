@@ -83,10 +83,12 @@ export async function agent(parsed: Parsed): Promise<number> {
   const at = nowIso();
   const name = str(parsed.flags.name);
 
-  // Reporting joins the board the dispatching run defined. Starting a fresh log
-  // here would erase every other cluster's dispatch, which is the one thing a
-  // board must never do.
+  // Attach to the board the dispatching run defined, without opening a run of
+  // our own. Starting a fresh log here would erase every other cluster's
+  // dispatch; opening a run would leave the board showing one in flight that
+  // never ends, because reporting is instantaneous and has no end to emit.
   const elog = new EventLog(resolved, makeRunId("agent"));
+  elog.attach();
   setCurrentLog(elog);
 
   let session: AgentSession | undefined;
@@ -102,7 +104,6 @@ export async function agent(parsed: Parsed): Promise<number> {
       };
       sessions.push(session);
       message = `${session.name} started on ${clusterId}`;
-      elog.join(`agent ${action} ${clusterId}`, { cluster: clusterId, verb: "agent" });
       elog.emit("agent-start", message, { cluster: clusterId, name: session.name });
       break;
     }
@@ -117,16 +118,13 @@ export async function agent(parsed: Parsed): Promise<number> {
       session = openSession(sessions);
       if (!session) {
         // A note without a start still carries information, so open a stint
-        // rather than dropping it: the run is telling us somebody is on this.
+        // rather than drop it: somebody is evidently on this cluster.
         session = { name: name ?? clusterId, startedAt: at, lastSeenAt: at, notes: [] };
         sessions.push(session);
-        elog.join(`agent ${action} ${clusterId}`, { cluster: clusterId, verb: "agent" });
         elog.emit("agent-start", `${session.name} started on ${clusterId}`, {
           cluster: clusterId,
           name: session.name,
         });
-      } else {
-        elog.join(`agent ${action} ${clusterId}`, { cluster: clusterId, verb: "agent" });
       }
       session.lastSeenAt = at;
       session.notes.push({ at, text });
@@ -151,7 +149,6 @@ export async function agent(parsed: Parsed): Promise<number> {
       };
       message =
         `${session.name} reported back on ${clusterId}` + (commit ? ` (commit ${commit})` : "");
-      elog.join(`agent ${action} ${clusterId}`, { cluster: clusterId, verb: "agent" });
       elog.emit("agent-done", message, {
         cluster: clusterId,
         name: session.name,

@@ -69,9 +69,14 @@ function handle(resolved: ResolvedConfig, req: IncomingMessage, res: ServerRespo
   if (url.pathname === "/api/status") {
     const events = readEvents(resolved);
     const status = summarise(events);
+    // One image with every capture on it answers "what did lookout look at"
+    // better than a grid of the ones nothing was filed against, and costs the
+    // page a single link instead of a section.
+    const sheet = join(evDir, "contact-sheet.png");
     const body = JSON.stringify({
       project: resolved.project,
       projectDir: resolved.projectDir,
+      contactSheet: existsSync(sheet) ? "contact-sheet.png" : null,
       status: {
         ...status,
         board: status.board.map((b) => ({ ...b, sheetRel: evidenceRel(evDir, b.sheet) })),
@@ -219,6 +224,8 @@ h1{font-size:15px;margin:0;letter-spacing:.01em;font-weight:660;white-space:nowr
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--faint);margin-right:8px;
 vertical-align:middle}
 .live .dot{background:var(--ok);box-shadow:0 0 0 0 var(--ok);animation:pulse 1.8s infinite}
+.stalled .dot{background:var(--med);animation:none}
+.stalled #phase,.stalled #el{color:var(--med)}
 @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(74,222,128,.55)}70%{box-shadow:0 0 0 7px rgba(74,222,128,0)}
 100%{box-shadow:0 0 0 0 rgba(74,222,128,0)}}
 .muted{color:var(--dim)}.faint{color:var(--faint)}
@@ -288,6 +295,30 @@ border:1px solid var(--line);border-radius:7px;background:var(--sunk)}
 overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .note{font-size:12.5px;color:var(--dim);background:var(--sunk);border-radius:7px;padding:7px 9px;
 border:1px solid var(--line)}
+
+/* The running account of one session. A status word says where a session got
+   to; this says what it has been doing, which is the thing you actually watch. */
+.feed{background:var(--sunk);border:1px solid var(--line);border-radius:8px;
+max-height:172px;overflow-y:auto;scrollbar-width:thin}
+.feed::-webkit-scrollbar{width:6px}
+.feed::-webkit-scrollbar-thumb{background:var(--line);border-radius:99px}
+.step{display:flex;gap:9px;padding:5px 10px;font-size:12px;line-height:1.45;
+border-bottom:1px solid var(--line)}
+.step:last-child{border-bottom:0}
+.step time{flex:0 0 auto;color:var(--faint);font:11px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;
+font-variant-numeric:tabular-nums}
+.step .t{min-width:0;color:var(--dim);word-break:break-word}
+.step.dispatch .t,.step.verify .t{color:var(--faint);font-style:italic}
+.step.start .t{color:var(--ink)}
+.step.note .t{color:var(--ink)}
+.step.done .t{color:var(--rep)}
+.step.verdict .t{color:var(--ink);font-weight:560}
+.step.live{position:relative}
+.step.live .t::after{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;
+background:var(--work);margin-left:7px;vertical-align:middle;animation:pulse2 1.4s infinite}
+.feedhead{display:flex;align-items:baseline;gap:8px}
+.feedhead h4{margin:0}
+.feedhead .n{font-size:10.5px;color:var(--faint)}
 .note b{color:var(--ink);font-weight:600}
 .brief{font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--faint);
 word-break:break-all}
@@ -321,43 +352,36 @@ overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pill.low{color:var(--low);border-color:var(--low)}
 
 /* --- captures, log ----------------------------------------------------- */
-details>summary{cursor:pointer;font-size:12px;color:var(--dim);list-style:none;
-padding:2px 0;user-select:none}
-details>summary::-webkit-details-marker{display:none}
-details>summary::before{content:"\\25b8 ";color:var(--faint)}
-details[open]>summary::before{content:"\\25be "}
-.shots{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:11px;margin-top:11px}
-.shots img{width:100%;height:118px;object-fit:cover;object-position:top;border:1px solid var(--line);
-border-radius:7px;background:var(--sunk)}
-.shots a{text-decoration:none;color:inherit;display:block}
-.cap{font-size:10.5px;color:var(--faint);margin-top:4px;overflow:hidden;text-overflow:ellipsis;
-white-space:nowrap}
-.log{max-height:260px;overflow:auto;font:11.5px/1.75 ui-monospace,SFMono-Regular,Menlo,monospace}
-.log div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.k{color:var(--accent);display:inline-block;min-width:82px}
+.sheetlink{font-size:12px;color:var(--accent);text-decoration:none;border:1px solid var(--line);
+border-radius:7px;padding:3px 9px}
+.sheetlink:hover{border-color:var(--accent)}
 .empty{color:var(--faint);font-style:italic;font-size:13px}
 </style></head><body>
 <header>
   <h1><span class="dot"></span><span id="ttl">lookout</span></h1>
   <span class="muted" id="phase"></span>
   <span class="spacer"></span>
+  <a class="sheetlink" id="sheet" href="#" target="_blank" hidden>contact sheet</a>
   <span class="faint" id="el"></span>
 </header>
 <main>
 <section><div class="panel"><div class="row" id="stats"></div></div></section>
 <section><h2>Fix sessions <span class="n" id="bn"></span></h2><div class="board" id="board"></div></section>
 <section><h2>Findings <span class="n" id="fn"></span></h2><div class="finds" id="findings"></div></section>
-<section><div class="panel"><details id="othersWrap">
-  <summary id="othersSum">Every other capture in this run</summary>
-  <div class="shots" id="others"></div></details></div></section>
-<section><h2>Activity</h2><div class="panel"><div class="log" id="log"></div></div></section>
 </main>
 <script>
+// A judge batch can take three minutes and a capture with a sign-in hook
+// longer, so this is deliberately generous: it catches killed runs, not slow
+// ones. Kept in step with STALE_MS in verbs/status.ts.
+const STALE_MS = 10 * 60 * 1000;
 const last = {};
 // Re-rendering a section on every poll restarts every image request inside it,
 // which on a 1.5s interval means a thumbnail never finishes loading. Only touch
 // a section when its content actually changed.
-function paint(id, sig, html){ if (last[id] === sig) return; last[id] = sig; el(id).innerHTML = html; }
+function paint(id, sig, html){
+  if (last[id] === sig) return false;
+  last[id] = sig; el(id).innerHTML = html; return true;
+}
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const el = id => document.getElementById(id);
 const enc = p => String(p).split("/").map(encodeURIComponent).join("/");
@@ -428,17 +452,34 @@ function whoLine(b){
     + ', and the defect is still there.</div>';
 }
 
+// The running account of one cluster. The last line of a live session is
+// marked, because "what is it doing right now" is the question this answers.
+function feed(b){
+  const steps = b.timeline || [];
+  if (!steps.length) return "";
+  const live = b.status === "working";
+  const rows = steps.map((st, i) => {
+    const isLast = i === steps.length - 1;
+    return '<div class="step ' + esc(st.kind) + (live && isLast ? ' live' : '') + '">'
+      + '<time>' + esc(st.at.slice(11,19)) + '</time>'
+      + '<span class="t">' + esc(st.text) + '</span></div>';
+  }).join("");
+  return '<div class="evi">'
+    + '<div class="feedhead"><h4>Activity</h4><span class="n">' + steps.length + ' step'
+    + (steps.length === 1 ? '' : 's') + '</span></div>'
+    + '<div class="feed" data-feed="' + esc(b.id) + '">' + rows + '</div></div>';
+}
+
 function card(b){
   const routes = b.routes.map(r => '<span class="chip">' + esc(r) + '</span>').join("");
   const attempt = b.attempt ? '<span class="chip">attempt ' + esc(b.attempt) + '</span>' : "";
   const amended = b.amended ? '<span class="chip">amended</span>' : "";
   const commit = b.agent && b.agent.commit
     ? '<span class="chip">' + esc(String(b.agent.commit).slice(0,10)) + '</span>' : "";
-  const lastNote = b.agent && b.agent.notes.length ? b.agent.notes[b.agent.notes.length-1].text : "";
-  const notes = lastNote ? '<div class="note">' + esc(lastNote) + '</div>' : "";
+  // The judge's ruling is repeated outside the feed: it is the one line that
+  // decides whether this cluster needs another session, and it must not be
+  // something you have to scroll a feed to find.
   const judge = b.judgeNote ? '<div class="note"><b>judge:</b> ' + esc(b.judgeNote) + '</div>' : "";
-  const claim = b.agent && b.agent.note && b.status === "reported"
-    ? '<div class="note"><b>reported:</b> ' + esc(b.agent.note) + '</div>' : "";
   return '<article class="card ' + esc(b.status) + '">'
     + '<div class="top"><span class="pill">' + esc(b.status) + '</span>'
     + '<span class="tick" data-since="' + esc(b.dispatchedAt) + '" data-prefix="dispatched ">\\u2014</span></div>'
@@ -448,7 +489,7 @@ function card(b){
     + '<span class="chip">' + esc(b.category) + '</span>' + routes + attempt + amended + commit + '</div>'
     + strip("What this session is fixing", b.shots, b.sheetRel)
     + strip("What verify-fix saw afterwards", b.recheck, null)
-    + claim + notes + judge
+    + feed(b) + judge
     + '<div class="brief">' + esc(b.brief) + '</div>'
     + '</article>';
 }
@@ -494,18 +535,36 @@ function findingCard(e, board){
 async function tick(){
   let d; try { d = await (await fetch("/api/status")).json(); } catch { return; }
   const s = d.status;
-  document.body.classList.toggle("live", s.running);
-  el("ttl").textContent = d.project ? "lookout \\u00b7 " + d.project : "lookout";
-  el("phase").textContent = s.runId ? s.phase : "no run recorded yet";
+  // lookout cannot see a process die, so a killed run leaves the log claiming it
+  // is still running, forever. Silence is the only evidence available: past
+  // STALE_MS with nothing said, stop animating and say how long it has been
+  // quiet rather than show a live clock for a run that ended hours ago.
+  const silent = s.lastEventAt ? Date.now() - Date.parse(s.lastEventAt) : 0;
+  const stalled = s.running && silent > STALE_MS;
+  const live = s.running && !stalled;
+  document.body.classList.toggle("live", live);
+  document.body.classList.toggle("stalled", stalled);
+  const ttl = d.project ? "lookout \\u00b7 " + d.project : "lookout";
+  if (el("ttl").textContent !== ttl) el("ttl").textContent = ttl;
+  const phase = !s.runId ? "no run recorded yet"
+    : stalled ? s.phase + " \\u00b7 stalled" : s.phase;
+  if (el("phase").textContent !== phase) el("phase").textContent = phase;
   const elapsedNode = el("el");
   if (s.startedAt){
-    elapsedNode.dataset.since = s.startedAt;
-    if (s.endedAt && !s.running) elapsedNode.dataset.until = s.endedAt; else delete elapsedNode.dataset.until;
-    elapsedNode.dataset.prefix = (s.running ? "running " : "ran for ");
+    if (stalled) {
+      elapsedNode.dataset.since = s.lastEventAt;
+      delete elapsedNode.dataset.until;
+      elapsedNode.dataset.prefix = "nothing for ";
+    } else {
+      elapsedNode.dataset.since = s.startedAt;
+      if (s.endedAt && !s.running) elapsedNode.dataset.until = s.endedAt;
+      else delete elapsedNode.dataset.until;
+      elapsedNode.dataset.prefix = (s.running ? "running " : "ran for ");
+    }
   }
 
   const a = s.agents;
-  el("stats").innerHTML =
+  const statsHtml =
       stat("working", a.working, "var(--work)")
     + stat("reported back", a.reported, "var(--rep)")
     + stat("awaiting a session", a.queued)
@@ -517,6 +576,7 @@ async function tick(){
     + stat("high", s.findings.high, "var(--high)")
     + stat("medium", s.findings.medium, "var(--med)")
     + stat("low", s.findings.low, "var(--low)");
+  paint("stats", statsHtml, statsHtml);
 
   const board = s.board || [];
   el("bn").textContent = board.length ? board.length + " dispatched" : "";
@@ -524,10 +584,24 @@ async function tick(){
   // its session moves and left alone (thumbnails intact) when it does not.
   const sig = JSON.stringify(board.map(b => [b.id, b.status, b.attempt, b.verdict,
     b.shots.length, b.recheck.length, b.sheetRel,
+    (b.timeline || []).length, (b.timeline || []).map(t => t.at).slice(-1),
     b.agent && [b.agent.name, b.agent.startedAt, b.agent.finishedAt, b.agent.notes.length]]));
-  paint("board", sig, board.length
+  const feedTops = {};
+  for (const f of document.querySelectorAll("[data-feed]")) feedTops[f.dataset.feed] = f.scrollTop;
+  const rebuilt = paint("board", sig, board.length
     ? board.map(card).join("")
     : '<div class="panel empty">Nothing dispatched yet. Run <code>lookout check --auto</code>.</div>');
+  if (rebuilt) {
+    // Keep each feed where the reader left it, except a live one, which follows
+    // its newest line the way a log tail does.
+    for (const f of document.querySelectorAll("[data-feed]")) {
+      const b = board.find(x => x.id === f.dataset.feed);
+      const was = feedTops[f.dataset.feed];
+      f.scrollTop = (b && b.status === "working") || was === undefined
+        ? f.scrollHeight
+        : was;
+    }
+  }
 
   // Worst first, and newest first within a severity. Reverse-chronological
   // alone put a low-severity nit above three criticals, which is the opposite
@@ -549,30 +623,12 @@ async function tick(){
       ? finds.map(e => findingCard(e, board)).join("")
       : '<div class="panel empty">No findings yet.</div>');
 
-  // Everything a card already shows is on a card. This is the remainder: the
-  // captures no cluster was filed against, which is usually the healthy part
-  // of the app and belongs out of the way.
-  const claimed = new Set();
-  for (const b of board){
-    for (const sh of b.shots) claimed.add(sh.path);
-    for (const sh of b.recheck) claimed.add(sh.path);
-  }
-  const others = d.events.filter(e => e.kind === "shot" && e.data && e.data.path
-    && !claimed.has(e.data.path));
-  el("othersSum").textContent = others.length
-    ? "Every other capture in this run (" + others.length + ")"
-    : "No other captures in this run";
-  el("othersWrap").style.display = others.length ? "" : "none";
-  paint("others", String(others.length) + ":" + claimed.size, others.map(e => {
-    const p = enc(e.data.path);
-    return '<a href="/evidence/' + p + '" target="_blank" title="open the full-resolution shot">'
-      + '<img loading="lazy" src="/thumb/' + p + '?w=380" alt=""/>'
-      + '<div class="cap">' + esc(e.message) + '</div></a>';
-  }).join(""));
+  const sheetLink = el("sheet");
+  if (d.contactSheet) {
+    sheetLink.href = "/evidence/" + enc(d.contactSheet);
+    sheetLink.hidden = false;
+  } else sheetLink.hidden = true;
 
-  paint("log", String(d.events.length), d.events.slice(-120).reverse()
-    .map(e => '<div><span class="faint">' + esc(e.at.slice(11,19)) + '</span> <span class="k">'
-      + esc(e.kind) + '</span> ' + esc(e.message) + '</div>').join(""));
   ticks();
 }
 tick(); setInterval(tick, 1500); setInterval(ticks, 1000);

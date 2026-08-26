@@ -213,6 +213,34 @@ export function renderBrief(cluster: FixCluster, ctx: BriefContext): string {
     "6. Stay inside this cluster. Unrelated improvements you notice belong in",
     "   separate work, not in this commit.",
     "7. Commit your change in the repository named above before reporting back.",
+    "8. Narrate as you go with `lookout agent note` (see below). A silent session",
+    "   is indistinguishable from a wedged one to whoever is watching.",
+    "",
+  );
+
+  // A fix session runs for minutes inside a process nobody can see. Its final
+  // JSON says what happened only once it is over, which leaves the person
+  // watching with a status word and no idea whether the thing is progressing or
+  // wedged. These calls are how a session narrates itself while it works.
+  lines.push("## Say what you are doing, as you do it", "");
+  lines.push(
+    "You are running inside a child session that nobody can see into. Report each",
+    "meaningful step as you reach it, in one short line, present tense:",
+    "",
+    "```bash",
+    `lookout agent note --cluster ${cluster.id} --note "<what you just did>"`,
+    "```",
+    "",
+    "Send one after you have looked at the screenshots, one when you know the root",
+    "cause, one before a substantial edit, and one when you commit. Say the concrete",
+    "thing (\"the topbar column stacks below the sidebar\", \"editing Sidebar.tsx\"),",
+    "not the generic one (\"working on it\", \"making progress\"). These lines are shown",
+    "live beside your screenshots, and they are the only account of your work that",
+    "anyone can read while it is still running.",
+    "",
+    "They are narration and nothing else: they claim nothing, close nothing, and are",
+    "never read as evidence. Cheap, so err towards more of them. If a call fails,",
+    "carry on with the fix rather than stopping to debug it.",
     "",
   );
 
