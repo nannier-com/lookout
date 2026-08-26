@@ -31,6 +31,9 @@ import { emit, EventLog, setCurrentLog } from "../report/events.js";
 /** Attempts a cluster gets before `verify-fix` blocks it. */
 export const DEFAULT_MAX_ATTEMPTS = 2;
 
+/** Shots per judge call: one view group, so findings stream per view. */
+export const DEFAULT_BATCH_SIZE = 6;
+
 export interface CheckOutcome {
   runId: string;
   model: string;
@@ -126,7 +129,12 @@ export async function runCheck(
 
   // 4. Judge in batches, a couple of subprocesses at a time.
   const evDir = evidenceDir(resolved);
-  const batches = batchShots(toJudge, num(parsed.flags["batch-size"]) ?? 10);
+  // One view group (a route and state across its form factors and schemes) is
+  // both the unit the rubric compares within and the unit that streams: a
+  // larger batch buys nothing the judge can use and holds every finding in it
+  // hostage until the whole batch returns, which on full-page screenshots ran
+  // to several silent minutes.
+  const batches = batchShots(toJudge, num(parsed.flags["batch-size"]) ?? DEFAULT_BATCH_SIZE);
   const concurrency = num(parsed.flags.concurrency) ?? 2;
   log(
     `judging ${toJudge.length} shot(s) in ${batches.length} batch(es) with model ${model} ` +
