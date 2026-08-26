@@ -434,11 +434,11 @@ const PAGE = `<!doctype html>
 :root{color-scheme:light dark;
 --bg:#f6f7f9;--panel:#fff;--sunk:#f0f1f4;--ink:#15171c;--dim:#5f636d;--faint:#8b909b;--line:#e2e4e9;
 --crit:#b4232b;--high:#c2410c;--med:#a16207;--low:#4b5563;--ok:#15803d;--accent:#4338ca;
---ver:#7c3aed;--shadow:0 1px 2px rgba(16,18,22,.06),0 4px 12px rgba(16,18,22,.05)}
+--ver:#7c3aed;--go:#177d43;--shadow:0 1px 2px rgba(16,18,22,.06),0 4px 12px rgba(16,18,22,.05)}
 @media(prefers-color-scheme:dark){:root{
 --bg:#0e1014;--panel:#171a21;--sunk:#12151b;--ink:#e9eaee;--dim:#989ea9;--faint:#6d737e;--line:#252932;
 --crit:#f87171;--high:#fb923c;--med:#fbbf24;--low:#9ca3af;--ok:#4ade80;--accent:#a5b4fc;
---ver:#c4b5fd;--shadow:0 1px 2px rgba(0,0,0,.4)}}
+--ver:#c4b5fd;--go:#22c55e;--shadow:0 1px 2px rgba(0,0,0,.4)}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);
 font:14px/1.55 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
@@ -499,13 +499,23 @@ button.stat.clear:hover{border-color:var(--accent);color:var(--accent)}
 .where{font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--faint);
 max-width:38ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;
 text-align:left}
-.findfix{font:inherit;font-size:12.5px;font-weight:600;padding:6px 14px;border-radius:8px;
-border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer;white-space:nowrap}
-.findfix:hover{filter:brightness(1.08)}
-.findfix[disabled]{opacity:.6;cursor:default}
-.findfix.busy{background:none;color:var(--accent)}
-.findfix.busy::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;
-background:var(--accent);margin-right:7px;vertical-align:middle;animation:pulse2 1.1s infinite}
+/* One green play button: the whole control means "go", so it is a shape rather
+   than a sentence. Its name lives in aria-label and the tooltip. */
+.findfix{width:32px;height:32px;padding:0;border-radius:50%;border:0;cursor:pointer;
+background:var(--go);color:#fff;display:flex;align-items:center;justify-content:center;
+flex:0 0 auto;transition:transform .12s ease,filter .12s ease}
+.findfix svg{display:block;margin-left:1px}
+.findfix:hover{filter:brightness(1.12);transform:scale(1.06)}
+.findfix:active{transform:scale(.96)}
+.findfix:focus-visible{outline:2px solid var(--go);outline-offset:3px}
+.findfix[disabled]{cursor:default;transform:none;filter:none}
+/* Running: the triangle gives way to a ring turning around it. */
+.findfix.busy{background:none;color:var(--go);box-shadow:inset 0 0 0 2px var(--line)}
+.findfix.busy svg{display:none}
+.findfix.busy::after{content:"";width:16px;height:16px;border-radius:50%;
+border:2px solid transparent;border-top-color:var(--go);border-right-color:var(--go);
+animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
 
 main{padding:18px 22px 60px;max-width:1600px;margin:0 auto}
 section{margin-bottom:22px}
@@ -628,7 +638,7 @@ overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     <div class="filters" id="stats"></div>
     <span class="spacer"></span>
     <span class="where" id="where"></span>
-    <button type="button" class="findfix" id="findfix">Find and fix</button>
+    <button type="button" class="findfix" id="findfix" aria-label="Find and fix"></button>
   </div>
 </header>
 <main>
@@ -867,7 +877,6 @@ async function findAndFix(){
     // No config in the current folder means there is nothing to check. Ask for
     // a repository first rather than starting a run that cannot work.
     if (!project.configured) {
-      btn.textContent = "choose a repo\u2026";
       const picked = await (await fetch("/api/pick", { method: "POST" })).json();
       if (picked.cancelled) return;
       if (picked.error) { el("where").textContent = picked.error; return; }
@@ -934,13 +943,21 @@ async function tick(){
   };
   const btn = el("findfix");
   btn.classList.toggle("busy", project.checkRunning);
-  const btnText = project.checkRunning
-    ? "looking\u2026"
+  if (!btn.querySelector("svg")) {
+    btn.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">'
+      + '<path fill="currentColor" d="M8 5.2 19 12 8 18.8Z"/></svg>';
+  }
+  // The name lives in the accessible label and the tooltip: the control is a
+  // shape, because the whole of it means "go".
+  const name = project.checkRunning
+    ? "looking for an issue"
     : project.configured ? "Find and fix" : "Choose a repo";
-  if (btn.textContent !== btnText && !btn.disabled) btn.textContent = btnText;
-  btn.title = project.configured
-    ? "run one check against " + project.projectDir + ", stopping at the first issue"
-    : "lookout has no config here; pick the repository to check";
+  btn.setAttribute("aria-label", name);
+  btn.title = project.checkRunning
+    ? "lookout is checking " + project.projectDir
+    : project.configured
+      ? "Find and fix: one check of " + project.projectDir + ", stopping at the first issue"
+      : "lookout has no config here; pick the repository to check";
   const where = el("where");
   if (where.textContent !== project.projectDir && !project.checkRunning) {
     where.textContent = project.projectDir;
