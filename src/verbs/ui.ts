@@ -293,14 +293,34 @@ border:1px solid var(--line)}
 word-break:break-all}
 .hint{font-size:12px;color:var(--faint);font-style:italic}
 
-/* --- findings, captures, log ----------------------------------------- */
-.f{border-left:3px solid var(--line);padding:7px 0 7px 12px;margin-bottom:9px}
-.f:last-child{margin-bottom:0}
-.f.critical{border-color:var(--crit)}.f.high{border-color:var(--high)}
-.f.medium{border-color:var(--med)}.f.low{border-color:var(--low)}
+/* --- findings ---------------------------------------------------------
+   A finding is a claim about a screenshot, so the screenshot belongs next to
+   it. The old list showed a title and three words of context, which meant the
+   evidence for every claim on the page lived somewhere else entirely. */
+.finds{display:grid;grid-template-columns:repeat(auto-fill,minmax(500px,1fr));gap:14px;
+align-items:start}
+@media(max-width:560px){.finds{grid-template-columns:1fr}}
+.fcard{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--line);
+border-radius:12px;padding:13px 15px 14px;box-shadow:var(--shadow);display:flex;gap:14px}
+@media(max-width:560px){.fcard{flex-direction:column}}
+.fcard.critical{border-left-color:var(--crit)}.fcard.high{border-left-color:var(--high)}
+.fcard.medium{border-left-color:var(--med)}.fcard.low{border-left-color:var(--low)}
+.fshot{flex:0 0 auto;width:168px;text-decoration:none;color:inherit}
+.fshot img{display:block;width:168px;height:134px;object-fit:cover;object-position:top;
+border:1px solid var(--line);border-radius:8px;background:var(--sunk)}
+.fshot:hover img{border-color:var(--accent)}
+.fshot span{display:block;font-size:10.5px;color:var(--faint);margin-top:4px;
+overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:560px){.fshot,.fshot img{width:100%}}
+.fbody{min-width:0;display:flex;flex-direction:column;gap:7px}
+.problem{margin:0;font-size:12.5px;line-height:1.5;color:var(--dim)}
 .sev{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;font-weight:750}
-.critical>.sev{color:var(--crit)}.high>.sev{color:var(--high)}
-.medium>.sev{color:var(--med)}.low>.sev{color:var(--low)}
+.pill.critical{color:var(--crit);border-color:var(--crit)}
+.pill.high{color:var(--high);border-color:var(--high)}
+.pill.medium{color:var(--med);border-color:var(--med)}
+.pill.low{color:var(--low);border-color:var(--low)}
+
+/* --- captures, log ----------------------------------------------------- */
 details>summary{cursor:pointer;font-size:12px;color:var(--dim);list-style:none;
 padding:2px 0;user-select:none}
 details>summary::-webkit-details-marker{display:none}
@@ -326,7 +346,7 @@ white-space:nowrap}
 <main>
 <section><div class="panel"><div class="row" id="stats"></div></div></section>
 <section><h2>Fix sessions <span class="n" id="bn"></span></h2><div class="board" id="board"></div></section>
-<section><h2>Findings <span class="n" id="fn"></span></h2><div class="panel" id="findings"></div></section>
+<section><h2>Findings <span class="n" id="fn"></span></h2><div class="finds" id="findings"></div></section>
 <section><div class="panel"><details id="othersWrap">
   <summary id="othersSum">Every other capture in this run</summary>
   <div class="shots" id="others"></div></details></div></section>
@@ -433,6 +453,44 @@ function card(b){
     + '</article>';
 }
 
+// A finding names one screenshot, and a dispatched cluster carries the
+// screenshots it was filed against, so the two can be matched back up. The card
+// then says which session owns the defect rather than leaving the reader to
+// pair a category and a route by eye.
+function ownerOf(x, board){
+  const hits = board.filter(b => b.category === x.category
+    && (b.shots.some(s => s.path === x.path) || b.recheck.some(s => s.path === x.path)));
+  return hits.length === 1 ? hits[0] : null;
+}
+
+function findingCard(e, board){
+  const x = e.data || {};
+  const title = e.message.replace(/^[^:]*:\\s*/, "");
+  const shot = x.path
+    ? '<a class="fshot" href="/evidence/' + enc(x.path) + '" target="_blank" title="' + esc(x.path) + '">'
+      + '<img loading="lazy" src="/thumb/' + enc(x.path) + '?w=336" alt=""/>'
+      + '<span>' + esc([x.formFactor, x.scheme].filter(Boolean).join(" \\u00b7 ")) + '</span></a>'
+    : "";
+  const owner = ownerOf(x, board);
+  const chips = [x.route, x.formFactor, x.scheme].filter(Boolean)
+    .map(v => '<span class="chip">' + esc(v) + '</span>').join("");
+  const verified = x.verified
+    ? '<span class="chip" title="a second pass was asked to refute this, and could not">verified</span>'
+    : "";
+  const own = owner
+    ? '<div class="who faint">Owned by <b>' + esc(owner.label) + '</b> \\u00b7 ' + esc(owner.status) + '</div>'
+    : "";
+  return '<article class="fcard ' + esc(x.severity) + '">' + shot
+    + '<div class="fbody">'
+    + '<div class="top"><span class="pill ' + esc(x.severity) + '">' + esc(x.severity) + '</span></div>'
+    + '<h3 class="title">' + esc(title) + '</h3>'
+    + '<div class="meta"><span class="chip">' + esc(x.category) + "/" + esc(x.attribute) + '</span>'
+    + chips + verified + '</div>'
+    + (x.problem ? '<p class="problem">' + esc(x.problem) + '</p>' : "")
+    + own
+    + '</div></article>';
+}
+
 async function tick(){
   let d; try { d = await (await fetch("/api/status")).json(); } catch { return; }
   const s = d.status;
@@ -471,15 +529,25 @@ async function tick(){
     ? board.map(card).join("")
     : '<div class="panel empty">Nothing dispatched yet. Run <code>lookout check --auto</code>.</div>');
 
-  const finds = d.events.filter(e => e.kind === "finding");
-  el("fn").textContent = finds.length ? finds.length + " open" : "";
-  paint("findings", String(finds.length), finds.length ? finds.slice().reverse().map(e => {
-    const x = e.data || {};
-    return '<div class="f ' + esc(x.severity) + '"><span class="sev">' + esc(x.severity) + '</span> '
-      + esc(x.category) + "/" + esc(x.attribute)
-      + '<div>' + esc(e.message.replace(/^[^:]*:\\s*/, "")) + '</div>'
-      + '<div class="faint">' + esc([x.route, x.formFactor, x.scheme].filter(Boolean).join(" \\u00b7 ")) + '</div></div>';
-  }).join("") : '<div class="empty">No findings yet.</div>');
+  // Worst first, and newest first within a severity. Reverse-chronological
+  // alone put a low-severity nit above three criticals, which is the opposite
+  // of the order somebody triaging them needs.
+  const SEV = {critical: 0, high: 1, medium: 2, low: 3};
+  const finds = d.events.filter(e => e.kind === "finding")
+    .map((e, i) => [e, i])
+    .sort((a, b) => (SEV[a[0].data && a[0].data.severity] ?? 9)
+                  - (SEV[b[0].data && b[0].data.severity] ?? 9) || b[1] - a[1])
+    .map(pair => pair[0]);
+  el("fn").textContent = finds.length ? finds.length + " filed" : "";
+  // Keyed on what the cards actually draw, not just how many there are: a
+  // count-only signature leaves a re-judged finding showing its old prose.
+  paint("findings", JSON.stringify([
+      finds.map(e => [e.data && e.data.path, e.data && e.data.attribute,
+                      e.data && e.data.severity, e.message]),
+      board.map(b => [b.id, b.status])]),
+    finds.length
+      ? finds.map(e => findingCard(e, board)).join("")
+      : '<div class="panel empty">No findings yet.</div>');
 
   // Everything a card already shows is on a card. This is the remainder: the
   // captures no cluster was filed against, which is usually the healthy part
