@@ -48,10 +48,19 @@ export async function status(parsed: Parsed): Promise<number> {
       ` (${s.findings.critical} critical, ${s.findings.high} high,` +
       ` ${s.findings.medium} medium, ${s.findings.low} low)`,
   );
-  for (const d of s.dispatched) {
-    const v = s.verdicts.filter((x) => x.cluster === d.id).pop();
-    console.log(`  dispatch ${d.id}  ${d.label}${v ? `  -> ${v.verdict}` : "  (awaiting a fix session)"}`);
-    console.log(`    brief: ${d.brief}`);
+  if (s.board.length > 0) {
+    console.log(
+      `  work: ${s.agents.working} being worked, ${s.agents.reported} reported back,` +
+        ` ${s.agents.queued} waiting on a session, ${s.agents.resolved} settled`,
+    );
+  }
+  for (const b of s.board) {
+    const who = b.agent
+      ? `  ${b.agent.name} (${elapsed(b.agent.startedAt, b.agent.finishedAt ?? null)})`
+      : "";
+    console.log(`  ${b.status.padEnd(11)} ${b.id}  ${b.label}${who}`);
+    console.log(`    brief: ${b.brief}`);
+    if (b.judgeNote) console.log(`    judge: ${b.judgeNote}`);
   }
   for (const e of s.errors.slice(-5)) console.log(`  ERROR ${e}`);
   if (s.lastMessage) console.log(`  last: ${s.lastMessage}`);

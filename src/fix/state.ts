@@ -10,7 +10,8 @@ import { join } from "node:path";
 import { evidenceDir } from "../config.js";
 import type { ResolvedConfig } from "../types.js";
 
-export type Verdict = "passed" | "still-open" | "regressed" | "blocked";
+export type { Verdict } from "./rule.js";
+import type { Verdict } from "./rule.js";
 
 export interface AttemptRecord {
   n: number;
@@ -22,9 +23,29 @@ export interface AttemptRecord {
   judgeNote?: string;
 }
 
+/**
+ * One fix session's stint on a cluster, as reported by the session driving the
+ * run. lookout cannot see a subagent start or finish, so a stint exists only
+ * because somebody said so; an unreported cluster simply has none, and the
+ * board shows it as queued rather than inventing a state for it.
+ */
+export interface AgentSession {
+  /** The name the run announced, normally the cluster's label. */
+  name: string;
+  startedAt: string;
+  /** Last time this session said anything: how slow is told from stalled. */
+  lastSeenAt: string;
+  finishedAt?: string;
+  /** What the session reported when it finished. */
+  reported?: { commit?: string; note?: string };
+  notes: { at: string; text: string }[];
+}
+
 export interface ClusterState {
   id: string;
   attempts: AttemptRecord[];
+  /** Fix sessions that have worked this cluster, oldest first. */
+  sessions?: AgentSession[];
 }
 
 export function fixDir(resolved: ResolvedConfig): string {

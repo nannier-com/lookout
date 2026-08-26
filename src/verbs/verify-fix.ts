@@ -16,7 +16,8 @@
 import { loadConfig } from "../config.js";
 import { clusterFindings, clusterIdOf, clusterScope, type FixCluster } from "../fix/cluster.js";
 import { writeBrief } from "../fix/plan.js";
-import { loadState, saveState, type Verdict } from "../fix/state.js";
+import { loadState, saveState } from "../fix/state.js";
+import { ruleVerdict, type Verdict } from "../fix/rule.js";
 import { aiToFindings, deterministicToFindings, setStatus, type Backlog } from "../backlog/lib.js";
 import { loadReport } from "../capture/store.js";
 import { loadBacklog, mergeLatest, saveBacklog } from "./backlog.js";
@@ -57,7 +58,10 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
     url: str(parsed.flags.url),
   });
   const elog = new EventLog(preResolved, makeRunId("verify-fix"));
-  elog.start(`lookout verify-fix ${clusterId}`, { cluster: clusterId });
+  // Join, never start: this run rules on one cluster of a board another run
+  // dispatched, and truncating here would erase every other cluster's dispatch
+  // along with whichever fix sessions are still working them.
+  elog.join(`lookout verify-fix ${clusterId}`, { cluster: clusterId });
   setCurrentLog(elog);
   const before = await loadBacklog(preResolved);
   const cluster = findCluster(before, clusterId);
@@ -73,6 +77,16 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
   }
 
   const attempt = cluster.attemptsSpent + 1;
+
+  // What the scope looked like BEFORE re-capturing. Everything below turns on
+  // this: the judge is not deterministic, so re-judging the same pixels can
+  // surface findings it did not mention last time and drop findings it did.
+  // Pixel hashes are deterministic, and they are what separates "the fixer
+  // changed something" from "the judge said something different today".
+  const priorReport = await loadReport(preResolved);
+  const priorHashes = new Map<string, string>(
+    (priorReport?.shots ?? []).map((sh) => [sh.id, sh.hash]),
+  );
   const reportedCommit = str(parsed.flags.commit) ?? (await headSha(preResolved.projectDir));
   const reportedNote = str(parsed.flags.note);
 
@@ -110,6 +124,11 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
   const latestShots = new Set(
     (report?.shots ?? []).filter((sh) => sh.runId === latestRun?.id).map((sh) => sh.id),
   );
+  const changedShots = new Set<string>();
+  for (const sh of shotsById.values()) {
+    if (priorHashes.get(sh.id) !== sh.hash) changedShots.add(sh.id);
+  }
+
   const freshDeterministic = report
     ? deterministicToFindings({
         ...report,
@@ -118,22 +137,42 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
     : [];
   const fresh = [...aiToFindings(outcome.findings, shotsById), ...freshDeterministic];
   const stillOpen = fresh.filter((f) => clusterIdOf(f) === clusterId);
+
+  // A regression is a NEW defect the fix caused. A finding on a screenshot whose
+  // pixels did not move cannot have been caused by anything: it is the judge
+  // reading the same image differently today. Blaming those on the fix session
+  // burns an attempt and eventually blocks a cluster over defects it never
+  // touched, which is exactly what this check exists to prevent.
   const regressions = fresh.filter(
     (f) =>
       clusterIdOf(f) !== clusterId &&
       (f.severity === "critical" || f.severity === "high") &&
-      !before.findings[f.fingerprint],
+      !before.findings[f.fingerprint] &&
+      f.evidence.some((e) => changedShots.has(e.shotId)),
   );
 
   // 3. Rule.
-  let verdict: Verdict;
-  if (stillOpen.length === 0 && regressions.length === 0) verdict = "passed";
-  else if (attempt >= maxAttempts) verdict = "blocked";
-  else if (regressions.length > 0) verdict = "regressed";
-  else verdict = "still-open";
+  //
+  // The load-bearing guard: nothing may PASS on unchanged pixels. If every
+  // screenshot in the scope is byte-identical to the previous run, no change
+  // reached the rendered output, so a cluster whose findings happen to be
+  // absent this time was not fixed, it was judged differently. Passing there
+  // would let judge variance alone close real defects, which would make the
+  // oracle worthless precisely where it is supposed to be strict.
+  const nothingChanged = changedShots.size === 0;
+  const verdict: Verdict = ruleVerdict({
+    attempt,
+    maxAttempts,
+    changedShots: changedShots.size,
+    stillOpen: stillOpen.length,
+    regressions: regressions.length,
+  });
 
-  const judgeNote =
-    regressions.length > 0
+  const judgeNote = nothingChanged
+    ? `nothing changed: all ${shotsById.size} screenshot(s) in this scope are byte-identical to the ` +
+      "previous run, so no edit reached the rendered output. Either the fix was not applied, it was " +
+      "applied somewhere the app does not use, or the app was not rebuilt."
+    : regressions.length > 0
       ? `the fix introduced ${regressions.length} new finding(s): ${regressions.map((r) => r.title).join("; ")}`
       : stillOpen.length > 0
         ? stillOpen[0]!.observed
@@ -200,6 +239,7 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
     attempt,
     maxAttempts,
     stillOpen: stillOpen.map((f) => f.title),
+    changedShots: changedShots.size,
     regressions: regressions.map((f) => f.title),
     judgeNote: judgeNote || null,
     commit: reportedCommit ?? null,

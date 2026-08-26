@@ -75,7 +75,7 @@ export function createAutoStreamer(opts: StreamerOptions): Streamer {
 
   async function emitCluster(c: FixCluster, amended: boolean): Promise<void> {
     const brief = await writeBrief(resolved, c, maxAttempts);
-    await clusterSheet(resolved, c);
+    const sheet = await clusterSheet(resolved, c);
     dispatched.push(c.id);
     emit(
       "dispatch",
@@ -84,10 +84,15 @@ export function createAutoStreamer(opts: StreamerOptions): Streamer {
         id: c.id,
         label: clusterLabelOf(c),
         brief,
+        sheet,
         routes: c.routes,
         severity: c.severity,
         category: c.category,
-        shots: c.shotCount,
+        // The evidence travels with the dispatch. A board that knows only how
+        // many screenshots a cluster has can show a row of identical cards; one
+        // that knows which screenshots can show what this agent is looking at.
+        shots: clusterShots(c),
+        shotCount: c.shotCount,
         amended,
       },
       c.severity,
@@ -172,6 +177,39 @@ export function createAutoStreamer(opts: StreamerOptions): Streamer {
       return { dispatched, backlog };
     },
   };
+}
+
+/**
+ * The distinct screenshots a cluster was filed against, evidence-relative so
+ * the UI can serve them straight out of the evidence directory. Capped: a
+ * cluster spanning every route of every form factor would otherwise put a
+ * kilobyte of paths on one log line, and a card only shows a handful.
+ */
+const MAX_DISPATCH_SHOTS = 12;
+
+function clusterShots(c: FixCluster): {
+  path: string;
+  route: string;
+  formFactor: string;
+  scheme: string;
+  state: string;
+}[] {
+  const seen = new Set<string>();
+  const out = [];
+  for (const m of c.members) {
+    const ev = m.evidence[m.evidence.length - 1];
+    if (!ev || seen.has(ev.path)) continue;
+    seen.add(ev.path);
+    out.push({
+      path: ev.path,
+      route: m.route,
+      formFactor: m.formFactor,
+      scheme: m.scheme,
+      state: m.state,
+    });
+    if (out.length >= MAX_DISPATCH_SHOTS) break;
+  }
+  return out;
 }
 
 /** One sheet per cluster, so a fix session sees its whole defect in one Read. */
