@@ -22,7 +22,7 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { extname, join, relative, resolve, sep } from "node:path";
 import { evidenceDir, loadConfig } from "../config.js";
 import { readEvents, summarise } from "../report/events.js";
-import { buildBoard, tally } from "../report/board.js";
+import { buildBoard, durableFindings, severityTally, tally } from "../report/board.js";
 import { execFileAsync, num, str, type Parsed } from "../util.js";
 import type { ResolvedConfig } from "../types.js";
 
@@ -110,6 +110,11 @@ function handle(resolved: ResolvedConfig, req: IncomingMessage, res: ServerRespo
         // per-cluster state files. The event log only says what is happening
         // this second, and every capture truncates it.
         const board = await buildBoard(resolved, events);
+        // Findings come from the backlog for the same reason the board does:
+        // built from `finding` events they emptied out with the log on every
+        // re-capture, and the severity counts described the log rather than
+        // what is actually outstanding.
+        const findings = await durableFindings(resolved);
         // One image with every capture on it answers "what did lookout look at"
         // better than a grid of the ones nothing was filed against, and costs
         // the page a single link instead of a section.
@@ -118,10 +123,12 @@ function handle(resolved: ResolvedConfig, req: IncomingMessage, res: ServerRespo
           project: resolved.project,
           projectDir: resolved.projectDir,
           contactSheet: existsSync(sheet) ? "contact-sheet.png" : null,
+          findings,
           status: {
             ...status,
             board: board.map((b) => ({ ...b, sheetRel: evidenceRel(evDir, b.sheet) })),
             agents: tally(board),
+            findings: severityTally(findings),
           },
           events: events.slice(-400),
         });
@@ -288,10 +295,27 @@ margin:0 0 11px;font-weight:700;display:flex;align-items:baseline;gap:9px}
 h2 .n{color:var(--dim);letter-spacing:0;text-transform:none;font-weight:500;font-size:12px}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:15px 17px;
 box-shadow:var(--shadow)}
-.row{display:flex;gap:26px;flex-wrap:wrap}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:stretch}
+.stat{border:1px solid transparent;border-radius:9px;padding:5px 11px;min-width:92px;
+background:none;font:inherit;color:inherit;text-align:left}
 .stat b{display:block;font-size:21px;font-weight:660;line-height:1.25;font-variant-numeric:tabular-nums}
-.stat span{font-size:12px}
+.stat span{font-size:12px;color:var(--dim)}
 .stat.z b{color:var(--faint)}
+/* A tile that filters is a button, and says so before it is clicked. */
+button.stat{cursor:pointer}
+button.stat:hover{border-color:var(--line);background:var(--sunk)}
+button.stat:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.stat[aria-pressed="true"]{border-color:var(--accent);background:var(--sunk)}
+button.stat[disabled]{cursor:default;opacity:.55}
+.filterbar{display:flex;align-items:center;gap:10px;margin:0 0 11px;font-size:12.5px;
+color:var(--dim)}
+.filterbar b{color:var(--ink);font-weight:600}
+.clearf{font:inherit;color:var(--accent);background:none;border:1px solid var(--line);
+border-radius:7px;padding:2px 9px;cursor:pointer}
+.clearf:hover{border-color:var(--accent)}
+/* The section a filter just narrowed, so a click lands somewhere visible. */
+@keyframes flash{from{background:var(--sunk)}to{background:transparent}}
+.flash{animation:flash 1.1s ease-out}
 .rule{width:1px;align-self:stretch;background:var(--line)}
 
 /* --- the board ------------------------------------------------------- */
@@ -417,8 +441,11 @@ border-radius:7px;padding:3px 9px}
 </header>
 <main>
 <section><div class="panel"><div class="row" id="stats"></div></div></section>
-<section><h2>Fix sessions <span class="n" id="bn"></span></h2><div class="board" id="board"></div></section>
-<section><h2>Findings <span class="n" id="fn"></span></h2><div class="finds" id="findings"></div></section>
+<div class="filterbar" id="filterbar" hidden></div>
+<section id="sessions"><h2>Fix sessions <span class="n" id="bn"></span></h2>
+  <div class="board" id="board"></div></section>
+<section id="findingsSection"><h2>Findings <span class="n" id="fn"></span></h2>
+  <div class="finds" id="findings"></div></section>
 </main>
 <script>
 // A judge batch can take three minutes and a capture with a sign-in hook
@@ -426,6 +453,46 @@ border-radius:7px;padding:3px 9px}
 // ones. Kept in step with STALE_MS in verbs/status.ts.
 const STALE_MS = 10 * 60 * 1000;
 const last = {};
+
+// Clicking a headline number narrows the page to the work it counts. Held here
+// rather than in the URL because it is a view, not a place: a reload should
+// come back to the whole board.
+let filter = null;   // {kind: "state"|"severity", value, label}
+
+// Which board states each headline number stands for. "awaiting a session"
+// counts everything nobody is currently on, including work lookout handed back.
+const STATES = {
+  working: ["working", "verifying"],
+  reported: ["reported"],
+  queued: ["queued", "still-open", "regressed"],
+  settled: ["passed", "blocked"],
+};
+
+function matchesBoard(b){
+  if (!filter) return true;
+  if (filter.kind === "state") return STATES[filter.value].includes(b.status);
+  return b.severity === filter.value;
+}
+function matchesFinding(f, shownClusters){
+  if (!filter) return true;
+  if (filter.kind === "severity") return f.severity === filter.value;
+  // Under a state filter, show the findings belonging to the sessions on screen,
+  // so the two sections always describe the same slice of work.
+  return shownClusters.has(f.cluster);
+}
+
+function setFilter(kind, value, label){
+  const same = filter && filter.kind === kind && filter.value === value;
+  filter = same ? null : { kind, value, label };
+  tick();
+  if (!filter) return;
+  // Land the click somewhere visible: the section it just narrowed.
+  const target = document.getElementById(kind === "severity" ? "findingsSection" : "sessions");
+  target.scrollIntoView({ behavior: "smooth", block: "start" });
+  target.classList.remove("flash");
+  void target.offsetWidth;
+  target.classList.add("flash");
+}
 // Re-rendering a section on every poll restarts every image request inside it,
 // which on a 1.5s interval means a thumbnail never finishes loading. Only touch
 // a section when its content actually changed.
@@ -436,10 +503,26 @@ function paint(id, sig, html){
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const el = id => document.getElementById(id);
 const enc = p => String(p).split("/").map(encodeURIComponent).join("/");
+function statBody(v, l, c, zero){
+  return '<b' + (c && !zero ? ' style="color:' + c + '"' : '') + '>' + esc(v) + '</b>'
+    + '<span>' + esc(l) + '</span>';
+}
+/** A number that does not stand for a set of work, so it does not filter. */
 function stat(l, v, c){
   const zero = (v === 0 || v === "0");
-  return '<div class="stat' + (zero ? ' z' : '') + '"><b'+(c && !zero ?' style="color:'+c+'"':'')+'>'
-    + esc(v)+'</b><span class="muted">'+esc(l)+'</span></div>';
+  return '<div class="stat' + (zero ? ' z' : '') + '">' + statBody(v, l, c, zero) + '</div>';
+}
+/** A number you can click to narrow the page to exactly what it counts. */
+function statFilter(kind, value, l, v, c){
+  const zero = (v === 0 || v === "0");
+  const on = filter && filter.kind === kind && filter.value === value;
+  return '<button type="button" class="stat' + (zero ? ' z' : '') + '"'
+    + ' data-kind="' + esc(kind) + '" data-value="' + esc(value) + '"'
+    + ' data-label="' + esc(l) + '"'
+    + ' aria-pressed="' + (on ? 'true' : 'false') + '"'
+    + (zero ? ' disabled' : '')
+    + ' title="' + (zero ? 'nothing to show' : 'show only ' + esc(l)) + '">'
+    + statBody(v, l, c, zero) + '</button>';
 }
 
 // Elapsed times tick once a second, but re-rendering a card to advance a clock
@@ -566,40 +649,37 @@ function card(b){
     + '</article>';
 }
 
-// A finding names one screenshot, and a dispatched cluster carries the
-// screenshots it was filed against, so the two can be matched back up. The card
-// then says which session owns the defect rather than leaving the reader to
-// pair a category and a route by eye.
-function ownerOf(x, board){
-  const hits = board.filter(b => b.category === x.category
-    && (b.shots.some(s => s.path === x.path) || b.recheck.some(s => s.path === x.path)));
-  return hits.length === 1 ? hits[0] : null;
+// A finding records the cluster it is dispatched under, so the card can name
+// the session that owns the defect rather than leave the reader to pair a
+// category and a route by eye.
+function ownerOf(f, board){
+  return board.find(b => b.id === f.cluster) || null;
 }
 
-function findingCard(e, board){
-  const x = e.data || {};
-  const title = e.message.replace(/^[^:]*:\\s*/, "");
-  const shot = x.path
-    ? '<a class="fshot" href="/evidence/' + enc(x.path) + '" target="_blank" title="' + esc(x.path) + '">'
-      + '<img loading="lazy" src="/thumb/' + enc(x.path) + '?w=336" alt=""/>'
-      + '<span>' + esc([x.formFactor, x.scheme].filter(Boolean).join(" \\u00b7 ")) + '</span></a>'
+function findingCard(f, board){
+  const shot = f.path
+    ? '<a class="fshot" href="/evidence/' + enc(f.path) + '" target="_blank" title="' + esc(f.path) + '">'
+      + '<img loading="lazy" src="/thumb/' + enc(f.path) + '?w=336" alt=""/>'
+      + '<span>' + esc([f.formFactor, f.scheme].filter(Boolean).join(" \\u00b7 ")) + '</span></a>'
     : "";
-  const owner = ownerOf(x, board);
-  const chips = [x.route, x.formFactor, x.scheme].filter(Boolean)
+  const owner = ownerOf(f, board);
+  const chips = [f.route, f.formFactor, f.scheme].filter(Boolean)
     .map(v => '<span class="chip">' + esc(v) + '</span>').join("");
-  const verified = x.verified
+  const verified = f.verified
     ? '<span class="chip" title="a second pass was asked to refute this, and could not">verified</span>'
     : "";
+  const blocked = f.status === "blocked"
+    ? '<span class="chip" title="lookout will not dispatch this again">blocked</span>' : "";
   const own = owner
     ? '<div class="who faint">Owned by <b>' + esc(owner.label) + '</b> \\u00b7 ' + esc(owner.status) + '</div>'
     : "";
-  return '<article class="fcard ' + esc(x.severity) + '">' + shot
+  return '<article class="fcard ' + esc(f.severity) + '">' + shot
     + '<div class="fbody">'
-    + '<div class="top"><span class="pill ' + esc(x.severity) + '">' + esc(x.severity) + '</span></div>'
-    + '<h3 class="title">' + esc(title) + '</h3>'
-    + '<div class="meta"><span class="chip">' + esc(x.category) + "/" + esc(x.attribute) + '</span>'
-    + chips + verified + '</div>'
-    + (x.problem ? '<p class="problem">' + esc(x.problem) + '</p>' : "")
+    + '<div class="top"><span class="pill ' + esc(f.severity) + '">' + esc(f.severity) + '</span></div>'
+    + '<h3 class="title">' + esc(f.title) + '</h3>'
+    + '<div class="meta"><span class="chip">' + esc(f.category) + "/" + esc(f.attribute) + '</span>'
+    + chips + verified + blocked + '</div>'
+    + (f.problem ? '<p class="problem">' + esc(f.problem) + '</p>' : "")
     + own
     + '</div></article>';
 }
@@ -637,32 +717,48 @@ async function tick(){
 
   const a = s.agents;
   const statsHtml =
-      stat("working", a.working, "var(--work)")
-    + stat("reported back", a.reported, "var(--rep)")
-    + stat("awaiting a session", a.queued)
-    + stat("settled", a.resolved, "var(--ok)")
+      statFilter("state", "working", "working", a.working, "var(--work)")
+    + statFilter("state", "reported", "reported back", a.reported, "var(--rep)")
+    + statFilter("state", "queued", "awaiting a session", a.queued)
+    + statFilter("state", "settled", "settled", a.resolved, "var(--ok)")
     + '<div class="rule"></div>'
     + stat("shots", s.shots)
     + stat("batches", s.batches.total ? s.batches.done + "/" + s.batches.total : "\\u2014")
-    + stat("critical", s.findings.critical, "var(--crit)")
-    + stat("high", s.findings.high, "var(--high)")
-    + stat("medium", s.findings.medium, "var(--med)")
-    + stat("low", s.findings.low, "var(--low)");
+    + statFilter("severity", "critical", "critical", s.findings.critical, "var(--crit)")
+    + statFilter("severity", "high", "high", s.findings.high, "var(--high)")
+    + statFilter("severity", "medium", "medium", s.findings.medium, "var(--med)")
+    + statFilter("severity", "low", "low", s.findings.low, "var(--low)");
   paint("stats", statsHtml, statsHtml);
 
-  const board = s.board || [];
-  el("bn").textContent = board.length ? board.length + " dispatched" : "";
+  const bar = el("filterbar");
+  if (filter) {
+    bar.hidden = false;
+    bar.innerHTML = 'Showing only <b>' + esc(filter.label) + '</b>'
+      + '<button type="button" class="clearf" id="clearf">show everything</button>';
+  } else bar.hidden = true;
+
+  const allBoard = s.board || [];
+  const board = allBoard.filter(matchesBoard);
+  el("bn").textContent = allBoard.length
+    ? (filter && board.length !== allBoard.length
+        ? board.length + " of " + allBoard.length
+        : allBoard.length + " dispatched")
+    : "";
   // The signature carries everything a card renders, so a card is rebuilt when
   // its session moves and left alone (thumbnails intact) when it does not.
-  const sig = JSON.stringify(board.map(b => [b.id, b.status, b.attempt, b.verdict,
+  const sig = JSON.stringify([filter, board.map(b => [b.id, b.status, b.attempt, b.verdict,
     b.shots.length, b.recheck.length, b.sheetRel,
     (b.timeline || []).length, (b.timeline || []).map(t => t.at).slice(-1),
-    b.agent && [b.agent.name, b.agent.startedAt, b.agent.finishedAt, b.agent.notes.length]]));
+    b.agent && [b.agent.name, b.agent.startedAt, b.agent.finishedAt, b.agent.notes.length]])]);
   const feedTops = {};
   for (const f of document.querySelectorAll("[data-feed]")) feedTops[f.dataset.feed] = f.scrollTop;
   const rebuilt = paint("board", sig, board.length
     ? board.map(card).join("")
-    : '<div class="panel empty">Nothing dispatched yet. Run <code>lookout check --auto</code>.</div>');
+    : '<div class="panel empty">'
+      + (filter && allBoard.length
+          ? 'No fix session is ' + esc(filter.label) + '.'
+          : 'Nothing dispatched yet. Run <code>lookout check --auto</code>.')
+      + '</div>');
   if (rebuilt) {
     // Keep each feed where the reader left it, except a live one, which follows
     // its newest line the way a log tail does.
@@ -675,25 +771,25 @@ async function tick(){
     }
   }
 
-  // Worst first, and newest first within a severity. Reverse-chronological
-  // alone put a low-severity nit above three criticals, which is the opposite
-  // of the order somebody triaging them needs.
-  const SEV = {critical: 0, high: 1, medium: 2, low: 3};
-  const finds = d.events.filter(e => e.kind === "finding")
-    .map((e, i) => [e, i])
-    .sort((a, b) => (SEV[a[0].data && a[0].data.severity] ?? 9)
-                  - (SEV[b[0].data && b[0].data.severity] ?? 9) || b[1] - a[1])
-    .map(pair => pair[0]);
-  el("fn").textContent = finds.length ? finds.length + " filed" : "";
-  // Keyed on what the cards actually draw, not just how many there are: a
-  // count-only signature leaves a re-judged finding showing its old prose.
-  paint("findings", JSON.stringify([
-      finds.map(e => [e.data && e.data.path, e.data && e.data.attribute,
-                      e.data && e.data.severity, e.message]),
-      board.map(b => [b.id, b.status])]),
+  // Outstanding findings, straight from the backlog and already sorted worst
+  // first by the server. Built from finding events these emptied out with the
+  // log on every re-capture, exactly as the board did.
+  const allFinds = d.findings || [];
+  const shownClusters = new Set(board.map(b => b.id));
+  const finds = allFinds.filter(f => matchesFinding(f, shownClusters));
+  el("fn").textContent = allFinds.length
+    ? (filter && finds.length !== allFinds.length
+        ? finds.length + " of " + allFinds.length
+        : allFinds.length + " outstanding")
+    : "";
+  paint("findings", JSON.stringify([filter,
+      finds.map(f => [f.fingerprint, f.severity, f.status]),
+      allBoard.map(b => [b.id, b.status])]),
     finds.length
-      ? finds.map(e => findingCard(e, board)).join("")
-      : '<div class="panel empty">No findings yet.</div>');
+      ? finds.map(f => findingCard(f, allBoard)).join("")
+      : '<div class="panel empty">'
+        + (filter && allFinds.length ? 'No ' + esc(filter.label) + ' findings.' : 'No findings yet.')
+        + '</div>');
 
   const sheetLink = el("sheet");
   if (d.contactSheet) {
@@ -703,5 +799,18 @@ async function tick(){
 
   ticks();
 }
+// Delegated, because the stat row is rebuilt whenever its numbers move.
+document.addEventListener("click", e => {
+  const tile = e.target.closest("button.stat");
+  if (tile && !tile.disabled) {
+    setFilter(tile.dataset.kind, tile.dataset.value, tile.dataset.label);
+    return;
+  }
+  if (e.target.closest("#clearf")) setFilter(filter.kind, filter.value, filter.label);
+});
+// Escape clears the filter, which is what every other filtered view does.
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && filter) setFilter(filter.kind, filter.value, filter.label);
+});
 tick(); setInterval(tick, 1500); setInterval(ticks, 1000);
 </script></body></html>`;

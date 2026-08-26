@@ -19,11 +19,12 @@
  */
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { clusterFindings, type FixCluster } from "../fix/cluster.js";
+import { clusterFindings, clusterIdOf, type FixCluster } from "../fix/cluster.js";
 import { clusterLabel } from "../fix/brief.js";
 import { briefPath, fixDir, loadState, type ClusterState } from "../fix/state.js";
 import { loadBacklog } from "../verbs/backlog.js";
-import type { ResolvedConfig } from "../types.js";
+import type { FindingStatus } from "../backlog/lib.js";
+import type { ResolvedConfig, Severity } from "../types.js";
 import {
   readEvents,
   summarise,
@@ -280,6 +281,81 @@ export async function buildBoard(
       Number(a.dispatchedAt === null) - Number(b.dispatchedAt === null) ||
       (a.dispatchedAt ?? "").localeCompare(b.dispatchedAt ?? ""),
   );
+}
+
+/**
+ * A finding as the page needs it: the claim, the screenshot that proves it, and
+ * which cluster owns it.
+ *
+ * Read from the backlog for the same reason the board is. The findings section
+ * used to be built from `finding` events, so it emptied out with the log on
+ * every re-capture, and the severity counts beside it described whatever
+ * happened to be in the log rather than what is actually outstanding.
+ */
+export interface BoardFinding {
+  fingerprint: string;
+  severity: Severity;
+  status: FindingStatus;
+  category: string;
+  attribute: string;
+  title: string;
+  problem: string;
+  route: string;
+  formFactor: string;
+  scheme: string;
+  path: string | null;
+  verified: boolean;
+  /** The cluster this finding is dispatched under. */
+  cluster: string;
+}
+
+const SEVERITY_RANK: Record<Severity, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+
+/** Everything still outstanding, worst first. */
+export async function durableFindings(resolved: ResolvedConfig): Promise<BoardFinding[]> {
+  const backlog = await loadBacklog(resolved);
+  const out: BoardFinding[] = [];
+  for (const f of Object.values(backlog.findings)) {
+    if (f.status !== "open" && f.status !== "blocked") continue;
+    const ev = f.evidence[f.evidence.length - 1];
+    out.push({
+      fingerprint: f.fingerprint,
+      severity: f.severity,
+      status: f.status,
+      category: f.category,
+      attribute: f.attribute,
+      title: f.title,
+      problem: f.problem,
+      route: f.route,
+      formFactor: f.formFactor,
+      scheme: f.scheme,
+      path: ev?.path ?? null,
+      verified: f.verified,
+      cluster: clusterIdOf(f),
+    });
+  }
+  return out.sort(
+    (a, b) =>
+      SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] ||
+      a.category.localeCompare(b.category) ||
+      a.attribute.localeCompare(b.attribute),
+  );
+}
+
+/** Counts by severity, for the headline row. */
+export function severityTally(findings: BoardFinding[]): {
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  total: number;
+} {
+  const t = { critical: 0, high: 0, medium: 0, low: 0, total: 0 };
+  for (const f of findings) {
+    t[f.severity]++;
+    t.total++;
+  }
+  return t;
 }
 
 /** Counts by state, for a caller that wants the headline without folding. */

@@ -10,7 +10,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildBoard, tally } from "../src/report/board.js";
+import { buildBoard, durableFindings, severityTally, tally } from "../src/report/board.js";
 import { EventLog } from "../src/report/events.js";
 import type { BacklogFinding } from "../src/backlog/lib.js";
 import type { ClusterState } from "../src/fix/state.js";
@@ -234,5 +234,49 @@ describe("the log lays over the board without replacing it", () => {
     });
     // The log's dispatch says queued; the backlog says blocked, and it wins.
     expect((await buildBoard(r))[0]!.status).toBe("blocked");
+  });
+});
+
+describe("findings come from the backlog too", () => {
+  // Same bug as the board had: built from `finding` events, the findings
+  // section emptied out with the log on every re-capture, and the severity
+  // numbers beside it counted whatever happened to be in the log. Those
+  // numbers are now filter controls, so counting the wrong thing would filter
+  // the wrong thing.
+  test("outstanding findings survive a log that holds none", async () => {
+    const r = project();
+    writeBacklog(r, [
+      finding({ severity: "critical" }),
+      finding({ attribute: "target-size", severity: "high" }),
+      finding({ attribute: "focus-ring", severity: "high", status: "blocked", reason: "upstream" }),
+      finding({ attribute: "closed", status: "fixed" }),
+      finding({ attribute: "waived", status: "by-design", reason: "intentional" }),
+    ]);
+    const f = await durableFindings(r);
+    // Open and blocked are outstanding; fixed and by-design are settled record.
+    expect(f).toHaveLength(3);
+    expect(severityTally(f)).toEqual({ critical: 1, high: 2, medium: 0, low: 0, total: 3 });
+  });
+
+  test("worst first, so the top of the list is the thing to fix", async () => {
+    const r = project();
+    writeBacklog(r, [
+      finding({ attribute: "a", severity: "low" }),
+      finding({ attribute: "b", severity: "critical" }),
+      finding({ attribute: "c", severity: "medium" }),
+      finding({ attribute: "d", severity: "high" }),
+    ]);
+    expect((await durableFindings(r)).map((x) => x.severity)).toEqual([
+      "critical", "high", "medium", "low",
+    ]);
+  });
+
+  test("each finding names the cluster that owns it, so a card can link them", async () => {
+    const r = project();
+    writeBacklog(r, [finding()]);
+    const [f] = await durableFindings(r);
+    const board = await buildBoard(r);
+    expect(f!.cluster).toBe(board[0]!.id);
+    expect(f!.path).toBe("web/app/dash/rest--desktop-dark.png");
   });
 });
