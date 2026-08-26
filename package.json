@@ -5,10 +5,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/bnannier/lookout.git"
+    "url": "git+https://github.com/nannier-com/lookout.git"
   },
   "bugs": {
-    "url": "https://github.com/bnannier/lookout/issues"
+    "url": "https://github.com/nannier-com/lookout/issues"
   },
   "keywords": [
     "visual-testing",
