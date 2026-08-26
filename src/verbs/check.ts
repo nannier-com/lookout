@@ -15,9 +15,17 @@ import { batchShots, groupShots, judgeBatch, type AiFinding } from "../judge/eng
 import { loadRubric } from "../judge/rubric.js";
 import { groupHash, ledgerKey, loadLedger, recordVerdicts, saveLedger } from "../judge/ledger.js";
 import { verifyFindings, type VerifiedFinding } from "../judge/verify.js";
-import { LookoutError, type ShotRecord } from "../types.js";
+import { LookoutError, type Severity, type ShotRecord } from "../types.js";
 import { list, num, printJson, runId, str, type Parsed } from "../util.js";
 import { runCapture } from "./capture.js";
+import { SEVERITIES } from "../judge/rubric.js";
+import { clusterFindings } from "../fix/cluster.js";
+import { renderDispatch, writeFixPlan } from "../fix/plan.js";
+import type { FixPlan } from "../fix/brief.js";
+import type { Backlog } from "../backlog/lib.js";
+
+/** Attempts a cluster gets before `verify-fix` blocks it. */
+export const DEFAULT_MAX_ATTEMPTS = 2;
 
 export interface CheckOutcome {
   runId: string;
@@ -177,20 +185,58 @@ export async function runCheck(parsed: Parsed): Promise<{
   return { outcome, resolved, shotsById };
 }
 
+/** The worst-acceptable severity `--auto` dispatches; critical and high by default. */
+export function autoSeverity(parsed: Parsed): Severity {
+  const raw = str(parsed.flags.severity);
+  if (!raw) return "high";
+  if (!(SEVERITIES as readonly string[]).includes(raw)) {
+    throw new LookoutError(
+      `unknown --severity "${raw}"`,
+      `one of: ${SEVERITIES.join(", ")}`,
+    );
+  }
+  return raw as Severity;
+}
+
 export async function check(parsed: Parsed): Promise<number> {
   const { outcome, resolved, shotsById } = await runCheck(parsed);
 
   // Projects with a config file track findings in the backlog automatically;
   // zero-config runs stay report-only (a backlog in a random cwd is noise).
   let backlogNote = "";
+  let backlog: Backlog | null = null;
   if (resolved.configPath) {
     const { mergeLatest } = await import("./backlog.js");
     const merged = await mergeLatest(resolved, { judgeOutcome: outcome });
+    backlog = merged.backlog;
     backlogNote = `backlog: ${merged.added} added, ${merged.reopened} reopened, ${merged.refreshed} refreshed`;
   }
 
+  // --auto turns the open backlog into dispatchable work: one brief per root
+  // cause, written for a fix session to execute. lookout still fixes nothing;
+  // it hands the calling session a plan and later rules on the result.
+  let plan: FixPlan | null = null;
+  if (parsed.flags.auto) {
+    if (!backlog) {
+      throw new LookoutError(
+        "--auto needs a project backlog",
+        "run `lookout init` to create .lookout/config.ts; zero-config runs are report-only",
+      );
+    }
+    plan = await writeFixPlan(resolved, clusterFindings(Object.values(backlog.findings), {
+      minSeverity: autoSeverity(parsed),
+      maxAttempts: num(parsed.flags["max-attempts"]) ?? DEFAULT_MAX_ATTEMPTS,
+    }), {
+      runId: outcome.runId,
+      maxAttempts: num(parsed.flags["max-attempts"]) ?? DEFAULT_MAX_ATTEMPTS,
+    });
+  }
+
   if (parsed.flags.json) {
-    printJson(outcome);
+    printJson(plan ? { ...outcome, plan } : outcome);
+  } else if (plan) {
+    console.log(`\n${renderDispatch(plan, resolved)}`);
+    if (backlogNote) console.log(`\n${backlogNote}`);
   } else {
     console.log(
       `\n${outcome.shotsConsidered} shot(s): ${outcome.judged} judged, ${outcome.cached} cached; ` +

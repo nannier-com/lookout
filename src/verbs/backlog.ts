@@ -7,6 +7,8 @@
  *   reopen <fp>      shorthand for --status open
  *   regen            rewrite .lookout/BACKLOG.md from backlog.json
  *   check            validate schema, reasons, markdown freshness, drift; exit 1 on problems
+ *   plan             re-emit the fix-brief dispatch plan from the backlog as it
+ *                    stands, judging nothing (resume a fix loop for free)
  *   stats            counts by status and severity
  */
 import { readFile, rename, writeFile } from "node:fs/promises";
@@ -27,7 +29,10 @@ import {
 } from "../backlog/lib.js";
 import type { CheckOutcome } from "./check.js";
 import { LookoutError, type ResolvedConfig } from "../types.js";
-import { nowIso, printJson, str, type Parsed } from "../util.js";
+import { nowIso, num, printJson, str, type Parsed } from "../util.js";
+import { clusterFindings } from "../fix/cluster.js";
+import { renderDispatch, writeFixPlan } from "../fix/plan.js";
+import { autoSeverity, DEFAULT_MAX_ATTEMPTS } from "./check.js";
 
 export function backlogPath(resolved: ResolvedConfig): string {
   return join(lookoutDir(resolved), "backlog.json");
@@ -129,6 +134,29 @@ export async function backlog(parsed: Parsed): Promise<number> {
     }
   }
 
+  if (sub === "plan") {
+    // The same dispatch plan `check --auto` writes, rebuilt from the backlog
+    // alone. An orchestrating session resuming a fix loop, or picking up what
+    // is left after a cluster was blocked, does not need to pay for judging
+    // again to find out what remains.
+    const b = await loadBacklog(resolved);
+    const maxAttempts = num(parsed.flags["max-attempts"]) ?? DEFAULT_MAX_ATTEMPTS;
+    const plan = await writeFixPlan(
+      resolved,
+      clusterFindings(Object.values(b.findings), {
+        minSeverity: autoSeverity(parsed),
+        maxAttempts,
+      }),
+      { runId: str(parsed.flags.run) ?? "plan", maxAttempts },
+    );
+    if (parsed.flags.json) {
+      printJson(plan);
+    } else {
+      console.log(renderDispatch(plan, resolved));
+    }
+    return plan.clusters.length > 0 ? 1 : 0;
+  }
+
   if (sub === "regen") {
     const b = await loadBacklog(resolved);
     await saveBacklog(resolved, b);
@@ -173,6 +201,6 @@ export async function backlog(parsed: Parsed): Promise<number> {
 
   throw new LookoutError(
     `unknown backlog subcommand "${sub}"`,
-    "expected merge | set | reopen | regen | check | stats",
+    "expected merge | set | reopen | plan | regen | check | stats",
   );
 }

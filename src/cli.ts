@@ -5,6 +5,8 @@
  * Verbs:
  *   capture   screenshots + deterministic findings, no AI
  *   check     capture + judge against best practices; findings merge into the backlog
+ *             (--auto also writes one fix brief per root cause for dispatch)
+ *   verify-fix rule on a claimed fix: re-capture, re-judge, pass it or hand it back
  *   verify    judge captured evidence against acceptance criteria from a ticket
  *   ask       answer a free-form question about the rendered app, with evidence
  *   backlog   adjudicate findings (merge / set / reopen / regen / check / stats)
@@ -13,7 +15,8 @@
  *   doctor    check prerequisites (claude CLI, chromium, sharp, simctl, adb)
  *
  * Exit codes: 0 clean, 1 findings or failed criteria or failing checks,
- * 2 execution error.
+ * 2 execution error. verify-fix adds 3 for a cluster blocked after exhausting
+ * its attempts.
  */
 import { LookoutError } from "./types.js";
 import { parseFlags, type Parsed } from "./util.js";
@@ -29,7 +32,11 @@ const VERBS: Record<string, { load: () => Promise<Verb>; summary: string }> = {
   },
   check: {
     load: async () => (await import("./verbs/check.js")).check,
-    summary: "capture + AI judge against best practices",
+    summary: "capture + AI judge; --auto writes fix briefs to dispatch",
+  },
+  "verify-fix": {
+    load: async () => (await import("./verbs/verify-fix.js")).verifyFix,
+    summary: "rule on a claimed fix: re-judge, pass it or hand it back",
   },
   ask: {
     load: async () => (await import("./verbs/ask.js")).ask,
@@ -41,7 +48,7 @@ const VERBS: Record<string, { load: () => Promise<Verb>; summary: string }> = {
   },
   backlog: {
     load: async () => (await import("./verbs/backlog.js")).backlog,
-    summary: "adjudicate findings (merge/set/reopen/regen/check/stats)",
+    summary: "adjudicate findings (merge/set/plan/regen/check/stats)",
   },
   targets: {
     load: async () => (await import("./verbs/targets.js")).targets,
@@ -60,16 +67,22 @@ const VERBS: Record<string, { load: () => Promise<Verb>; summary: string }> = {
 function help(): void {
   console.log("lookout <verb> [flags]\n");
   for (const [name, v] of Object.entries(VERBS)) {
-    console.log(`  ${name.padEnd(9)} ${v.summary}`);
+    console.log(`  ${name.padEnd(10)} ${v.summary}`);
   }
   console.log(
     "\ncommon flags: --config <path> --url <base> --targets a,b --routes /x,/y" +
       "\n              --json --allow-remote" +
+      "\nauto flags:   --auto --severity critical|high|medium|low --max-attempts <n>" +
       "\nexamples:" +
       "\n  lookout targets --url http://localhost:8081" +
       "\n  lookout capture --targets docs --routes /components/button" +
+      "\n  lookout check --auto" +
+      "\n  lookout verify-fix --cluster app--contrast--body-text --commit <sha>" +
       '\n  lookout verify --criteria ticket.md --targets app' +
-      '\n  lookout ask "does the sidebar collapse below 640px?" --targets app',
+      '\n  lookout ask "does the sidebar collapse below 640px?" --targets app' +
+      "\n\nlookout is run by agents. `check --auto` writes one brief per root cause" +
+      "\nand a PLAN.json naming the dispatch protocol; follow it rather than fixing" +
+      "\nfindings inline.",
   );
 }
 
