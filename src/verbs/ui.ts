@@ -18,6 +18,8 @@
  * the loopback interface, because it serves screenshots of the user's app.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { spawn, type ChildProcess } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { extname, join, resolve, sep } from "node:path";
 import { evidenceDir, loadConfig } from "../config.js";
@@ -80,12 +82,150 @@ function lookoutRoot(resolved: ResolvedConfig): string {
   return join(evidenceDir(resolved), "..");
 }
 
-function handle(resolved: ResolvedConfig, req: IncomingMessage, res: ServerResponse): void {
+/** Read a JSON request body, capped so a stray POST cannot fill memory. */
+function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
+  return new Promise((ok) => {
+    let body = "";
+    req.on("data", (c) => {
+      body += c;
+      if (body.length > 8192) req.destroy();
+    });
+    req.on("end", () => {
+      try {
+        ok(JSON.parse(body || "{}") as Record<string, unknown>);
+      } catch {
+        ok({});
+      }
+    });
+  });
+}
+
+/**
+ * Ask the operating system for a directory.
+ *
+ * A browser cannot hand back a real filesystem path, so the server asks
+ * instead. lookout is already a local process the user started, so putting a
+ * native picker in front of them is no more privileged than the terminal they
+ * launched it from.
+ */
+async function pickFolder(): Promise<string | null> {
+  if (process.platform !== "darwin") return null;
+  try {
+    const { stdout } = await execFileAsync("osascript", [
+      "-e",
+      'POSIX path of (choose folder with prompt "Choose the repository lookout should check")',
+    ]);
+    const dir = stdout.trim().replace(/\/$/, "");
+    return dir || null;
+  } catch {
+    // The user cancelled, which is not an error.
+    return null;
+  }
+}
+
+/**
+ * The project being served. Mutable, because the page can point lookout at a
+ * different repository: `lookout ui` is then a viewer you leave open rather
+ * than one bound for life to the directory it was launched in.
+ */
+let current: ResolvedConfig;
+
+/** The check in flight, if the page started one. */
+let running: { child: ChildProcess; projectDir: string } | null = null;
+
+function checkIsRunning(): boolean {
+  return running !== null && running.child.exitCode === null && !running.child.killed;
+}
+
+function startCheck(project: ResolvedConfig): { started: boolean; reason?: string } {
+  if (running && running.child.exitCode === null) {
+    return { started: false, reason: "a check is already running" };
+  }
+  if (!project.configPath) {
+    return { started: false, reason: "no .lookout/config.ts in that folder" };
+  }
+  // lookout runs itself: this verb is lookout doing its own job, which is
+  // finding issues and writing them down. It narrates to the event log as it
+  // goes, and the page is already tailing that.
+  const cli = fileURLToPath(new URL("../cli.js", import.meta.url));
+  // --first: one run, stopping at the first issue. The loop this button serves
+  // is find one, fix one, verify it, so judging on for another eight minutes to
+  // hand back twenty-six more answers a question nobody has asked yet.
+  const child = spawn(process.execPath, [cli, "check", "--quiet", "--first"], {
+    cwd: project.projectDir,
+    stdio: "ignore",
+    detached: false,
+  });
+  child.on("error", () => {
+    running = null;
+  });
+  running = { child, projectDir: project.projectDir };
+  return { started: true };
+}
+
+function json(res: ServerResponse, code: number, body: unknown): void {
+  res.writeHead(code, { "content-type": "application/json", "cache-control": "no-store" });
+  res.end(JSON.stringify(body));
+}
+
+/** Point lookout at a directory, reporting honestly when it has no config. */
+async function useProject(dir: string): Promise<Record<string, unknown>> {
+  try {
+    current = await loadConfig({ cwd: dir });
+  } catch {
+    // No config found up the tree: say so rather than serving an empty board
+    // that looks like a project with nothing wrong with it.
+    return { projectDir: dir, configured: false, error: "no .lookout/config.ts found there" };
+  }
+  boardCache = null;
+  return {
+    project: current.project,
+    projectDir: current.projectDir,
+    configured: current.configPath !== null,
+  };
+}
+
+function handle(req: IncomingMessage, res: ServerResponse): void {
+  const resolved = current;
   const url = new URL(req.url ?? "/", "http://localhost");
   const evDir = evidenceDir(resolved);
 
+  if (req.method === "POST" && (url.pathname === "/api/project" || url.pathname === "/api/pick")) {
+    void (async () => {
+      let dir: string | null;
+      if (url.pathname === "/api/pick") {
+        dir = await pickFolder();
+        if (!dir) {
+          json(res, 200, { cancelled: true });
+          return;
+        }
+      } else {
+        const body = await readJson(req);
+        dir = typeof body.dir === "string" ? body.dir : null;
+        if (!dir) {
+          json(res, 400, { error: "no folder given" });
+          return;
+        }
+      }
+      json(res, 200, await useProject(dir));
+    })();
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/check") {
+    const r = startCheck(resolved);
+    json(res, r.started ? 200 : 409, {
+      ...r,
+      project: resolved.project,
+      projectDir: resolved.projectDir,
+    });
+    return;
+  }
+
   if (url.pathname === "/api/status") {
-    const key = diskKey(resolved);
+    // Keyed on the project too, so pointing lookout elsewhere cannot serve the
+    // previous one's board.
+    const key = resolved.projectDir + "|" + diskKey(resolved) + "|" + checkIsRunning();
     if (boardCache?.key === key) {
       res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
       res.end(boardCache.body);
@@ -113,11 +253,13 @@ function handle(resolved: ResolvedConfig, req: IncomingMessage, res: ServerRespo
         const body = JSON.stringify({
           project: resolved.project,
           projectDir: resolved.projectDir,
+          configured: resolved.configPath !== null,
           findings,
           status: {
             ...status,
             board,
             issues: tally(board),
+            checkRunning: checkIsRunning(),
             findings: severityTally(outstanding),
           },
           events: events.slice(-400),
@@ -246,9 +388,10 @@ export async function ui(parsed: Parsed): Promise<number> {
     url: str(parsed.flags.url),
   });
   const port = num(parsed.flags.port) ?? 7333;
+  current = resolved;
   const server = createServer((req, res) => {
     try {
-      handle(resolved, req, res);
+      handle(req, res);
     } catch {
       if (!res.headersSent) res.writeHead(500);
       res.end("error");
@@ -350,6 +493,19 @@ button.stat.clear{border-color:var(--line);color:var(--dim);min-width:0}
 button.stat.clear b{font-size:15px}
 button.stat.clear:hover{border-color:var(--accent);color:var(--accent)}
 .sep{width:1px;background:var(--line);margin:2px 5px}
+.navbottom{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.filters{padding-bottom:0}
+.navbottom{padding-bottom:10px}
+.where{font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--faint);
+max-width:38ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;
+text-align:left}
+.findfix{font:inherit;font-size:12.5px;font-weight:600;padding:6px 14px;border-radius:8px;
+border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer;white-space:nowrap}
+.findfix:hover{filter:brightness(1.08)}
+.findfix[disabled]{opacity:.6;cursor:default}
+.findfix.busy{background:none;color:var(--accent)}
+.findfix.busy::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;
+background:var(--accent);margin-right:7px;vertical-align:middle;animation:pulse2 1.1s infinite}
 
 main{padding:18px 22px 60px;max-width:1600px;margin:0 auto}
 section{margin-bottom:22px}
@@ -468,7 +624,12 @@ overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     <span class="faint" id="el"></span>
     <div class="toggle" id="toolToggle" role="group" aria-label="open issues in"></div>
   </div>
-  <div class="filters" id="stats"></div>
+  <div class="navbottom">
+    <div class="filters" id="stats"></div>
+    <span class="spacer"></span>
+    <span class="where" id="where"></span>
+    <button type="button" class="findfix" id="findfix">Find and fix</button>
+  </div>
 </header>
 <main>
 <div class="filterbar" id="filterbar" hidden></div>
@@ -696,6 +857,36 @@ function findingCard(f, board){
     + '</div></article>';
 }
 
+// Where lookout is pointed, and whether it can run there at all.
+let project = { configured: false, projectDir: "", checkRunning: false };
+
+async function findAndFix(){
+  const btn = el("findfix");
+  btn.disabled = true;
+  try {
+    // No config in the current folder means there is nothing to check. Ask for
+    // a repository first rather than starting a run that cannot work.
+    if (!project.configured) {
+      btn.textContent = "choose a repo\u2026";
+      const picked = await (await fetch("/api/pick", { method: "POST" })).json();
+      if (picked.cancelled) return;
+      if (picked.error) { el("where").textContent = picked.error; return; }
+      if (!picked.configured) {
+        el("where").textContent = "no .lookout/config.ts in " + picked.projectDir;
+        return;
+      }
+      project = Object.assign(project, picked);
+      last.board = null;
+      await tick();
+    }
+    const r = await (await fetch("/api/check", { method: "POST" })).json();
+    if (!r.started) el("where").textContent = r.reason || "could not start";
+    await tick();
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 async function loadTools(){
   try {
     tools = await (await fetch("/api/tools")).json();
@@ -734,6 +925,26 @@ async function tick(){
       else delete elapsedNode.dataset.until;
       elapsedNode.dataset.prefix = (s.running ? "running " : "ran for ");
     }
+  }
+
+  project = {
+    configured: !!d.configured,
+    projectDir: d.projectDir || "",
+    checkRunning: !!s.checkRunning,
+  };
+  const btn = el("findfix");
+  btn.classList.toggle("busy", project.checkRunning);
+  const btnText = project.checkRunning
+    ? "looking\u2026"
+    : project.configured ? "Find and fix" : "Choose a repo";
+  if (btn.textContent !== btnText && !btn.disabled) btn.textContent = btnText;
+  btn.title = project.configured
+    ? "run one check against " + project.projectDir + ", stopping at the first issue"
+    : "lookout has no config here; pick the repository to check";
+  const where = el("where");
+  if (where.textContent !== project.projectDir && !project.checkRunning) {
+    where.textContent = project.projectDir;
+    where.title = project.projectDir;
   }
 
   const a = s.issues;
@@ -826,6 +1037,7 @@ document.addEventListener("click", e => {
     tick();
     return;
   }
+  if (e.target.closest("#findfix")) { findAndFix(); return; }
   const go = e.target.closest("[data-launch]");
   if (go) { launch(go.dataset.launch, go); return; }
   const tile = e.target.closest("button.stat");

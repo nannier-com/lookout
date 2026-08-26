@@ -161,8 +161,18 @@ export async function runCheck(
     return tail;
   };
 
+  // `--first` stops as soon as one issue is on the table. The fix loop is one
+  // defect at a time, and a run that keeps judging for another eight minutes to
+  // hand back twenty-six more is answering a question nobody asked yet.
+  const stopAfter = parsed.flags.first ? 1 : (num(parsed.flags.limit) ?? Infinity);
+  let stopped = false;
+
   const worker = async (): Promise<void> => {
     for (;;) {
+      if (confirmed.length >= stopAfter) {
+        stopped = true;
+        return;
+      }
       const i = batchIndex++;
       if (i >= batches.length) return;
       const batch = batches[i]!;
@@ -233,6 +243,16 @@ export async function runCheck(
   await Promise.all(Array.from({ length: Math.max(1, concurrency) }, () => worker()));
   await tail;
   if (refuted.length > 0) log(`verifier refuted ${refuted.length} finding(s)`);
+  if (stopped) {
+    // Say it plainly. Otherwise "1 finding" reads as a clean bill of health for
+    // the whole application, when most of it was never looked at.
+    const left = batches.length - Math.min(batchIndex, batches.length);
+    const note =
+      `stopped after ${confirmed.length} finding(s); ` +
+      `${left} of ${batches.length} batch(es) not judged`;
+    log(note);
+    emit("note", note, { stoppedEarly: true, batchesLeft: left, batches: batches.length });
+  }
 
   // 6. Ledger: judged shots record their post-verification findings.
   const checkRunId = runId("check");

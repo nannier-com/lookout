@@ -17,6 +17,7 @@ import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { evidenceDir } from "../config.js";
 import { clusterFindings } from "../fix/cluster.js";
+import { allRuleFiles } from "../fix/rules.js";
 import { clusterLabel } from "../fix/brief.js";
 import { fixDir } from "../fix/state.js";
 import { loadBacklog } from "../verbs/backlog.js";
@@ -137,6 +138,26 @@ export async function renderHandoff(
     "it and decided to. Nothing about how you fix it is prescribed.",
     "",
   );
+
+  // Rules before evidence. An agent that starts editing before it knows the
+  // conventions has already done the damage by the time it reads them, and
+  // lookout cannot rely on whichever tool this was opened in having loaded
+  // anything: the global files are named explicitly for that reason.
+  const rules = await allRuleFiles(resolved.projectDir);
+  if (rules.length > 0) {
+    l.push("## Read these first", "");
+    l.push(
+      "Standing rules that govern this work, operator-wide first, then this",
+      "repository's. Read every one before editing anything.",
+      "",
+      ...rules.map((f) => `- ${f}`),
+      "",
+      "They are not advisory. Where one conflicts with anything below, the rule",
+      "wins and you say so. Where it forbids the obvious fix, find the one it",
+      "allows rather than the one it forbids.",
+      "",
+    );
+  }
 
   l.push("## What is wrong", "");
   for (const d of cluster.defects) {

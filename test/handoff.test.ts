@@ -10,6 +10,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderHandoff, TOOLS, toolsAvailable } from "../src/report/handoff.js";
+import { allRuleFiles, globalRuleFiles } from "../src/fix/rules.js";
 import type { BacklogFinding } from "../src/backlog/lib.js";
 import type { ResolvedConfig } from "../src/types.js";
 
@@ -187,5 +188,51 @@ describe("the tools a handoff can be opened in", () => {
     );
     const tools = await toolsAvailable(r);
     expect(tools.find((t) => t.key === "codex")!.mark).not.toContain("script");
+  });
+});
+
+describe("a handoff names the rules that govern the work", () => {
+  // A handoff is opened in an agent lookout did not configure. Claude Code
+  // loads its own global file; nothing else does, and the whole point of the
+  // toggle is that this may not be Claude Code. So they are named explicitly.
+  test("global rules are found where each harness keeps them", async () => {
+    const home = mkdtempSync(join(tmpdir(), "lookout-home-"));
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    mkdirSync(join(home, ".codex"), { recursive: true });
+    writeFileSync(join(home, ".claude", "CLAUDE.md"), "# global\n");
+    writeFileSync(join(home, ".codex", "AGENTS.md"), "# global\n");
+    const found = await globalRuleFiles(home);
+    expect(found).toContain(join(home, ".claude", "CLAUDE.md"));
+    expect(found).toContain(join(home, ".codex", "AGENTS.md"));
+  });
+
+  test("nothing is invented when the operator has no global rules", async () => {
+    const home = mkdtempSync(join(tmpdir(), "lookout-home-empty-"));
+    expect(await globalRuleFiles(home)).toEqual([]);
+  });
+
+  test("the repository's own rules are found too, after the global ones", async () => {
+    const r = withBacklog([finding()]);
+    writeFileSync(join(r.projectDir, "CLAUDE.md"), "# project rules\n");
+    const all = await allRuleFiles(r.projectDir);
+    expect(all).toContain(join(r.projectDir, "CLAUDE.md"));
+    // Global first: a standing rule is context for the project rule after it.
+    const projectAt = all.indexOf(join(r.projectDir, "CLAUDE.md"));
+    const globals = await globalRuleFiles();
+    for (const g of globals) expect(all.indexOf(g)).toBeLessThan(projectAt);
+  });
+
+  test("the handoff lists them by absolute path, before the defect", async () => {
+    const r = withBacklog([finding()]);
+    writeFileSync(join(r.projectDir, "CLAUDE.md"), "# project rules\n");
+    const { markdown } = await renderHandoff(r, "app--layout-overflow--header-icon-overlap");
+    expect(markdown).toContain("## Read these first");
+    expect(markdown).toContain(join(r.projectDir, "CLAUDE.md"));
+    // Before the evidence, because an agent that edits first has already done
+    // the damage by the time it reads them.
+    expect(markdown.indexOf("## Read these first")).toBeLessThan(
+      markdown.indexOf("## Look at these first"),
+    );
+    expect(markdown).toContain("They are not advisory.");
   });
 });
