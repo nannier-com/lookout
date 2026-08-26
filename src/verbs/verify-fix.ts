@@ -17,7 +17,8 @@ import { loadConfig } from "../config.js";
 import { clusterFindings, clusterIdOf, clusterScope, type FixCluster } from "../fix/cluster.js";
 import { writeBrief } from "../fix/plan.js";
 import { loadState, saveState, type Verdict } from "../fix/state.js";
-import { aiToFindings, setStatus, type Backlog } from "../backlog/lib.js";
+import { aiToFindings, deterministicToFindings, setStatus, type Backlog } from "../backlog/lib.js";
+import { loadReport } from "../capture/store.js";
 import { loadBacklog, mergeLatest, saveBacklog } from "./backlog.js";
 import { runCheck, DEFAULT_MAX_ATTEMPTS } from "./check.js";
 import { runContactSheet } from "./capture.js";
@@ -99,7 +100,23 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
 
   // 2. Fold the fresh evidence into the backlog, then read the answer off it.
   const merged = await mergeLatest(resolved, { judgeOutcome: outcome });
-  const fresh = aiToFindings(outcome.findings, shotsById);
+
+  // Both channels, or a deterministic cluster could never fail. Rule violations
+  // (every axe finding) come back from capture, not from the judge, so
+  // comparing against judged findings alone would pass an accessibility cluster
+  // whose violations are all still firing.
+  const report = await loadReport(resolved);
+  const latestRun = report?.runs[report.runs.length - 1];
+  const latestShots = new Set(
+    (report?.shots ?? []).filter((sh) => sh.runId === latestRun?.id).map((sh) => sh.id),
+  );
+  const freshDeterministic = report
+    ? deterministicToFindings({
+        ...report,
+        shots: report.shots.filter((sh) => latestShots.has(sh.id) && shotsById.has(sh.id)),
+      })
+    : [];
+  const fresh = [...aiToFindings(outcome.findings, shotsById), ...freshDeterministic];
   const stillOpen = fresh.filter((f) => clusterIdOf(f) === clusterId);
   const regressions = fresh.filter(
     (f) =>

@@ -3,7 +3,8 @@
 import { describe, expect, test } from "bun:test";
 import { clusterFindings, clusterIdOf, clusterScope, slug } from "../src/fix/cluster.js";
 import { renderBrief } from "../src/fix/brief.js";
-import type { BacklogFinding } from "../src/backlog/lib.js";
+import { deterministicToFindings, type BacklogFinding } from "../src/backlog/lib.js";
+import type { CaptureReport, ShotRecord } from "../src/types.js";
 import type { ResolvedConfig } from "../src/types.js";
 
 function finding(over: Partial<BacklogFinding> = {}): BacklogFinding {
@@ -161,6 +162,47 @@ describe("co-located accessibility violations", () => {
     expect(md).toContain("axe-nested-interactive");
     expect(md).toContain("All of them must be gone");
     expect(md).toContain("## What the checks found");
+  });
+});
+
+describe("cluster ids are channel-stable", () => {
+  // The regression: `verify-fix` compares a cluster against freshly captured
+  // findings. A rule violation comes back through the deterministic channel,
+  // not the judge, so if a re-captured axe finding did not land on the same
+  // cluster id it came from, every accessibility cluster would pass while
+  // still firing.
+  test("a re-captured axe violation lands on the cluster it came from", () => {
+    const shot = {
+      id: "web/app/identities/rest/desktop/dark",
+      target: "app",
+      route: "/identities",
+      routeName: "identities",
+      state: "rest",
+      platform: "web",
+      formFactor: "desktop",
+      scheme: "dark",
+      path: "web/app/identities/rest--desktop-dark.png",
+      hash: "h",
+      bytes: 1,
+      width: 1,
+      height: 1,
+      animated: false,
+      capturedAt: "2026-08-26T00:00:00Z",
+      runId: "r2",
+      deterministicFindings: [
+        {
+          type: "axe-violation",
+          severity: "error",
+          message: "button-name: Buttons must have discernible text",
+          meta: { ruleId: "button-name" },
+        },
+      ],
+    } as unknown as ShotRecord;
+
+    const [refound] = deterministicToFindings({ shots: [shot] } as unknown as CaptureReport);
+    expect(refound).toBeDefined();
+    expect(refound!.channel).toBe("deterministic");
+    expect(clusterIdOf(refound!)).toBe("app--identities--a11y");
   });
 });
 
