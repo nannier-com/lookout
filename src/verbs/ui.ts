@@ -19,7 +19,7 @@
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
-import { extname, join, relative, resolve, sep } from "node:path";
+import { extname, join, resolve, sep } from "node:path";
 import { evidenceDir, loadConfig } from "../config.js";
 import { readEvents, summarise } from "../report/events.js";
 import { buildBoard, durableFindings, severityTally, tally } from "../report/board.js";
@@ -50,18 +50,6 @@ function safeEvidencePath(evDir: string, rel: string): string | null {
   const root = resolve(evDir);
   if (target !== root && !target.startsWith(root + sep)) return null;
   return existsSync(target) && statSync(target).isFile() ? target : null;
-}
-
-/**
- * Briefs and contact sheets are logged as absolute paths, because the agents
- * that open them need absolute paths. The page can only serve what is under the
- * evidence directory, so hand it the relative form and let it drop anything
- * that falls outside.
- */
-function evidenceRel(evDir: string, abs: string | null): string | null {
-  if (!abs) return null;
-  const rel = relative(resolve(evDir), resolve(abs));
-  return rel && !rel.startsWith("..") && !rel.startsWith(sep) ? rel.split(sep).join("/") : null;
 }
 
 /**
@@ -122,18 +110,13 @@ function handle(resolved: ResolvedConfig, req: IncomingMessage, res: ServerRespo
         const outstanding = findings.filter(
           (f) => f.status === "open" || f.status === "blocked",
         );
-        // One image with every capture on it answers "what did lookout look at"
-        // better than a grid of the ones nothing was filed against, and costs
-        // the page a single link instead of a section.
-        const sheet = join(evDir, "contact-sheet.png");
         const body = JSON.stringify({
           project: resolved.project,
           projectDir: resolved.projectDir,
-          contactSheet: existsSync(sheet) ? "contact-sheet.png" : null,
           findings,
           status: {
             ...status,
-            board: board.map((b) => ({ ...b, sheetRel: evidenceRel(evDir, b.sheet) })),
+            board,
             issues: tally(board),
             findings: severityTally(outstanding),
           },
@@ -180,7 +163,7 @@ function handle(resolved: ResolvedConfig, req: IncomingMessage, res: ServerRespo
 
   if (url.pathname === "/api/tools") {
     void (async () => {
-      const tools = await toolsAvailable();
+      const tools = await toolsAvailable(resolved);
       res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
       res.end(JSON.stringify(tools));
     })();
@@ -332,18 +315,17 @@ margin-right:8px;vertical-align:middle}
 .stalled #phase,.stalled #el{color:var(--med)}
 .muted{color:var(--dim)}.faint{color:var(--faint)}
 .spacer{flex:1}
-.sheetlink{font-size:12px;color:var(--accent);text-decoration:none;border:1px solid var(--line);
-border-radius:7px;padding:3px 9px;white-space:nowrap}
-.sheetlink:hover{border-color:var(--accent)}
 /* Which tool a launch opens. Kept in the navbar because it applies to every
    card, and remembered because nobody wants to re-pick it every visit. */
 .toggle{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
-.toggle button{font:inherit;font-size:11.5px;padding:4px 10px;border:0;cursor:pointer;
-background:none;color:var(--dim);white-space:nowrap}
+.toggle button{font:inherit;padding:4px 10px;border:0;cursor:pointer;background:none;
+color:var(--dim);display:flex;align-items:center;line-height:0}
+.toggle button svg{display:block}
 .toggle button+button{border-left:1px solid var(--line)}
 .toggle button:hover{background:var(--sunk);color:var(--ink)}
-.toggle button[aria-pressed="true"]{background:var(--accent);color:#fff}
-.toggle button[data-missing="1"]{opacity:.6}
+.toggle button[aria-pressed="true"]{background:var(--sunk);color:var(--ink);
+box-shadow:inset 0 -2px 0 var(--accent)}
+.toggle button[data-missing="1"]{opacity:.45}
 .launch{font:inherit;font-size:11.5px;padding:4px 10px;border:1px solid var(--line);
 border-radius:7px;background:none;color:var(--accent);cursor:pointer;white-space:nowrap}
 .launch:hover{border-color:var(--accent);background:var(--sunk)}
@@ -422,7 +404,6 @@ color:var(--faint);font-weight:700}
 .tile{flex:0 0 auto;width:132px;text-decoration:none;color:inherit;display:block}
 .tile img{display:block;width:132px;height:106px;object-fit:cover;object-position:top;
 border:1px solid var(--line);border-radius:7px;background:var(--sunk)}
-.tile.sheet img{object-fit:contain;background:var(--sunk)}
 .tile:hover img{border-color:var(--accent)}
 .tile span{display:block;font-size:10.5px;color:var(--faint);margin-top:4px;
 overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -484,7 +465,6 @@ overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     <h1><span class="dot"></span><span id="ttl">lookout</span></h1>
     <span class="muted" id="phase"></span>
     <span class="spacer"></span>
-    <a class="sheetlink" id="sheet" href="#" target="_blank" hidden>contact sheet</a>
     <span class="faint" id="el"></span>
     <div class="toggle" id="toolToggle" role="group" aria-label="open issues in"></div>
   </div>
@@ -526,10 +506,13 @@ function paintToggle(){
   const html = tools.map(t =>
     '<button type="button" data-tool="' + esc(t.key) + '"'
     + ' aria-pressed="' + (t.key === tool ? 'true' : 'false') + '"'
+    + ' aria-label="' + esc(t.label) + '"'
     + (t.installed ? '' : ' data-missing="1"')
     + ' title="' + (t.installed ? 'open issues in ' + esc(t.label)
         : esc(t.bin) + ' is not on PATH; the command is shown so you can run it yourself')
-    + '">' + esc(t.label) + '</button>').join("");
+    // The mark is markup, not text, so it is the one thing here not escaped:
+    // it comes from lookout itself or from a file in the project.
+    + '">' + t.mark + '</button>').join("");
   paint("toolToggle", tool + "|" + html, html);
 }
 
@@ -613,15 +596,10 @@ function tile(s, w){
     + '<img loading="lazy" src="/thumb/' + enc(s.path) + '?w=' + w + '" alt=""/>'
     + '<span>' + esc([s.formFactor, s.scheme].filter(Boolean).join(" \\u00b7 ") || s.route) + '</span></a>';
 }
-function strip(label, shots, sheetRel, sheetAbs){
+function strip(label, shots){
   const tiles = shots.map(s => tile(s, 264)).join("");
-  const sheet = sheetRel
-    ? '<a class="tile sheet" href="/evidence/' + enc(sheetRel) + '" target="_blank" title="' + esc(sheetAbs) + '">'
-      + '<img loading="lazy" src="/thumb/' + enc(sheetRel) + '?w=264&fit=inside" alt=""/>'
-      + '<span>all of it, one sheet</span></a>'
-    : "";
-  if (!tiles && !sheet) return "";
-  return '<div class="evi"><h4>' + esc(label) + '</h4><div class="strip">' + sheet + tiles + '</div></div>';
+  if (!tiles) return "";
+  return '<div class="evi"><h4>' + esc(label) + '</h4><div class="strip">' + tiles + '</div></div>';
 }
 
 // What lookout has recorded about this issue, oldest first.
@@ -641,7 +619,6 @@ function feed(b){
 // somebody who then has to open these files.
 function paths(b){
   const rows = [];
-  if (b.sheet) rows.push(b.sheet);
   for (const s of b.shots) rows.push(s.absPath);
   for (const s of b.recheck) rows.push(s.absPath);
   if (!rows.length) return "";
@@ -682,8 +659,8 @@ function card(b){
     + whatLine(b)
     + '<div class="meta"><span class="chip sev ' + esc(b.severity) + '">' + esc(b.severity) + '</span>'
     + '<span class="chip">' + esc(b.category) + '</span>' + routes + attempt + '</div>'
-    + strip("What lookout saw", b.shots, b.sheetRel, b.sheet)
-    + strip("What verify-fix saw afterwards", b.recheck, null, null)
+    + strip("What lookout saw", b.shots)
+    + strip("What verify-fix saw afterwards", b.recheck)
     + judge + feed(b) + paths(b)
     + '</article>';
 }
@@ -790,7 +767,7 @@ async function tick(){
         : issues.length + " of " + allIssues.length)
     : "";
   const sig = JSON.stringify([filter, issues.map(b => [b.id, b.status, b.attempt, b.verdict,
-    b.shots.length, b.recheck.length, b.sheetRel, b.lastSeenAt, (b.timeline || []).length])]);
+    b.shots.length, b.recheck.length, b.lastSeenAt, (b.timeline || []).length])]);
   const feedTops = {};
   for (const f of document.querySelectorAll("[data-feed]")) feedTops[f.dataset.feed] = f.scrollTop;
   const rebuilt = paint("board", sig, issues.length
@@ -826,12 +803,6 @@ async function tick(){
       : '<div class="panel empty">'
         + (filter && allFinds.length ? 'No ' + esc(filter.label) + ' findings.' : 'No findings yet.')
         + '</div>');
-
-  const sheetLink = el("sheet");
-  if (d.contactSheet) {
-    sheetLink.href = "/evidence/" + enc(d.contactSheet);
-    sheetLink.hidden = false;
-  } else sheetLink.hidden = true;
 
   ticks();
 }

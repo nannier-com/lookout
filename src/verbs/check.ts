@@ -17,8 +17,7 @@ import { groupHash, ledgerKey, loadLedger, recordVerdicts, saveLedger } from "..
 import { verifyFindings, type VerifiedFinding } from "../judge/verify.js";
 import { LookoutError, type Severity, type ShotRecord } from "../types.js";
 import { list, num, printJson, runId, str, type Parsed } from "../util.js";
-import { runCapture, runContactSheet } from "./capture.js";
-import { sheetNote } from "../capture/sheet.js";
+import { runCapture } from "./capture.js";
 import { SEVERITIES } from "../judge/rubric.js";
 import { emit, EventLog, setCurrentLog } from "../report/events.js";
 
@@ -313,17 +312,9 @@ export async function check(parsed: Parsed): Promise<number> {
     backlogNote = `backlog: ${merged.added} added, ${merged.reopened} reopened, ${merged.refreshed} refreshed`;
   }
 
-  // The session running lookout should be able to look at what lookout looked
-  // at. One labelled sheet costs a single Read; the full-resolution paths below
-  // it are there when a finding needs close reading.
-  const findingsByShot = new Map<string, number>();
-  for (const f of outcome.findings) {
-    findingsByShot.set(f.shotId, (findingsByShot.get(f.shotId) ?? 0) + 1);
-  }
-  const sheet = await runContactSheet(resolved, [...shotsById.values()], findingsByShot);
 
   if (parsed.flags.json) {
-    printJson({ ...outcome, contactSheet: sheet?.path ?? null });
+    printJson(outcome);
   } else {
     console.log(
       `\n${outcome.shotsConsidered} shot(s): ${outcome.judged} judged, ${outcome.cached} cached; ` +
@@ -339,7 +330,6 @@ export async function check(parsed: Parsed): Promise<number> {
       );
     }
     console.log(`\nreport: ${outcome.reportPath}`);
-    if (sheet) console.log(`\n${sheetNote(sheet)}`);
     if (backlogNote) console.log(backlogNote);
   }
   emit("run-end", `${outcome.findings.length} finding(s); ~$${outcome.costUsd}`, {

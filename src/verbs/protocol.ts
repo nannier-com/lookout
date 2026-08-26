@@ -57,8 +57,8 @@ export function protocolText(): string {
     "",
     "Findings are grouped into issues: one issue is one target, category and",
     "attribute, which is as close as lookout can get to one root cause. Each",
-    "carries its severity, the routes it appears on, the screenshots it was filed",
-    "against by absolute path, and a contact sheet showing them together.",
+    "carries its severity, the routes it appears on, and the screenshots it was",
+    "filed against, by absolute path.",
     "",
     "The backlog under `.lookout/` is the durable record. It survives runs, and",
     "`lookout ui` is built from it rather than from any single run's narration.",
@@ -86,7 +86,7 @@ export function protocolText(): string {
     "`lookout capture` answers the simpler question: show me what this renders.",
     "`lookout verify --criteria <file>` rules on a ticket's acceptance criteria,",
     "and `lookout ask \"...\"` answers one question about the rendered application",
-    "from fresh screenshots. All of them print a contact sheet path; open it.",
+    "from fresh screenshots.",
   ].join("\n");
 }
 

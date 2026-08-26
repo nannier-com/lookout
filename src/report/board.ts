@@ -17,12 +17,12 @@
  *
  * The rule this encodes: outstanding work is state, not narration.
  */
-import { existsSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import { join } from "node:path";
 import { evidenceDir } from "../config.js";
 import { clusterFindings, clusterIdOf, type FixCluster } from "../fix/cluster.js";
 import { clusterLabel } from "../fix/brief.js";
-import { fixDir, loadState, type ClusterState } from "../fix/state.js";
+import { loadState, type ClusterState } from "../fix/state.js";
 import { loadBacklog } from "../verbs/backlog.js";
 import type { FindingStatus } from "../backlog/lib.js";
 import type { ResolvedConfig, Severity } from "../types.js";
@@ -87,8 +87,6 @@ export interface BoardStep {
 export interface BoardEntry {
   id: string;
   label: string;
-  /** The issue's contact sheet, absolute, when one was composited. */
-  sheet: string | null;
   routes: string[];
   severity: string;
   category: string;
@@ -267,13 +265,11 @@ export async function buildBoard(
   const durable = await Promise.all(
     clusters.map(async (c): Promise<BoardEntry> => {
       const state = await loadState(resolved, c.id);
-      const sheet = join(fixDir(resolved), `${c.id}.sheet.png`);
       const seen = lastSeenAt(resolved, c, state);
       const lastAttempt = state.attempts[state.attempts.length - 1];
       return {
         id: c.id,
         label: clusterLabel(c),
-        sheet: existsSync(sheet) ? sheet : null,
         routes: c.routes,
         severity: c.severity,
         category: c.category,

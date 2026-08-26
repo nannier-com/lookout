@@ -158,4 +158,34 @@ describe("the tools a handoff can be opened in", () => {
     // to run by hand instead of a button that quietly does nothing.
     expect(available.every((t) => t.bin.length > 0)).toBe(true);
   });
+
+  test("every tool carries a mark, and a project can supply its own", async () => {
+    const builtIn = await toolsAvailable();
+    for (const t of builtIn) expect(t.mark.startsWith("<svg")).toBe(true);
+
+    const r = project();
+    mkdirSync(join(r.projectDir, ".lookout", "logos"), { recursive: true });
+    writeFileSync(
+      join(r.projectDir, ".lookout", "logos", "codex.svg"),
+      '<svg viewBox="0 0 10 10"><rect width="10" height="10"/></svg>',
+    );
+    const supplied = await toolsAvailable(r);
+    expect(supplied.find((t) => t.key === "codex")!.mark).toContain("<rect");
+    // The one lookout was not given still uses its own drawing.
+    expect(supplied.find((t) => t.key === "claude-code")!.mark).toBe(
+      builtIn.find((t) => t.key === "claude-code")!.mark,
+    );
+  });
+
+  test("a supplied file that is not a lone svg is ignored, not injected", async () => {
+    const r = project();
+    mkdirSync(join(r.projectDir, ".lookout", "logos"), { recursive: true });
+    // This goes straight into the page, so anything carrying script is refused.
+    writeFileSync(
+      join(r.projectDir, ".lookout", "logos", "codex.svg"),
+      '<svg><script>alert(1)</script></svg>',
+    );
+    const tools = await toolsAvailable(r);
+    expect(tools.find((t) => t.key === "codex")!.mark).not.toContain("script");
+  });
 });

@@ -89,7 +89,6 @@ export async function status(parsed: Parsed): Promise<number> {
     // Absolute, because whoever picks this up needs a path they can open
     // without knowing where lookout keeps its evidence.
     for (const sh of b.shots.slice(0, 3)) console.log(`    ${sh.absPath}`);
-    if (b.sheet) console.log(`    sheet: ${b.sheet}`);
     if (b.judgeNote) console.log(`    judge: ${b.judgeNote}`);
   }
   for (const e of s.errors.slice(-5)) console.log(`  ERROR ${e}`);

@@ -12,6 +12,7 @@
  * subagent, it sets no protocol, and it asks for nothing back. It is a document
  * about a defect, handed over on request.
  */
+import { existsSync, readFileSync } from "node:fs";
 import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { evidenceDir } from "../config.js";
@@ -22,22 +23,71 @@ import { loadBacklog } from "../verbs/backlog.js";
 import { execFileAsync } from "../util.js";
 import { LookoutError, type ResolvedConfig } from "../types.js";
 
-/** The coding tools a handoff can be opened in. */
-export const TOOLS: Record<string, { bin: string; label: string }> = {
-  "claude-code": { bin: "claude", label: "Claude Code" },
-  codex: { bin: "codex", label: "Codex" },
+/**
+ * Marks for the tool toggle.
+ *
+ * These are lookout's own drawings, not the vendors' official logos, which are
+ * trademarks lookout has no copy of and would only reproduce badly from memory.
+ * Both are recognisable in the shape and the colour their product uses, which
+ * is all a two-button picker needs. Drop a real one at
+ * `.lookout/logos/<key>.svg` and lookout uses that instead.
+ */
+const MARKS: Record<string, string> = {
+  // A radial burst of tapered spokes, in Claude's orange.
+  "claude-code":
+    '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">' +
+    '<g fill="#D97757">' +
+    Array.from({ length: 10 }, (_, i) => {
+      const a = (i * 360) / 10;
+      return (
+        `<path transform="rotate(${a} 12 12)" ` +
+        'd="M12 2.6 13.05 9.2 12 12 10.95 9.2Z"/>'
+      );
+    }).join("") +
+    "</g></svg>",
+  // Three elongated loops at 60 degrees, interleaving into a six-lobed knot.
+  // A regular hexagon would not do: rotating one by 60 degrees maps it onto
+  // itself, so all three land in exactly the same place and draw one hexagon.
+  codex:
+    '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">' +
+    '<g fill="none" stroke="currentColor" stroke-width="1.5">' +
+    [0, 60, 120]
+      .map((a) => `<ellipse cx="12" cy="12" rx="4.1" ry="9.2" transform="rotate(${a} 12 12)"/>`)
+      .join("") +
+    "</g></svg>",
 };
 
+/** The coding tools a handoff can be opened in. */
+export const TOOLS: Record<string, { bin: string; label: string; mark: string }> = {
+  "claude-code": { bin: "claude", label: "Claude Code", mark: MARKS["claude-code"]! },
+  codex: { bin: "codex", label: "Codex", mark: MARKS.codex! },
+};
+
+/** A logo the project supplied, which beats anything lookout draws itself. */
+function suppliedMark(resolved: ResolvedConfig, key: string): string | null {
+  const p = join(resolved.projectDir, ".lookout", "logos", `${key}.svg`);
+  try {
+    if (!existsSync(p)) return null;
+    const svg = readFileSync(p, "utf8");
+    // Only an <svg> element, and only one: this goes straight into the page.
+    if (!/^\s*<svg[\s>]/i.test(svg) || /<script/i.test(svg)) return null;
+    return svg;
+  } catch {
+    return null;
+  }
+}
+
 /** The tools, each with whether its binary is actually here. */
-export async function toolsAvailable(): Promise<
-  { key: string; label: string; bin: string; installed: boolean }[]
-> {
+export async function toolsAvailable(
+  resolved?: ResolvedConfig,
+): Promise<{ key: string; label: string; bin: string; installed: boolean; mark: string }[]> {
   return Promise.all(
     Object.entries(TOOLS).map(async ([key, t]) => ({
       key,
       label: t.label,
       bin: t.bin,
       installed: await have(t.bin),
+      mark: (resolved && suppliedMark(resolved, key)) || t.mark,
     })),
   );
 }
@@ -106,8 +156,6 @@ export async function renderHandoff(
     l.push(`- ${join(evDir, ev.path)}`);
     l.push(`  route ${m.route}, ${m.formFactor}, ${m.scheme} scheme, state ${m.state}`);
   }
-  const sheet = join(fixDir(resolved), `${cluster.id}.sheet.png`);
-  l.push("", `All of them in one image: ${sheet}`, "");
 
   // The one thing lookout does ask for, because it is the only thing it can
   // answer: do not take your own word for it.

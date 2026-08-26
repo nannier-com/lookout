@@ -21,8 +21,6 @@ import { aiToFindings, deterministicToFindings, setStatus, type Backlog } from "
 import { loadReport } from "../capture/store.js";
 import { loadBacklog, mergeLatest, saveBacklog } from "./backlog.js";
 import { runCheck, DEFAULT_MAX_ATTEMPTS } from "./check.js";
-import { runContactSheet } from "./capture.js";
-import { sheetNote } from "../capture/sheet.js";
 import { LookoutError } from "../types.js";
 import { execFileAsync, nowIso, num, printJson, runId as makeRunId, str, type Parsed } from "../util.js";
 import { emit, EventLog, setCurrentLog } from "../report/events.js";
@@ -104,12 +102,6 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
   // on, so composite what was just re-captured.
   const freshByShot = new Map<string, number>();
   for (const f of outcome.findings) freshByShot.set(f.shotId, (freshByShot.get(f.shotId) ?? 0) + 1);
-  const sheet = await runContactSheet(
-    resolved,
-    [...shotsById.values()],
-    freshByShot,
-    `fix/${clusterId}.after.png`,
-  );
 
   // 2. Fold the fresh evidence into the backlog, then read the answer off it.
   const merged = await mergeLatest(resolved, { judgeOutcome: outcome });
@@ -236,7 +228,6 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
     regressions: regressions.map((f) => f.title),
     judgeNote: judgeNote || null,
     commit: reportedCommit ?? null,
-    contactSheet: sheet?.path ?? null,
     next:
       verdict === "passed"
         ? "confirmed and adjudicated; the finding is closed"
@@ -254,7 +245,6 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
         (judgeNote ? `\n  judge: ${judgeNote}` : "") +
         `\n  ${payload.next}`,
     );
-    if (sheet) console.log(`\n${sheetNote(sheet)}`);
   }
   emit("run-end", `${clusterId}: ${verdict}`, { verdict });
   setCurrentLog(null);
