@@ -1,5 +1,53 @@
 # @nannier-com/lookout
 
+## 0.3.0
+
+### Minor Changes
+
+- 617d5c4: Add auto mode: `lookout check --auto`, `lookout verify-fix`, and `lookout
+backlog plan`.
+
+  New user-visible capability. lookout is executed by agents rather than read by
+  people, so auto mode turns a backlog into work an orchestrating session can
+  dispatch, and then rules on the result. lookout still edits nothing and spawns
+  nothing.
+
+  - `check --auto` clusters open findings by root cause (one target + category +
+    attribute; co-located accessibility violations group by route, because an axe
+    rule id names the rule that fired rather than the thing that is wrong), writes
+    one self-contained brief per cluster under `.lookout/evidence/fix/`, and emits
+    a `PLAN.json` carrying the dispatch protocol. Each brief is a complete prompt:
+    the defect, the screenshots to read, the repository to change, the rules, and
+    the JSON the fix session must reply with. The orchestrating session therefore
+    holds cluster ids and verdicts rather than findings.
+  - `verify-fix --cluster <id>` re-captures and re-judges only that cluster's
+    routes and rules on the claim: exit 0 passed (backlog adjudicated to fixed
+    with the commit), 1 not fixed (a fresh brief is written carrying what the
+    judge still sees, for a new session), 2 execution error, 3 blocked after
+    exhausting `--max-attempts` (default 2, recorded with a mandatory reason). A
+    fix session never grades its own work.
+  - `backlog plan` re-emits the same dispatch plan from the backlog alone, so
+    resuming a fix loop costs nothing.
+  - `--severity` sets the dispatch floor, critical and high by default.
+
+### Patch Changes
+
+- 5b39339: Key the judge cache by view group instead of by single shot.
+
+  The rubric asks the judge to compare a view's dark/light pair and its
+  form-factor progression, but the cache was keyed on one shot's pixel hash. On a
+  scoped re-check after a fix, the changed shot re-judged while its unchanged
+  partner was served from cache and never entered the batch, so the judge was
+  asked for a comparison with one side missing and quietly stopped filing it. A
+  colour-scheme or responsive finding therefore read as fixed when nothing had
+  been fixed.
+
+  A view group is now one target + platform + route + state across every form
+  factor and scheme; its cache key covers every member's pixel hash, so any member
+  changing re-judges the group whole. Batching treats a view group as atomic: an
+  oversized group ships alone rather than being split across batches. Existing
+  ledger entries miss once and re-warm.
+
 ## 0.2.0
 
 ### Minor Changes
