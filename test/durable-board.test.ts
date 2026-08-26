@@ -87,10 +87,6 @@ function writeState(r: ResolvedConfig, state: ClusterState): void {
   );
 }
 
-function writeBrief(r: ResolvedConfig, id: string): void {
-  writeFileSync(join(r.projectDir, ".lookout", "evidence", "fix", `${id}.md`), "# brief\n");
-}
-
 describe("the board survives a truncated log", () => {
   test("outstanding work is rebuilt from the backlog with no events at all", async () => {
     const r = project();
@@ -100,7 +96,7 @@ describe("the board survives a truncated log", () => {
     const board = await buildBoard(r);
     expect(board).toHaveLength(2);
     expect(board.every((b) => b.shots.length > 0)).toBe(true);
-    expect(tally(board)).toEqual({ queued: 2, working: 0, reported: 0, blocked: 0, done: 0, archived: 0 });
+    expect(tally(board)).toEqual({ open: 2, verifying: 0, blocked: 0, done: 0, archived: 0 });
   });
 
   test("blocked work stays on the board rather than vanishing", async () => {
@@ -110,48 +106,16 @@ describe("the board survives a truncated log", () => {
       finding({ attribute: "target-size", status: "blocked", reason: "upstream", fixAttempts: 3 }),
     ]);
     const board = await buildBoard(r);
-    expect(board.map((b) => b.status).sort()).toEqual(["blocked", "queued"]);
+    expect(board.map((b) => b.status).sort()).toEqual(["blocked", "open"]);
     // Blocked is counted on its own: lookout gave up on it and it still needs
     // fixing, so it must read neither as awaiting a session nor as done.
-    expect(tally(board)).toEqual({ queued: 1, working: 0, reported: 0, blocked: 1, done: 0, archived: 0 });
-  });
-
-  test("a fix session's history outlives the run that recorded it", async () => {
-    const r = project();
-    writeBacklog(r, [finding()]);
-    const id = "app--a11y--contrast";
-    writeBrief(r, id);
-    writeState(r, {
-      id,
-      attempts: [],
-      sessions: [
-        {
-          name: "contrast fixer",
-          startedAt: "2026-01-01T10:00:00.000Z",
-          lastSeenAt: "2026-01-01T10:12:00.000Z",
-          finishedAt: "2026-01-01T10:12:00.000Z",
-          reported: { commit: "abc1234", note: "raised the token" },
-          notes: [
-            { at: "2026-01-01T10:03:00.000Z", text: "opened both screenshots" },
-            { at: "2026-01-01T10:07:00.000Z", text: "the token never reaches the dark palette" },
-          ],
-        },
-      ],
-    });
-    const b = (await buildBoard(r))[0]!;
-    expect(b.status).toBe("reported");
-    expect(b.agent?.name).toBe("contrast fixer");
-    expect(b.agent?.commit).toBe("abc1234");
-    // The whole account is rebuilt from the state file, with no log involved.
-    expect(b.timeline.map((s) => s.kind)).toEqual(["dispatch", "start", "note", "note", "done"]);
-    expect(b.timeline[2]!.text).toBe("opened both screenshots");
+    expect(tally(board)).toEqual({ open: 1, verifying: 0, blocked: 1, done: 0, archived: 0 });
   });
 
   test("a verdict recorded against a cluster survives too", async () => {
     const r = project();
     writeBacklog(r, [finding({ fixAttempts: 1 })]);
     const id = "app--a11y--contrast";
-    writeBrief(r, id);
     writeState(r, {
       id,
       attempts: [
@@ -170,24 +134,34 @@ describe("the board survives a truncated log", () => {
     expect(b.attempt).toBe(1);
   });
 
-  test("work never sent out says so instead of claiming a 1970 dispatch", async () => {
+  test("an issue whose evidence is gone says so instead of inventing a date", async () => {
     const r = project();
     writeBacklog(r, [finding()]);
-    // No brief, no attempt: outstanding, but nobody has ever been given it.
+    // The backlog names a screenshot that is not on disk, so lookout cannot
+    // say how current the finding is. Better to say nothing than to date it.
     const b = (await buildBoard(r))[0]!;
-    expect(b.dispatchedAt).toBeNull();
+    expect(b.lastSeenAt).toBeNull();
     expect(b.timeline).toEqual([]);
+  });
+
+  test("every screenshot carries an absolute path for whoever picks it up", async () => {
+    const r = project();
+    writeBacklog(r, [finding()]);
+    const b = (await buildBoard(r))[0]!;
+    expect(b.shots[0]!.path).toBe("web/app/dash/rest--desktop-dark.png");
+    expect(b.shots[0]!.absPath).toBe(
+      join(r.projectDir, ".lookout/evidence/web/app/dash/rest--desktop-dark.png"),
+    );
   });
 });
 
-describe("the log lays over the board without replacing it", () => {
+describe("the log only marks what is in flight", () => {
   test("a re-judge in flight is the one status only the log knows", async () => {
     const r = project();
     writeBacklog(r, [finding()]);
     const id = "app--a11y--contrast";
-    writeBrief(r, id);
     const log = new EventLog(r, "check-1");
-    log.start("lookout check --auto");
+    log.start("lookout check");
     log.emit("run-end", "done");
     const verify = new EventLog(r, "verify-1");
     verify.join("lookout verify-fix", { cluster: id, verb: "verify-fix" });
@@ -198,42 +172,18 @@ describe("the log lays over the board without replacing it", () => {
     expect(b.shots).toHaveLength(1);
   });
 
-  test("a cluster the backlog has closed still shows while the run is up", async () => {
-    const r = project();
-    writeBacklog(r, []);   // nothing open: the fix landed and closed it
-    const log = new EventLog(r, "check-1");
-    log.start("lookout check --auto");
-    log.emit("dispatch", "dispatch app--a11y--contrast", {
-      id: "app--a11y--contrast",
-      label: "fix a11y/contrast on /dash",
-      routes: ["/dash"],
-      severity: "high",
-      category: "a11y",
-      shots: [],
-    });
-    log.emit("verdict", "passed", {
-      cluster: "app--a11y--contrast",
-      verdict: "passed",
-      attempt: 1,
-    });
-    const board = await buildBoard(r);
-    expect(board.map((b) => b.status)).toEqual(["done"]);
-  });
-
-  test("the log cannot resurrect work the backlog says is settled", async () => {
+  test("a re-judge of a blocked issue does not reopen it", async () => {
     const r = project();
     writeBacklog(r, [finding({ status: "blocked", reason: "upstream bug", fixAttempts: 3 })]);
     const log = new EventLog(r, "check-1");
-    log.start("lookout check --auto");
-    log.emit("dispatch", "dispatch app--a11y--contrast", {
-      id: "app--a11y--contrast",
-      label: "fix a11y/contrast on /dash",
-      routes: ["/dash"],
-      severity: "high",
-      category: "a11y",
-      shots: [],
+    log.start("lookout check");
+    log.emit("run-end", "done");
+    const verify = new EventLog(r, "verify-1");
+    verify.join("lookout verify-fix", {
+      cluster: "app--a11y--contrast",
+      verb: "verify-fix",
     });
-    // The log's dispatch says queued; the backlog says blocked, and it wins.
+    // The backlog says blocked, and it wins over anything in flight.
     expect((await buildBoard(r))[0]!.status).toBe("blocked");
   });
 });

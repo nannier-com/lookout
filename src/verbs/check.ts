@@ -20,12 +20,6 @@ import { list, num, printJson, runId, str, type Parsed } from "../util.js";
 import { runCapture, runContactSheet } from "./capture.js";
 import { sheetNote } from "../capture/sheet.js";
 import { SEVERITIES } from "../judge/rubric.js";
-import { clusterFindings } from "../fix/cluster.js";
-import { writeFixPlan } from "../fix/plan.js";
-import { planPath } from "../fix/state.js";
-import type { FixPlan } from "../fix/brief.js";
-import type { Backlog } from "../backlog/lib.js";
-import { createAutoStreamer, type BatchEvent } from "../fix/stream.js";
 import { emit, EventLog, setCurrentLog } from "../report/events.js";
 
 /** Attempts a cluster gets before `verify-fix` blocks it. */
@@ -54,10 +48,16 @@ export interface RunCheckOptions {
   onStart?: (toJudge: ShotRecord[]) => Promise<void>;
   /**
    * Invoked after each batch is judged AND verified, in order, never
-   * concurrently. This is what lets a caller act on findings while the rest of
-   * the app is still being judged instead of waiting for the slowest batch.
+   * concurrently. Findings are narrated to the event log as they land, so the
+   * UI shows them while the rest of the app is still being judged.
    */
-  onBatch?: (e: BatchEvent) => Promise<void>;
+  onBatch?: (e: {
+    index: number;
+    total: number;
+    shots: ShotRecord[];
+    findings: VerifiedFinding[];
+    shotsById: Map<string, ShotRecord>;
+  }) => Promise<void>;
 }
 
 export async function runCheck(
@@ -271,7 +271,7 @@ export async function runCheck(
   return { outcome, resolved, shotsById, toJudge };
 }
 
-/** The worst-acceptable severity `--auto` dispatches; critical and high by default. */
+/** The worst-acceptable severity a caller cares about; critical and high by default. */
 export function autoSeverity(parsed: Parsed): Severity {
   const raw = str(parsed.flags.severity);
   if (!raw) return "high";
@@ -285,10 +285,7 @@ export function autoSeverity(parsed: Parsed): Severity {
 }
 
 export async function check(parsed: Parsed): Promise<number> {
-  const auto = !!parsed.flags.auto;
   const checkRun = runId("check");
-  const maxAttempts = num(parsed.flags["max-attempts"]) ?? DEFAULT_MAX_ATTEMPTS;
-  const quiet = !!parsed.flags.json || !!parsed.flags.quiet;
 
   // Narrate to disk from the first moment. A run takes minutes and its stdout
   // does not reach the caller until it exits, so `lookout status` and `lookout
@@ -298,68 +295,22 @@ export async function check(parsed: Parsed): Promise<number> {
     url: str(parsed.flags.url),
   });
   const elog = new EventLog(pre, checkRun);
-  elog.start(auto ? "lookout check --auto" : "lookout check", {
+  elog.start("lookout check", {
     project: pre.project,
-    auto,
     targets: str(parsed.flags.targets) ?? null,
     routes: str(parsed.flags.routes) ?? null,
   });
   setCurrentLog(elog);
 
-  // In auto mode the streamer emits as evidence lands: deterministic clusters
-  // before judging even starts, judged clusters as soon as their routes are
-  // done. The session can be spawning fix sessions while the rest of the app
-  // is still being looked at.
-  let streamer: ReturnType<typeof createAutoStreamer> | null = null;
-  if (auto) {
-    if (!pre.configPath) {
-      throw new LookoutError(
-        "--auto needs a project backlog",
-        "run `lookout init` to create .lookout/config.ts; zero-config runs are report-only",
-      );
-    }
-    streamer = createAutoStreamer({
-      resolved: pre,
-      runId: runId("auto"),
-      minSeverity: autoSeverity(parsed),
-      maxAttempts,
-      log: (line) => {
-        if (!quiet) console.log(line);
-      },
-    });
-  }
-
-  const { outcome, resolved, shotsById } = await runCheck(
-    parsed,
-    streamer
-      ? { onStart: (toJudge) => streamer!.start(toJudge), onBatch: (e) => streamer!.onBatch(e) }
-      : {},
-  );
-  const streamed = streamer ? await streamer.finish() : null;
+  const { outcome, resolved, shotsById } = await runCheck(parsed, {});
 
   // Projects with a config file track findings in the backlog automatically;
   // zero-config runs stay report-only (a backlog in a random cwd is noise).
   let backlogNote = "";
-  let backlog: Backlog | null = null;
   if (resolved.configPath) {
     const { mergeLatest } = await import("./backlog.js");
     const merged = await mergeLatest(resolved, { judgeOutcome: outcome });
-    backlog = merged.backlog;
     backlogNote = `backlog: ${merged.added} added, ${merged.reopened} reopened, ${merged.refreshed} refreshed`;
-  }
-
-  // The plan file is the settled record of what was dispatched; the streamer
-  // already printed each cluster as it became dispatchable.
-  let plan: FixPlan | null = null;
-  if (auto && backlog) {
-    plan = await writeFixPlan(
-      resolved,
-      clusterFindings(Object.values(backlog.findings), {
-        minSeverity: autoSeverity(parsed),
-        maxAttempts,
-      }),
-      { runId: outcome.runId, maxAttempts },
-    );
   }
 
   // The session running lookout should be able to look at what lookout looked
@@ -372,17 +323,7 @@ export async function check(parsed: Parsed): Promise<number> {
   const sheet = await runContactSheet(resolved, [...shotsById.values()], findingsByShot);
 
   if (parsed.flags.json) {
-    printJson({ ...outcome, contactSheet: sheet?.path ?? null, ...(plan ? { plan } : {}) });
-  } else if (plan) {
-    console.log(
-      `\nall ${plan.clusters.length} cluster(s) dispatched` +
-        (streamed && streamed.dispatched.length !== plan.clusters.length
-          ? ` (${streamed.dispatched.length} emitted while judging)`
-          : "") +
-        `; plan: ${planPath(resolved)}`,
-    );
-    if (sheet) console.log(`\n${sheetNote(sheet)}`);
-    if (backlogNote) console.log(`\n${backlogNote}`);
+    printJson({ ...outcome, contactSheet: sheet?.path ?? null });
   } else {
     console.log(
       `\n${outcome.shotsConsidered} shot(s): ${outcome.judged} judged, ${outcome.cached} cached; ` +
@@ -404,7 +345,6 @@ export async function check(parsed: Parsed): Promise<number> {
   emit("run-end", `${outcome.findings.length} finding(s); ~$${outcome.costUsd}`, {
     findings: outcome.findings.length,
     costUsd: outcome.costUsd,
-    clusters: plan?.clusters.length ?? 0,
   });
   setCurrentLog(null);
   return outcome.findings.length > 0 || outcome.deterministicErrors > 0 ? 1 : 0;

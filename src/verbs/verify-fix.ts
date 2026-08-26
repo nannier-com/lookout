@@ -15,7 +15,6 @@
  */
 import { loadConfig } from "../config.js";
 import { clusterFindings, clusterIdOf, clusterScope, type FixCluster } from "../fix/cluster.js";
-import { writeBrief } from "../fix/plan.js";
 import { loadState, saveState } from "../fix/state.js";
 import { ruleVerdict, type Verdict } from "../fix/rule.js";
 import { aiToFindings, deterministicToFindings, setStatus, type Backlog } from "../backlog/lib.js";
@@ -49,7 +48,7 @@ function findCluster(backlog: Backlog, id: string): FixCluster | undefined {
 export async function verifyFix(parsed: Parsed): Promise<number> {
   const clusterId = str(parsed.flags.cluster) ?? parsed.positionals[0];
   if (!clusterId) {
-    throw new LookoutError("verify-fix needs --cluster <id>", "ids come from `lookout check --auto`");
+    throw new LookoutError("verify-fix needs --cluster <id>", "ids come from `lookout status` or the UI");
   }
   const maxAttempts = num(parsed.flags["max-attempts"]) ?? DEFAULT_MAX_ATTEMPTS;
 
@@ -180,7 +179,6 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
 
   const backlog = merged.backlog;
   const runIdNow = outcome.runId;
-  let briefPathOut: string | null = null;
 
   if (verdict === "passed") {
     for (const fp of cluster.fingerprints) {
@@ -221,15 +219,10 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
   });
   await saveState(resolved, state);
 
-  if (verdict === "still-open" || verdict === "regressed") {
-    const next = findCluster(backlog, clusterId);
-    if (next) briefPathOut = await writeBrief(resolved, next, maxAttempts);
-  }
-
   emit(
     "verdict",
     `${clusterId}: ${verdict} (attempt ${attempt} of ${maxAttempts})`,
-    { cluster: clusterId, verdict, attempt, maxAttempts, judgeNote, brief: briefPathOut },
+    { cluster: clusterId, verdict, attempt, maxAttempts, judgeNote },
     verdict === "passed" ? "info" : "error",
   );
   const exit = verdict === "passed" ? 0 : verdict === "blocked" ? 3 : 1;
@@ -243,14 +236,13 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
     regressions: regressions.map((f) => f.title),
     judgeNote: judgeNote || null,
     commit: reportedCommit ?? null,
-    brief: briefPathOut,
     contactSheet: sheet?.path ?? null,
     next:
       verdict === "passed"
-        ? "confirmed and adjudicated; move to the next cluster"
+        ? "confirmed and adjudicated; the finding is closed"
         : verdict === "blocked"
-          ? "attempts exhausted; stop dispatching this cluster and report it"
-          : "dispatch a NEW fix session on the brief above",
+          ? "attempts exhausted; this one needs a person"
+          : "the defect is still there; the finding stays open",
     costUsd: outcome.costUsd,
   };
 
@@ -260,7 +252,6 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
     console.log(
       `\n${clusterId}: ${verdict} (attempt ${attempt} of ${maxAttempts})` +
         (judgeNote ? `\n  judge: ${judgeNote}` : "") +
-        (briefPathOut ? `\n  next brief: ${briefPathOut}` : "") +
         `\n  ${payload.next}`,
     );
     if (sheet) console.log(`\n${sheetNote(sheet)}`);

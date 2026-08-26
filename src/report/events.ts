@@ -33,10 +33,6 @@ export type EventKind =
   | "judge-start"
   | "batch"
   | "finding"
-  | "dispatch"
-  | "agent-start"
-  | "agent-note"
-  | "agent-done"
   | "verdict"
   | "note"
   | "error"
@@ -50,10 +46,6 @@ const STRUCTURAL: ReadonlySet<EventKind> = new Set<EventKind>([
   "run-start",
   "shot",
   "finding",
-  "dispatch",
-  "agent-start",
-  "agent-note",
-  "agent-done",
   "verdict",
   "run-end",
 ]);
@@ -232,10 +224,12 @@ export function readEvents(resolved: ResolvedConfig): LookoutEvent[] {
  * run reports them, so a harness that never reports leaves a card at `queued`
  * rather than lying about it.
  */
-export type AgentStatus =
-  | "queued"
-  | "working"
-  | "reported"
+/**
+ * Where an issue stands. lookout does not dispatch work, so nothing here says
+ * who is on it; these are only states lookout itself established.
+ */
+export type IssueStatus =
+  | "open"
   | "verifying"
   | "still-open"
   | "regressed"
@@ -269,7 +263,7 @@ export interface BoardAgent {
 export interface BoardStep {
   at: string;
   /** Coarse type, so the UI can mark lookout's own rulings apart from an agent's. */
-  kind: "dispatch" | "start" | "note" | "done" | "verify" | "verdict";
+  kind: "found" | "claimed" | "verify" | "verdict";
   text: string;
 }
 
@@ -289,7 +283,7 @@ export interface BoardEntry {
   /** When the work went out, or null when it has never been dispatched. */
   dispatchedAt: string | null;
   amended: boolean;
-  status: AgentStatus;
+  status: IssueStatus;
   agent: BoardAgent | null;
   /**
    * Everything that has happened to this cluster, oldest first: dispatch, the
@@ -305,293 +299,90 @@ export interface BoardEntry {
 
 export interface RunStatus {
   runId: string | null;
+  phase: string;
+  running: boolean;
+  startedAt: string | null;
+  endedAt: string | null;
   /**
    * When the run last said anything. A process that dies without emitting
    * `run-end` leaves `running` true forever, and lookout cannot see that it
    * died; callers compare this against the clock to tell live from abandoned.
    */
   lastEventAt: string | null;
-  /** The run that defined the board, which later runs report against. */
-  boardRunId: string | null;
-  phase: string;
-  running: boolean;
-  startedAt: string | null;
-  endedAt: string | null;
   shots: number;
   findings: { critical: number; high: number; medium: number; low: number; total: number };
   batches: { done: number; total: number };
-  board: BoardEntry[];
-  /** Counts by board status, so a caller can render a summary without folding. */
-  agents: { queued: number; working: number; reported: number; resolved: number };
-  dispatched: { id: string; label: string; brief: string; routes: string[] }[];
-  verdicts: { cluster: string; verdict: string; attempt: number }[];
   errors: string[];
   lastMessage: string;
 }
 
-function shotOf(data: Record<string, unknown> | undefined): BoardShot | null {
-  const path = typeof data?.path === "string" ? data.path : null;
-  if (!path) return null;
-  return {
-    path,
-    route: String(data?.route ?? ""),
-    formFactor: String(data?.formFactor ?? ""),
-    scheme: String(data?.scheme ?? ""),
-    ...(typeof data?.state === "string" ? { state: data.state } : {}),
-  };
-}
-
-function dedupeShots(shots: BoardShot[]): BoardShot[] {
-  const seen = new Set<string>();
-  const out: BoardShot[] = [];
-  for (const s of shots) {
-    if (seen.has(s.path)) continue;
-    seen.add(s.path);
-    out.push(s);
-  }
-  return out;
-}
-
-const RESOLVED: ReadonlySet<AgentStatus> = new Set<AgentStatus>([
-  "done",
-  "blocked",
-  "archived",
-]);
-
 /**
- * Read top to bottom, this is "what needs a person now" before "what is
- * already dealt with". Blocked sits above done and archived because lookout
- * gave up on it and the defect is still there.
+ * Fold the log into the answer to "what is lookout doing right now".
+ *
+ * Only that. What issues exist is a question for the backlog, which outlives
+ * any run; this describes the run in flight and nothing else.
  */
-export const ORDER_BY_ATTENTION: Record<AgentStatus, number> = {
-  working: 0,
-  reported: 1,
-  verifying: 2,
-  regressed: 3,
-  "still-open": 4,
-  queued: 5,
-  blocked: 6,
-  done: 7,
-  archived: 8,
-};
-
-/** Steps kept per cluster. A chatty session must not grow the board unboundedly. */
-const MAX_STEPS = 200;
-
-function step(entry: BoardEntry | undefined, at: string, kind: BoardStep["kind"], text: string): void {
-  if (!entry || !text) return;
-  entry.timeline.push({ at, kind, text });
-  if (entry.timeline.length > MAX_STEPS) entry.timeline.splice(0, entry.timeline.length - MAX_STEPS);
-}
-
-/** Fold the log into the answer to "what is lookout doing right now". */
 export function summarise(events: LookoutEvent[]): RunStatus {
   const s: RunStatus = {
     runId: null,
-    lastEventAt: null,
-    boardRunId: null,
     phase: "idle",
     running: false,
     startedAt: null,
     endedAt: null,
+    lastEventAt: null,
     shots: 0,
     findings: { critical: 0, high: 0, medium: 0, low: 0, total: 0 },
     batches: { done: 0, total: 0 },
-    board: [],
-    agents: { queued: 0, working: 0, reported: 0, resolved: 0 },
-    dispatched: [],
-    verdicts: [],
     errors: [],
     lastMessage: "",
   };
 
-  const board = new Map<string, BoardEntry>();
-  // The run currently being read. `cluster` is set for runs that report against
-  // one board row, which is how a re-check's screenshots find their card.
-  let run: { id: string; isBoard: boolean; cluster: string | null } = {
-    id: "",
-    isBoard: false,
-    cluster: null,
-  };
+  let isBoardRun = false;
+  let seenFirstRun = false;
 
   for (const e of events) {
     s.runId = e.runId;
     s.lastEventAt = e.at;
     s.lastMessage = e.message;
-    const cid = typeof e.data?.cluster === "string" ? e.data.cluster : null;
 
     switch (e.kind) {
       case "run-start": {
-        // The first run in the file is the one that defined the board; the
-        // headline counts describe it, so a re-check of one cluster does not
+        // The first run in the file is the capture that produced the evidence;
+        // the headline counts describe it, so a re-check of one issue does not
         // inflate "12 shots" into "14".
-        const isBoard = s.boardRunId === null;
-        if (isBoard) {
-          s.boardRunId = e.runId;
+        isBoardRun = !seenFirstRun;
+        if (isBoardRun) {
+          seenFirstRun = true;
           s.startedAt = e.at;
+          s.phase = "starting";
+        } else if (typeof e.data?.cluster === "string" && e.data.verb === "verify-fix") {
+          s.phase = `re-judging ${e.data.cluster}`;
         }
-        // Both `verify-fix` and `agent` name the cluster they are about, but
-        // only one of them is re-judging it. An agent reporting a heartbeat
-        // must not read as lookout ruling on the fix.
-        const verifying = e.data?.verb === "verify-fix";
-        run = { id: e.runId, isBoard, cluster: verifying ? cid : null };
         s.running = true;
         s.endedAt = null;
-        s.phase = isBoard ? "starting" : verifying && cid ? `re-judging ${cid}` : s.phase;
-        if (verifying && cid) {
-          const entry = board.get(cid);
-          if (entry && !RESOLVED.has(entry.status)) {
-            entry.status = "verifying";
-            entry.recheck = [];
-          }
-          step(entry, e.at, "verify", "lookout is re-judging this cluster");
-        }
         break;
       }
       case "phase":
         s.phase = e.message;
         break;
-      case "shot": {
-        if (run.isBoard) s.shots++;
-        const shot = shotOf(e.data);
-        // A re-check runs under a cluster's own run, so its screenshots are
-        // that card's "after"; they are the freshest thing lookout has seen of
-        // the thing this agent is working on.
-        if (shot && run.cluster) {
-          const entry = board.get(run.cluster);
-          if (entry) entry.recheck = dedupeShots([...entry.recheck, shot]);
-        }
+      case "shot":
+        if (isBoardRun) s.shots++;
         break;
-      }
       case "capture-done":
-        if (run.isBoard) s.phase = "captured";
+        if (isBoardRun) s.phase = "captured";
         break;
       case "judge-start":
         s.phase = "judging";
-        if (run.isBoard) s.batches.total = Number(e.data?.batches ?? 0);
+        if (isBoardRun) s.batches.total = Number(e.data?.batches ?? 0);
         break;
       case "batch":
-        if (run.isBoard) s.batches.done++;
+        if (isBoardRun) s.batches.done++;
         break;
       case "finding": {
-        if (!run.isBoard) break;
+        if (!isBoardRun) break;
         const sev = (e.data?.severity as keyof RunStatus["findings"]) ?? "low";
         if (sev in s.findings) s.findings[sev]++;
         s.findings.total++;
-        break;
-      }
-      case "dispatch": {
-        const id = String(e.data?.id ?? "");
-        if (!id) break;
-        const shots = dedupeShots(
-          ((e.data?.shots as Record<string, unknown>[] | undefined) ?? [])
-            .map(shotOf)
-            .filter((v): v is BoardShot => v !== null),
-        );
-        const prior = board.get(id);
-        // A dispatch is work nobody has picked up, including an amendment that
-        // supersedes a session already running on a narrower brief.
-        board.set(id, {
-          id,
-          label: String(e.data?.label ?? id),
-          brief: String(e.data?.brief ?? ""),
-          sheet: typeof e.data?.sheet === "string" ? e.data.sheet : null,
-          routes: (e.data?.routes as string[]) ?? [],
-          severity: String(e.data?.severity ?? ""),
-          category: String(e.data?.category ?? ""),
-          shots: shots.length > 0 ? shots : (prior?.shots ?? []),
-          recheck: prior?.recheck ?? [],
-          dispatchedAt: e.at,
-          amended: e.data?.amended === true,
-          status: "queued",
-          agent: null,
-          timeline: prior?.timeline ?? [],
-          attempt: prior?.attempt ?? 0,
-          verdict: null,
-          judgeNote: null,
-        });
-        step(
-          board.get(id),
-          e.at,
-          "dispatch",
-          e.data?.amended === true
-            ? "re-dispatched: the cluster grew after it was first sent out"
-            : "dispatched by lookout",
-        );
-        break;
-      }
-      case "agent-start": {
-        const entry = cid ? board.get(cid) : undefined;
-        if (!entry) break;
-        entry.status = "working";
-        entry.agent = {
-          name: String(e.data?.name ?? entry.label),
-          startedAt: e.at,
-          lastSeenAt: e.at,
-          finishedAt: null,
-          commit: null,
-          note: null,
-          notes: [],
-        };
-        step(entry, e.at, "start", `${entry.agent.name} picked this up`);
-        break;
-      }
-      case "agent-note": {
-        const entry = cid ? board.get(cid) : undefined;
-        if (!entry?.agent) break;
-        entry.agent.lastSeenAt = e.at;
-        entry.agent.notes.push({ at: e.at, text: e.message });
-        step(entry, e.at, "note", e.message);
-        break;
-      }
-      case "agent-done": {
-        const entry = cid ? board.get(cid) : undefined;
-        if (!entry) break;
-        const name = String(e.data?.name ?? entry.agent?.name ?? entry.label);
-        entry.status = "reported";
-        entry.agent = {
-          name,
-          startedAt: entry.agent?.startedAt ?? e.at,
-          lastSeenAt: e.at,
-          finishedAt: e.at,
-          commit: typeof e.data?.commit === "string" ? e.data.commit : null,
-          note: typeof e.data?.note === "string" ? e.data.note : null,
-          notes: entry.agent?.notes ?? [],
-        };
-        step(
-          entry,
-          e.at,
-          "done",
-          "reported back" +
-            (entry.agent.commit ? ` at ${entry.agent.commit}` : "") +
-            (entry.agent.note ? `: ${entry.agent.note}` : ""),
-        );
-        break;
-      }
-      case "verdict": {
-        const verdict = String(e.data?.verdict ?? "");
-        s.verdicts.push({
-          cluster: String(e.data?.cluster ?? ""),
-          verdict,
-          attempt: Number(e.data?.attempt ?? 0),
-        });
-        const entry = cid ? board.get(cid) : undefined;
-        if (!entry) break;
-        entry.verdict = verdict;
-        entry.attempt = Number(e.data?.attempt ?? entry.attempt);
-        entry.judgeNote = typeof e.data?.judgeNote === "string" ? e.data.judgeNote : null;
-        // The verdict is lookout's ruling and keeps its own word; the card's
-        // status describes the work, and work that passed is done.
-        if (verdict === "passed") entry.status = "done";
-        else if (verdict === "still-open" || verdict === "regressed" || verdict === "blocked") {
-          entry.status = verdict;
-        }
-        step(
-          entry,
-          e.at,
-          "verdict",
-          `lookout ruled it ${verdict}` + (entry.judgeNote ? `: ${entry.judgeNote}` : ""),
-        );
         break;
       }
       case "error":
@@ -600,34 +391,9 @@ export function summarise(events: LookoutEvent[]): RunStatus {
       case "run-end":
         s.endedAt = e.at;
         s.running = false;
-        s.phase = run.isBoard ? "done" : s.phase;
+        if (isBoardRun) s.phase = "done";
         break;
     }
   }
-
-  // Worst first, and within a status the oldest dispatch first, so a board read
-  // top to bottom is "what needs a session now" before "what is already ruled".
-  const ORDER: Record<AgentStatus, number> = ORDER_BY_ATTENTION;
-  s.board = [...board.values()].sort(
-    (a, b) =>
-      ORDER[a.status] - ORDER[b.status] ||
-      (a.dispatchedAt ?? "").localeCompare(b.dispatchedAt ?? ""),
-  );
-
-  for (const e of s.board) {
-    if (e.status === "working" || e.status === "verifying") s.agents.working++;
-    else if (e.status === "reported") s.agents.reported++;
-    else if (RESOLVED.has(e.status)) s.agents.resolved++;
-    else s.agents.queued++;
-  }
-
-  // Kept for callers that only ever needed the flat pair.
-  s.dispatched = s.board.map((e) => ({
-    id: e.id,
-    label: e.label,
-    brief: e.brief,
-    routes: e.routes,
-  }));
-
   return s;
 }

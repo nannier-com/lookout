@@ -16,52 +16,24 @@ import type { Verdict } from "./rule.js";
 export interface AttemptRecord {
   n: number;
   dispatchedAt: string;
-  /** Relayed from the fix session by the orchestrator. */
+  /** What the person or tool that made the change reported. */
   reported?: { commit?: string; note?: string };
   verdict?: Verdict;
   /** What the judge still saw when this attempt was ruled on. */
   judgeNote?: string;
 }
 
-/**
- * One fix session's stint on a cluster, as reported by the session driving the
- * run. lookout cannot see a subagent start or finish, so a stint exists only
- * because somebody said so; an unreported cluster simply has none, and the
- * board shows it as queued rather than inventing a state for it.
- */
-export interface AgentSession {
-  /** The name the run announced, normally the cluster's label. */
-  name: string;
-  startedAt: string;
-  /** Last time this session said anything: how slow is told from stalled. */
-  lastSeenAt: string;
-  finishedAt?: string;
-  /** What the session reported when it finished. */
-  reported?: { commit?: string; note?: string };
-  notes: { at: string; text: string }[];
-}
-
 export interface ClusterState {
   id: string;
   attempts: AttemptRecord[];
-  /** Fix sessions that have worked this cluster, oldest first. */
-  sessions?: AgentSession[];
 }
 
 export function fixDir(resolved: ResolvedConfig): string {
   return join(evidenceDir(resolved), "fix");
 }
 
-export function briefPath(resolved: ResolvedConfig, clusterId: string): string {
-  return join(fixDir(resolved), `${clusterId}.md`);
-}
-
 export function statePath(resolved: ResolvedConfig, clusterId: string): string {
   return join(fixDir(resolved), `${clusterId}.state.json`);
-}
-
-export function planPath(resolved: ResolvedConfig): string {
-  return join(fixDir(resolved), "PLAN.json");
 }
 
 export async function loadState(

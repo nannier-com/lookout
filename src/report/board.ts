@@ -19,25 +19,97 @@
  */
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { evidenceDir } from "../config.js";
 import { clusterFindings, clusterIdOf, type FixCluster } from "../fix/cluster.js";
 import { clusterLabel } from "../fix/brief.js";
-import { briefPath, fixDir, loadState, type ClusterState } from "../fix/state.js";
+import { fixDir, loadState, type ClusterState } from "../fix/state.js";
 import { loadBacklog } from "../verbs/backlog.js";
 import type { FindingStatus } from "../backlog/lib.js";
 import type { ResolvedConfig, Severity } from "../types.js";
-import {
-  ORDER_BY_ATTENTION,
-  readEvents,
-  summarise,
-  type AgentStatus,
-  type BoardEntry,
-  type BoardShot,
-  type BoardStep,
-  type LookoutEvent,
-} from "./events.js";
+import { readEvents, type LookoutEvent } from "./events.js";
 
-/** Screenshots a cluster was filed against, evidence-relative, newest per member. */
-function shotsOf(c: FixCluster): BoardShot[] {
+/**
+ * Where an issue stands. Every state is one lookout established itself: the
+ * backlog says open, blocked, fixed or waived, and `verify-fix` says what it
+ * saw last time it was asked to rule. Nothing here tracks who is working on
+ * it, because lookout does not dispatch work and cannot know.
+ */
+export type IssueStatus =
+  | "open"
+  | "verifying"
+  | "still-open"
+  | "regressed"
+  | "blocked"
+  /** lookout confirmed the defect is gone. */
+  | "done"
+  /** Adjudicated as intentional, kept as record rather than as work. */
+  | "archived";
+
+/**
+ * Read top to bottom, this is "what needs a person now" before "what is already
+ * dealt with". Blocked sits above done and archived because lookout gave up on
+ * it and the defect is still there.
+ */
+export const ORDER_BY_ATTENTION: Record<IssueStatus, number> = {
+  verifying: 0,
+  regressed: 1,
+  "still-open": 2,
+  open: 3,
+  blocked: 4,
+  done: 5,
+  archived: 6,
+};
+
+/**
+ * A screenshot, as the page needs it.
+ *
+ * Both forms of the path are carried on purpose. `path` is evidence-relative
+ * because that is what the server serves thumbnails from; `absPath` is what
+ * gets shown and copied, because whoever picks this issue up needs a path they
+ * can open without knowing where lookout keeps its evidence.
+ */
+export interface BoardShot {
+  path: string;
+  absPath: string;
+  route: string;
+  formFactor: string;
+  scheme: string;
+  state?: string;
+}
+
+/** One line in lookout's record of an issue. */
+export interface BoardStep {
+  at: string;
+  kind: "found" | "claimed" | "verify" | "verdict";
+  text: string;
+}
+
+export interface BoardEntry {
+  id: string;
+  label: string;
+  /** The issue's contact sheet, absolute, when one was composited. */
+  sheet: string | null;
+  routes: string[];
+  severity: string;
+  category: string;
+  /** The screenshots this issue was filed against. */
+  shots: BoardShot[];
+  /** What the most recent `verify-fix` saw afterwards. */
+  recheck: BoardShot[];
+  /** When lookout last saw this, or null when it cannot tell. */
+  lastSeenAt: string | null;
+  status: IssueStatus;
+  /** Everything lookout has recorded about it, oldest first. */
+  timeline: BoardStep[];
+  /** Attempts spent asking lookout to rule on a claimed fix. */
+  attempt: number;
+  verdict: string | null;
+  judgeNote: string | null;
+}
+
+/** Screenshots an issue was filed against, newest per member, both path forms. */
+function shotsOf(resolved: ResolvedConfig, c: FixCluster): BoardShot[] {
+  const evDir = evidenceDir(resolved);
   const seen = new Set<string>();
   const out: BoardShot[] = [];
   for (const m of c.members) {
@@ -46,6 +118,7 @@ function shotsOf(c: FixCluster): BoardShot[] {
     seen.add(ev.path);
     out.push({
       path: ev.path,
+      absPath: join(evDir, ev.path),
       route: m.route,
       formFactor: m.formFactor,
       scheme: m.scheme,
@@ -56,12 +129,15 @@ function shotsOf(c: FixCluster): BoardShot[] {
 }
 
 /**
- * Where a cluster stands according to disk alone. `verifying` is deliberately
- * absent: a re-judge in flight is the one thing only the live log knows, and
- * claiming it from a stale state file would say lookout is looking when it is
- * not.
+ * Where an issue stands.
+ *
+ * Every state here is something lookout itself established: the backlog says
+ * whether the finding is open, blocked, fixed or waived, and `verify-fix` says
+ * what happened the last time somebody asked it to rule. Nothing here tracks
+ * who is working on it, because lookout does not dispatch work and has no way
+ * to know.
  */
-function durableStatus(c: FixCluster, state: ClusterState): AgentStatus {
+function durableStatus(c: FixCluster, state: ClusterState): IssueStatus {
   // Precedence is by how much attention it still wants: anything still open is
   // live work, then work lookout gave up on, then work it confirmed fixed, and
   // last the findings somebody adjudicated as intentional.
@@ -72,46 +148,32 @@ function durableStatus(c: FixCluster, state: ClusterState): AgentStatus {
     return "archived";
   }
   const lastAttempt = state.attempts[state.attempts.length - 1];
-  const sessions = state.sessions ?? [];
-  const lastSession = sessions[sessions.length - 1];
-  // A session opened after the last ruling supersedes it: somebody is having
-  // another go at a cluster that was handed back.
-  const sessionIsNewer =
-    lastSession !== undefined &&
-    (lastAttempt === undefined || lastSession.startedAt > lastAttempt.dispatchedAt);
-  if (sessionIsNewer) return lastSession.finishedAt ? "reported" : "working";
   if (lastAttempt?.verdict === "still-open" || lastAttempt?.verdict === "regressed") {
     return lastAttempt.verdict;
   }
   if (lastAttempt?.verdict === "blocked") return "blocked";
-  if (lastSession) return lastSession.finishedAt ? "reported" : "working";
-  return "queued";
+  return "open";
 }
 
-/** Rebuild a cluster's account of itself from the state file, not the log. */
-function durableTimeline(
-  c: FixCluster,
-  state: ClusterState,
-  dispatchedAt: string | null,
-): BoardStep[] {
-  const steps: BoardStep[] = dispatchedAt
-    ? [{ at: dispatchedAt, kind: "dispatch", text: "dispatched by lookout" }]
+/**
+ * What lookout has recorded about this issue: when it first saw it, and every
+ * time it was asked to rule on a claimed fix.
+ */
+function durableTimeline(state: ClusterState, foundAt: string | null): BoardStep[] {
+  const steps: BoardStep[] = foundAt
+    ? [{ at: foundAt, kind: "found", text: "lookout filed this issue" }]
     : [];
-  for (const s of state.sessions ?? []) {
-    steps.push({ at: s.startedAt, kind: "start", text: `${s.name} picked this up` });
-    for (const n of s.notes) steps.push({ at: n.at, kind: "note", text: n.text });
-    if (s.finishedAt) {
+  for (const a of state.attempts) {
+    if (a.reported?.commit || a.reported?.note) {
       steps.push({
-        at: s.finishedAt,
-        kind: "done",
+        at: a.dispatchedAt,
+        kind: "claimed",
         text:
-          "reported back" +
-          (s.reported?.commit ? ` at ${s.reported.commit}` : "") +
-          (s.reported?.note ? `: ${s.reported.note}` : ""),
+          "a fix was reported" +
+          (a.reported.commit ? ` at ${a.reported.commit}` : "") +
+          (a.reported.note ? `: ${a.reported.note}` : ""),
       });
     }
-  }
-  for (const a of state.attempts) {
     if (!a.verdict) continue;
     steps.push({
       at: a.dispatchedAt,
@@ -123,67 +185,67 @@ function durableTimeline(
 }
 
 /**
- * When this cluster first became work: the earliest thing anybody recorded
- * about it. The brief's mtime alone is not enough, because `verify-fix`
- * rewrites the brief when it hands a cluster back, which would move the
- * dispatch to after the session that already worked it.
- *
- * Null when nothing has been recorded at all: the finding is outstanding but
- * has never actually been sent to anybody. Faking an epoch here put
- * "dispatched 496604h06m" on the card.
+ * When lookout last saw this issue: the mtime of the newest screenshot it was
+ * filed against. There is no dispatch to date it by any more, and "last seen"
+ * is the honest thing anyway, since a finding is only as current as the capture
+ * that produced it.
  */
-function dispatchedAtOf(
-  resolved: ResolvedConfig,
-  c: FixCluster,
-  state: ClusterState,
-): string | null {
-  const candidates: string[] = [];
-  try {
-    const brief = briefPath(resolved, c.id);
-    if (existsSync(brief)) candidates.push(new Date(statSync(brief).mtimeMs).toISOString());
-  } catch {
-    // An unreadable brief is not fatal; the records below still date it.
+function lastSeenAt(resolved: ResolvedConfig, c: FixCluster, state: ClusterState): string | null {
+  const evDir = evidenceDir(resolved);
+  let newest: number | null = null;
+  for (const m of c.members) {
+    const ev = m.evidence[m.evidence.length - 1];
+    if (!ev) continue;
+    try {
+      const t = statSync(join(evDir, ev.path)).mtimeMs;
+      if (newest === null || t > newest) newest = t;
+    } catch {
+      // A screenshot that has been cleaned up does not date the issue.
+    }
   }
-  const firstAttempt = state.attempts[0];
-  if (firstAttempt) candidates.push(firstAttempt.dispatchedAt);
-  const firstSession = (state.sessions ?? [])[0];
-  if (firstSession) candidates.push(firstSession.startedAt);
-  return candidates.length > 0 ? candidates.sort()[0]! : null;
+  if (newest !== null) return new Date(newest).toISOString();
+  return state.attempts[0]?.dispatchedAt ?? null;
 }
 
 /**
- * The cluster a `verify-fix` is judging this second, if one is.
+ * The issue a `verify-fix` is judging this second, if one is, and everything
+ * that run has said about it so far.
  *
- * Read from the events directly rather than from the folded board, because the
- * fold only knows a cluster it saw dispatched, and a log truncated by a plain
- * `check` carries no dispatches at all. The run is in flight while its
- * run-start has no matching run-end.
+ * Read from the events directly rather than from a fold, because a log
+ * truncated by a plain `check` carries nothing else to attach to. The run is in
+ * flight while its run-start has no matching run-end.
  */
-function verifyingNow(events: LookoutEvent[]): string | null {
+function liveVerify(events: LookoutEvent[]): { cluster: string | null; steps: BoardStep[] } {
   let cluster: string | null = null;
   let runId: string | null = null;
+  let steps: BoardStep[] = [];
   for (const e of events) {
     if (e.kind === "run-start" && e.data?.verb === "verify-fix") {
       cluster = typeof e.data.cluster === "string" ? e.data.cluster : null;
       runId = e.runId;
-    } else if (e.kind === "run-end" && e.runId === runId) {
+      steps = [{ at: e.at, kind: "verify", text: "lookout started re-judging this" }];
+      continue;
+    }
+    if (e.runId !== runId) continue;
+    if (e.kind === "run-end") {
       cluster = null;
       runId = null;
+      steps = [];
+      continue;
+    }
+    // The feed tails a run in progress, so anything it says belongs on it.
+    if (e.kind === "phase") steps.push({ at: e.at, kind: "verify", text: e.message });
+    else if (e.kind === "shot") {
+      steps.push({ at: e.at, kind: "verify", text: `re-captured ${e.message}` });
+    } else if (e.kind === "finding") {
+      steps.push({ at: e.at, kind: "verdict", text: `still sees ${e.message}` });
+    } else if (e.kind === "verdict") {
+      steps.push({ at: e.at, kind: "verdict", text: e.message });
+    } else if (e.kind === "error") {
+      steps.push({ at: e.at, kind: "verdict", text: e.message });
     }
   }
-  return cluster;
-}
-
-function mergeSteps(a: BoardStep[], b: BoardStep[]): BoardStep[] {
-  const seen = new Set<string>();
-  const out: BoardStep[] = [];
-  for (const s of [...a, ...b].sort((x, y) => x.at.localeCompare(y.at))) {
-    const key = `${s.at}|${s.kind}|${s.text}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(s);
-  }
-  return out;
+  return { cluster, steps };
 }
 
 /**
@@ -206,35 +268,20 @@ export async function buildBoard(
     clusters.map(async (c): Promise<BoardEntry> => {
       const state = await loadState(resolved, c.id);
       const sheet = join(fixDir(resolved), `${c.id}.sheet.png`);
-      const dispatchedAt = dispatchedAtOf(resolved, c, state);
-      const sessions = state.sessions ?? [];
-      const last = sessions[sessions.length - 1];
+      const seen = lastSeenAt(resolved, c, state);
       const lastAttempt = state.attempts[state.attempts.length - 1];
       return {
         id: c.id,
         label: clusterLabel(c),
-        brief: briefPath(resolved, c.id),
         sheet: existsSync(sheet) ? sheet : null,
         routes: c.routes,
         severity: c.severity,
         category: c.category,
-        shots: shotsOf(c),
+        shots: shotsOf(resolved, c),
         recheck: [],
-        dispatchedAt,
-        amended: false,
+        lastSeenAt: seen,
         status: durableStatus(c, state),
-        agent: last
-          ? {
-              name: last.name,
-              startedAt: last.startedAt,
-              lastSeenAt: last.lastSeenAt,
-              finishedAt: last.finishedAt ?? null,
-              commit: last.reported?.commit ?? null,
-              note: last.reported?.note ?? null,
-              notes: last.notes,
-            }
-          : null,
-        timeline: durableTimeline(c, state, dispatchedAt),
+        timeline: durableTimeline(state, seen),
         attempt: c.attemptsSpent,
         verdict: lastAttempt?.verdict ?? null,
         judgeNote: lastAttempt?.judgeNote ?? null,
@@ -243,43 +290,24 @@ export async function buildBoard(
   );
 
   const evts = events ?? readEvents(resolved);
-  const live = summarise(evts).board;
   const byId = new Map(durable.map((e) => [e.id, e]));
 
-  // A re-judge in flight is the one thing disk cannot know.
-  const verifying = verifyingNow(evts);
-  const beingVerified = verifying ? byId.get(verifying) : undefined;
-  if (beingVerified && beingVerified.status !== "blocked") beingVerified.status = "verifying";
-
-  for (const l of live) {
-    const d = byId.get(l.id);
-    if (!d) {
-      // Live knows about a cluster the backlog no longer lists: it passed, and
-      // its findings are closed. Worth showing while the run is still up.
-      byId.set(l.id, l);
-      continue;
-    }
-    // Disk is authoritative for what the work IS. The log is authoritative only
-    // for what is happening this second: a re-judge in flight, a verdict that
-    // has not been written back yet, and re-check screenshots.
-    if (l.status === "verifying" || l.status === "done") d.status = l.status;
-    if (l.recheck.length > 0) d.recheck = l.recheck;
-    if (l.verdict) {
-      d.verdict = l.verdict;
-      d.judgeNote = l.judgeNote ?? d.judgeNote;
-    }
-    if (l.amended) d.amended = true;
-    d.timeline = mergeSteps(d.timeline, l.timeline);
+  // The one thing disk cannot know: lookout is re-judging this issue right now,
+  // and what it has said while doing it. The card's record tails that live.
+  const live = liveVerify(evts);
+  const beingVerified = live.cluster ? byId.get(live.cluster) : undefined;
+  if (beingVerified) {
+    if (beingVerified.status !== "blocked") beingVerified.status = "verifying";
+    beingVerified.timeline = [...beingVerified.timeline, ...live.steps];
   }
 
   const ORDER = ORDER_BY_ATTENTION;
   return [...byId.values()].sort(
     (a, b) =>
       ORDER[a.status] - ORDER[b.status] ||
-      // Never dispatched sorts last within its status: it is work nobody has
-      // been given yet, rather than work somebody is sitting on.
-      Number(a.dispatchedAt === null) - Number(b.dispatchedAt === null) ||
-      (a.dispatchedAt ?? "").localeCompare(b.dispatchedAt ?? ""),
+      // Undated sorts last within a status: lookout cannot say how current it is.
+      Number(a.lastSeenAt === null) - Number(b.lastSeenAt === null) ||
+      (b.lastSeenAt ?? "").localeCompare(a.lastSeenAt ?? ""),
   );
 }
 
@@ -304,6 +332,8 @@ export interface BoardFinding {
   formFactor: string;
   scheme: string;
   path: string | null;
+  /** Absolute, for whoever has to go and open it. */
+  absPath: string | null;
   verified: boolean;
   /** The cluster this finding is dispatched under. */
   cluster: string;
@@ -314,6 +344,7 @@ const SEVERITY_RANK: Record<Severity, number> = { critical: 0, high: 1, medium: 
 /** Everything still outstanding, worst first. */
 export async function durableFindings(resolved: ResolvedConfig): Promise<BoardFinding[]> {
   const backlog = await loadBacklog(resolved);
+  const evDir = evidenceDir(resolved);
   const out: BoardFinding[] = [];
   for (const f of Object.values(backlog.findings)) {
     // Every status, including the settled ones: the page needs them to offer
@@ -331,6 +362,7 @@ export async function durableFindings(resolved: ResolvedConfig): Promise<BoardFi
       formFactor: f.formFactor,
       scheme: f.scheme,
       path: ev?.path ?? null,
+      absPath: ev ? join(evDir, ev.path) : null,
       verified: f.verified,
       cluster: clusterIdOf(f),
     });
@@ -369,21 +401,19 @@ export function severityTally(findings: BoardFinding[]): {
  * work somebody needs to pick up.
  */
 export function tally(board: BoardEntry[]): {
-  queued: number;
-  working: number;
-  reported: number;
+  open: number;
+  verifying: number;
   blocked: number;
   done: number;
   archived: number;
 } {
-  const t = { queued: 0, working: 0, reported: 0, blocked: 0, done: 0, archived: 0 };
+  const t = { open: 0, verifying: 0, blocked: 0, done: 0, archived: 0 };
   for (const e of board) {
-    if (e.status === "working" || e.status === "verifying") t.working++;
-    else if (e.status === "reported") t.reported++;
+    if (e.status === "verifying") t.verifying++;
     else if (e.status === "blocked") t.blocked++;
     else if (e.status === "done") t.done++;
     else if (e.status === "archived") t.archived++;
-    else t.queued++;
+    else t.open++;
   }
   return t;
 }

@@ -6,9 +6,7 @@
  *   protocol  the operating contract, printed by lookout for whichever agent runs it
  *   capture   screenshots + deterministic findings, no AI
  *   check     capture + judge against best practices; findings merge into the backlog
- *             (--auto also writes one fix brief per root cause for dispatch)
  *   verify-fix rule on a claimed fix: re-capture, re-judge, pass it or hand it back
- *   agent     report which fix session is on which cluster, so the board reads live
  *   verify    judge captured evidence against acceptance criteria from a ticket
  *   ask       answer a free-form question about the rendered app, with evidence
  *   backlog   adjudicate findings (merge / set / reopen / regen / check / stats)
@@ -40,15 +38,11 @@ const VERBS: Record<string, { load: () => Promise<Verb>; summary: string }> = {
   },
   check: {
     load: async () => (await import("./verbs/check.js")).check,
-    summary: "capture + AI judge; --auto writes fix briefs to dispatch",
+    summary: "capture + AI judge; findings merge into the backlog",
   },
   "verify-fix": {
     load: async () => (await import("./verbs/verify-fix.js")).verifyFix,
     summary: "rule on a claimed fix: re-judge, pass it or hand it back",
-  },
-  agent: {
-    load: async () => (await import("./verbs/agent.js")).agent,
-    summary: "report a fix session starting, working, or reporting back",
   },
   ask: {
     load: async () => (await import("./verbs/ask.js")).ask,
@@ -60,7 +54,7 @@ const VERBS: Record<string, { load: () => Promise<Verb>; summary: string }> = {
   },
   backlog: {
     load: async () => (await import("./verbs/backlog.js")).backlog,
-    summary: "adjudicate findings (merge/set/plan/regen/check/stats)",
+    summary: "adjudicate findings (merge/set/reopen/regen/check/stats)",
   },
   targets: {
     load: async () => (await import("./verbs/targets.js")).targets,
@@ -92,12 +86,10 @@ function help(): void {
   console.log(
     "\ncommon flags: --config <path> --url <base> --targets a,b --routes /x,/y" +
       "\n              --json --allow-remote" +
-      "\nauto flags:   --auto --severity critical|high|medium|low --max-attempts <n>" +
       "\nexamples:" +
       "\n  lookout targets --url http://localhost:8081" +
       "\n  lookout capture --targets docs --routes /components/button" +
-      "\n  lookout check --auto" +
-      "\n  lookout agent start --cluster app--contrast--body-text --name \"fix body contrast\"" +
+      "\n  lookout check" +
       "\n  lookout verify-fix --cluster app--contrast--body-text --commit <sha>" +
       '\n  lookout verify --criteria ticket.md --targets app' +
       '\n  lookout ask "does the sidebar collapse below 640px?" --targets app' +

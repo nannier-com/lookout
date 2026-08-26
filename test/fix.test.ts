@@ -2,10 +2,8 @@
 // plan an orchestrating session reads.
 import { describe, expect, test } from "bun:test";
 import { clusterFindings, clusterIdOf, clusterScope, slug } from "../src/fix/cluster.js";
-import { renderBrief } from "../src/fix/brief.js";
 import { deterministicToFindings, type BacklogFinding } from "../src/backlog/lib.js";
 import type { CaptureReport, ShotRecord } from "../src/types.js";
-import type { ResolvedConfig } from "../src/types.js";
 
 function finding(over: Partial<BacklogFinding> = {}): BacklogFinding {
   const route = over.route ?? "/login";
@@ -48,13 +46,6 @@ function finding(over: Partial<BacklogFinding> = {}): BacklogFinding {
     ...over,
   } as BacklogFinding;
 }
-
-const resolved = {
-  config: {} as ResolvedConfig["config"],
-  configPath: "/repo/.lookout/config.ts",
-  projectDir: "/repo",
-  project: "proj",
-} as ResolvedConfig;
 
 describe("cluster ids", () => {
   test("slug is filename and argv safe", () => {
@@ -153,16 +144,6 @@ describe("co-located accessibility violations", () => {
     expect(clusterIdOf(judged)).toBe("app--a11y--touch-target-size");
   });
 
-  test("the brief lists every grouped defect, not just the worst", () => {
-    const cluster = clusterFindings([axe("button-name"), axe("nested-interactive")])[0]!;
-    const md = renderBrief(cluster, { resolved, attempt: 1, maxAttempts: 2, priorAttempts: [] });
-    expect(md).toContain("2 reported defects");
-    expect(md.match(/^- \/repo\/.lookout/gm)?.length).toBe(1);
-    expect(md).toContain("axe-button-name");
-    expect(md).toContain("axe-nested-interactive");
-    expect(md).toContain("All of them must be gone");
-    expect(md).toContain("## What the checks found");
-  });
 });
 
 describe("cluster ids are channel-stable", () => {
@@ -206,38 +187,3 @@ describe("cluster ids are channel-stable", () => {
   });
 });
 
-describe("renderBrief", () => {
-  const cluster = clusterFindings([finding(), finding({ fingerprint: "b", route: "/settings" })])[0]!;
-
-  test("carries the repo, the evidence paths and the reply contract", () => {
-    const md = renderBrief(cluster, { resolved, attempt: 1, maxAttempts: 2, priorAttempts: [] });
-    expect(md).toContain("repository: /repo");
-    expect(md).toContain("/repo/.lookout/evidence/web/app/login/rest/desktop/light.png");
-    // Two members, two routes, two distinct screenshots: each listed once.
-    expect(md.match(/^- \/repo\/.lookout/gm)?.length).toBe(2);
-    expect(md).toContain('"outcome": "fixed" | "not-code-fixable" | "gave-up"');
-    expect(md).toContain("Do not run lookout, and do not judge your own work");
-    expect(md).toContain("2 routes");
-  });
-
-  test("a second attempt carries what was tried and what the judge still saw", () => {
-    const md = renderBrief(cluster, {
-      resolved,
-      attempt: 2,
-      maxAttempts: 2,
-      priorAttempts: [
-        {
-          n: 1,
-          dispatchedAt: "2026-08-26T00:00:00Z",
-          reported: { commit: "abc1234", note: "swapped the token" },
-          verdict: "still-open",
-          judgeNote: "the card is still dark in the light capture",
-        },
-      ],
-    });
-    expect(md).toContain("Attempt 1 did not fix this");
-    expect(md).toContain("swapped the token");
-    expect(md).toContain("the card is still dark in the light capture");
-    expect(md).toContain("Do not repeat the previous approach");
-  });
-});

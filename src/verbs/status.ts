@@ -44,12 +44,12 @@ export async function status(parsed: Parsed): Promise<number> {
   }
 
   if (!s.runId && s.board.length === 0) {
-    console.log("no run recorded yet (run `lookout check --auto`)");
+    console.log("no run recorded yet (run `lookout check`)");
     return 0;
   }
   if (!s.runId) {
     // The log was truncated or never written, but the backlog remembers.
-    console.log(`no run in flight; ${s.board.length} cluster(s) outstanding`);
+    console.log(`no run in flight; ${s.board.length} issue(s) on record`);
   }
 
   // A run that died without emitting `run-end` stays `running` in the log. Say
@@ -73,25 +73,23 @@ export async function status(parsed: Parsed): Promise<number> {
       ` ${s.findings.medium} medium, ${s.findings.low} low)`,
   );
   if (s.board.length > 0) {
+    const t = s.agents;
     console.log(
-      `  work: ${s.agents.working} being worked, ${s.agents.reported} reported back,` +
-        ` ${s.agents.queued} waiting on a session` +
+      `  issues: ${t.open} open` +
+        (t.verifying ? `, ${t.verifying} being re-judged` : "") +
         // Blocked is not settled: lookout gave up on these and they still need
         // fixing, so they are named rather than folded into a done-pile.
-        (s.agents.blocked ? `, ${s.agents.blocked} BLOCKED (out of attempts)` : "") +
-        (s.agents.done ? `, ${s.agents.done} done` : "") +
-        (s.agents.archived ? `, ${s.agents.archived} archived` : ""),
+        (t.blocked ? `, ${t.blocked} BLOCKED (out of attempts)` : "") +
+        (t.done ? `, ${t.done} done` : "") +
+        (t.archived ? `, ${t.archived} archived` : ""),
     );
   }
   for (const b of s.board) {
-    // Sessions are normally named after the cluster they were given, so
-    // printing both is the same sentence twice.
-    const who = b.agent
-      ? (b.agent.name === b.label ? "" : `  ${b.agent.name}`) +
-        `  (${elapsed(b.agent.startedAt, b.agent.finishedAt ?? null)})`
-      : "";
-    console.log(`  ${b.status.padEnd(11)} ${b.id}  ${b.label}${who}`);
-    console.log(`    brief: ${b.brief}`);
+    console.log(`  ${b.status.padEnd(11)} ${b.id}  ${b.label}`);
+    // Absolute, because whoever picks this up needs a path they can open
+    // without knowing where lookout keeps its evidence.
+    for (const sh of b.shots.slice(0, 3)) console.log(`    ${sh.absPath}`);
+    if (b.sheet) console.log(`    sheet: ${b.sheet}`);
     if (b.judgeNote) console.log(`    judge: ${b.judgeNote}`);
   }
   for (const e of s.errors.slice(-5)) console.log(`  ERROR ${e}`);
