@@ -23,6 +23,7 @@ import { extname, join, relative, resolve, sep } from "node:path";
 import { evidenceDir, loadConfig } from "../config.js";
 import { readEvents, summarise } from "../report/events.js";
 import { buildBoard, durableFindings, severityTally, tally } from "../report/board.js";
+import { launchHandoff, toolsAvailable } from "../report/handoff.js";
 import { execFileAsync, num, str, type Parsed } from "../util.js";
 import type { ResolvedConfig } from "../types.js";
 
@@ -148,6 +149,40 @@ function handle(resolved: ResolvedConfig, req: IncomingMessage, res: ServerRespo
         }
         res.end(JSON.stringify({ error: String(err) }));
       }
+    })();
+    return;
+  }
+
+  // Opening an issue in a coding tool. A POST, because it writes a file and
+  // starts a process: lookout only ever does this because somebody clicked.
+  if (url.pathname === "/api/launch" && req.method === "POST") {
+    let body = "";
+    req.on("data", (c) => {
+      body += c;
+      if (body.length > 4096) req.destroy();
+    });
+    req.on("end", () => {
+      void (async () => {
+        try {
+          const { issue, tool } = JSON.parse(body || "{}") as { issue?: string; tool?: string };
+          if (!issue) throw new Error("no issue given");
+          const result = await launchHandoff(resolved, issue, tool ?? "claude-code");
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify(result));
+        } catch (err) {
+          res.writeHead(400, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: (err as Error).message }));
+        }
+      })();
+    });
+    return;
+  }
+
+  if (url.pathname === "/api/tools") {
+    void (async () => {
+      const tools = await toolsAvailable();
+      res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+      res.end(JSON.stringify(tools));
     })();
     return;
   }
@@ -300,6 +335,22 @@ margin-right:8px;vertical-align:middle}
 .sheetlink{font-size:12px;color:var(--accent);text-decoration:none;border:1px solid var(--line);
 border-radius:7px;padding:3px 9px;white-space:nowrap}
 .sheetlink:hover{border-color:var(--accent)}
+/* Which tool a launch opens. Kept in the navbar because it applies to every
+   card, and remembered because nobody wants to re-pick it every visit. */
+.toggle{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.toggle button{font:inherit;font-size:11.5px;padding:4px 10px;border:0;cursor:pointer;
+background:none;color:var(--dim);white-space:nowrap}
+.toggle button+button{border-left:1px solid var(--line)}
+.toggle button:hover{background:var(--sunk);color:var(--ink)}
+.toggle button[aria-pressed="true"]{background:var(--accent);color:#fff}
+.toggle button[data-missing="1"]{opacity:.6}
+.launch{font:inherit;font-size:11.5px;padding:4px 10px;border:1px solid var(--line);
+border-radius:7px;background:none;color:var(--accent);cursor:pointer;white-space:nowrap}
+.launch:hover{border-color:var(--accent);background:var(--sunk)}
+.launch[disabled]{opacity:.6;cursor:default}
+.launched{font-size:11.5px;color:var(--dim);word-break:break-all}
+.launched code{font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--ink);
+user-select:all}
 
 /* The filters live in the navbar: they are how you move around the page. */
 .filters{display:flex;gap:7px;flex-wrap:wrap;align-items:stretch;padding-bottom:10px}
@@ -435,6 +486,7 @@ overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     <span class="spacer"></span>
     <a class="sheetlink" id="sheet" href="#" target="_blank" hidden>contact sheet</a>
     <span class="faint" id="el"></span>
+    <div class="toggle" id="toolToggle" role="group" aria-label="open issues in"></div>
   </div>
   <div class="filters" id="stats"></div>
 </header>
@@ -460,6 +512,26 @@ const enc = p => String(p).split("/").map(encodeURIComponent).join("/");
 // rather than in the URL because it is a view, not a place: a reload should
 // come back to everything outstanding.
 let filter = null;   // {kind: "state"|"severity", value, label}
+
+// Which coding tool a launch opens. Remembered per browser, because it is a
+// preference about the reader, not about the project.
+let tools = [];
+let tool = null;
+try { tool = localStorage.getItem("lookout.tool"); } catch { tool = null; }
+function toolLabel(){
+  const t = tools.find(x => x.key === tool);
+  return t ? t.label : "your editor";
+}
+function paintToggle(){
+  const html = tools.map(t =>
+    '<button type="button" data-tool="' + esc(t.key) + '"'
+    + ' aria-pressed="' + (t.key === tool ? 'true' : 'false') + '"'
+    + (t.installed ? '' : ' data-missing="1"')
+    + ' title="' + (t.installed ? 'open issues in ' + esc(t.label)
+        : esc(t.bin) + ' is not on PATH; the command is shown so you can run it yourself')
+    + '">' + esc(t.label) + '</button>').join("");
+  paint("toolToggle", tool + "|" + html, html);
+}
 
 const STATES = {
   open: ["open", "still-open", "regressed", "verifying"],
@@ -603,6 +675,9 @@ function card(b){
   const judge = b.judgeNote ? '<div class="note"><b>judge:</b> ' + esc(b.judgeNote) + '</div>' : "";
   return '<article class="card ' + esc(b.status) + '">'
     + '<div class="top"><span class="pill">' + esc(b.status) + '</span>' + seen + '</div>'
+    + '<div class="meta"><button type="button" class="launch" data-launch="' + esc(b.id) + '">'
+    + 'open in ' + esc(toolLabel()) + '</button>'
+    + '<span class="launched" data-launched="' + esc(b.id) + '"></span></div>'
     + '<h3 class="title">' + esc(b.label) + '</h3>'
     + whatLine(b)
     + '<div class="meta"><span class="chip sev ' + esc(b.severity) + '">' + esc(b.severity) + '</span>'
@@ -644,8 +719,17 @@ function findingCard(f, board){
     + '</div></article>';
 }
 
+async function loadTools(){
+  try {
+    tools = await (await fetch("/api/tools")).json();
+  } catch { tools = []; }
+  if (!tools.some(t => t.key === tool)) tool = tools.length ? tools[0].key : null;
+  paintToggle();
+}
+
 async function tick(){
   let d; try { d = await (await fetch("/api/status")).json(); } catch { return; }
+  paintToggle();
   const s = d.status;
 
   // lookout cannot see a process die, so a killed run leaves the log claiming it
@@ -761,13 +845,54 @@ document.addEventListener("click", e => {
     setFilter(filter.kind, filter.value, filter.label);
     return;
   }
+  const swap = e.target.closest("[data-tool]");
+  if (swap) {
+    tool = swap.dataset.tool;
+    try { localStorage.setItem("lookout.tool", tool); } catch { /* private window */ }
+    paintToggle();
+    // The launch buttons name the tool, so they have to be redrawn with it.
+    last.board = null;
+    tick();
+    return;
+  }
+  const go = e.target.closest("[data-launch]");
+  if (go) { launch(go.dataset.launch, go); return; }
   const tile = e.target.closest("button.stat");
   if (tile && !tile.disabled && tile.dataset.kind) {
     setFilter(tile.dataset.kind, tile.dataset.value, tile.dataset.label);
   }
 });
+
+async function launch(issue, btn){
+  const out = document.querySelector('[data-launched="' + CSS.escape(issue) + '"]');
+  btn.disabled = true;
+  const was = btn.textContent;
+  btn.textContent = "opening\u2026";
+  try {
+    const r = await fetch("/api/launch", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ issue: issue, tool: tool }),
+    });
+    const j = await r.json();
+    if (j.error) out.textContent = j.error;
+    else if (j.launched) out.textContent = "opened in " + j.toolLabel;
+    else {
+      // Say why, and hand over the command rather than failing silently.
+      out.innerHTML = esc(j.reason || "could not open a terminal") + " \u00b7 run: <code>"
+        + esc(j.command) + "</code>";
+    }
+  } catch (err) {
+    out.textContent = String(err);
+  }
+  btn.disabled = false;
+  btn.textContent = was;
+}
 document.addEventListener("keydown", e => {
   if (e.key === "Escape" && filter) setFilter(filter.kind, filter.value, filter.label);
 });
-tick(); setInterval(tick, 1500); setInterval(ticks, 1000);
+// Tools first: the launch buttons are labelled with the chosen one, and a board
+// painted before the list arrives says "open in your editor".
+loadTools().then(tick);
+setInterval(tick, 1500); setInterval(ticks, 1000);
 </script></body></html>`;
