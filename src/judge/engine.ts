@@ -241,30 +241,47 @@ function kebab(s: string): string {
 }
 
 /** Pack shots into judge batches: same target+route stays together, max size. */
-export function batchShots(shots: ShotRecord[], maxPerBatch = 10): ShotRecord[][] {
+/** The view a shot belongs to: everything the rubric compares across. */
+export function viewGroupId(shot: ShotRecord): string {
+  return `${shot.target}|${shot.platform}|${shot.route}|${shot.state}`;
+}
+
+/** Partition shots into view groups, preserving encounter order. */
+export function groupShots(shots: ShotRecord[]): Map<string, ShotRecord[]> {
   const groups = new Map<string, ShotRecord[]>();
   for (const s of shots) {
-    const key = `${s.target}|${s.route}`;
-    const arr = groups.get(key) ?? [];
+    const id = viewGroupId(s);
+    const arr = groups.get(id) ?? [];
     arr.push(s);
-    groups.set(key, arr);
+    groups.set(id, arr);
   }
+  return groups;
+}
+
+/**
+ * Pack shots into judge batches with the VIEW GROUP as the atomic unit. The
+ * rubric compares a view's schemes and form factors against each other, so a
+ * group must never straddle two batches: an oversized group ships alone and
+ * whole rather than being split.
+ */
+export function batchShots(shots: ShotRecord[], maxPerBatch = 10): ShotRecord[][] {
   const batches: ShotRecord[][] = [];
   let current: ShotRecord[] = [];
-  for (const group of groups.values()) {
-    if (group.length > maxPerBatch) {
-      // A huge route ships alone, split by scheme pairs kept together.
-      for (let i = 0; i < group.length; i += maxPerBatch) {
-        batches.push(group.slice(i, i + maxPerBatch));
-      }
-      continue;
-    }
-    if (current.length + group.length > maxPerBatch && current.length > 0) {
+  const flush = (): void => {
+    if (current.length > 0) {
       batches.push(current);
       current = [];
     }
+  };
+  for (const group of groupShots(shots).values()) {
+    if (group.length >= maxPerBatch) {
+      flush();
+      batches.push(group);
+      continue;
+    }
+    if (current.length + group.length > maxPerBatch) flush();
     current.push(...group);
   }
-  if (current.length > 0) batches.push(current);
+  flush();
   return batches;
 }

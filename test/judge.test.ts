@@ -2,8 +2,8 @@
 // ledger keys, and a full engine round-trip through the mock claude binary.
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { batchShots, extractJson, judgeBatch } from "../src/judge/engine.js";
-import { ledgerKey } from "../src/judge/ledger.js";
+import { batchShots, extractJson, groupShots, judgeBatch, viewGroupId } from "../src/judge/engine.js";
+import { groupHash, ledgerKey } from "../src/judge/ledger.js";
 import type { ShotRecord } from "../src/types.js";
 
 const MOCK = join(import.meta.dir, "mock-claude.ts");
@@ -41,21 +41,55 @@ describe("extractJson", () => {
   });
 });
 
+describe("view groups", () => {
+  test("a view is its schemes and form factors together", () => {
+    const pair = ["dark", "light"].flatMap((sc) =>
+      ["desktop", "phone"].map((ff) => shot(`web/app/login/rest/${ff}/${sc}`)),
+    );
+    const groups = groupShots(pair);
+    expect(groups.size).toBe(1);
+    expect([...groups.values()][0]!.length).toBe(4);
+    expect(viewGroupId(pair[0]!)).toBe("app|web|/login|rest");
+  });
+
+  test("different routes and states are different views", () => {
+    const groups = groupShots([
+      shot("web/app/login/rest/desktop/dark"),
+      shot("web/app/login/menu-open/desktop/dark"),
+      shot("web/app/home/rest/desktop/dark"),
+    ]);
+    expect(groups.size).toBe(3);
+  });
+});
+
 describe("batchShots", () => {
-  test("keeps a route together, packs small groups, splits huge ones", () => {
-    const shots = [
-      ...["a", "b", "c"].flatMap((r) =>
-        ["desktop", "phone"].map((ff) => shot(`web/app/${r}/rest/${ff}/dark`)),
-      ),
-      ...Array.from({ length: 12 }, (_, i) => shot(`web/app/big/rest/desktop/dark`, { id: `web/app/big/s${i}/desktop/dark` })),
-    ];
+  test("packs small groups and never straddles a view across batches", () => {
+    const shots = ["a", "b", "c"].flatMap((r) =>
+      ["desktop", "phone"].map((ff) => shot(`web/app/${r}/rest/${ff}/dark`)),
+    );
     const batches = batchShots(shots, 6);
-    // Every batch respects the cap.
     for (const b of batches) expect(b.length).toBeLessThanOrEqual(6);
-    // Routes a+b+c (2 shots each) pack into one batch of 6.
     expect(batches[0]!.length).toBe(6);
-    // Nothing lost.
     expect(batches.flat().length).toBe(shots.length);
+    // No view id appears in two batches.
+    const seen = new Map<string, number>();
+    batches.forEach((b, i) => {
+      for (const id of new Set(b.map(viewGroupId))) {
+        expect(seen.has(id) ? seen.get(id) : i).toBe(i);
+        seen.set(id, i);
+      }
+    });
+  });
+
+  test("an oversized view ships alone and whole rather than being split", () => {
+    const big = Array.from({ length: 9 }, (_, i) =>
+      shot(`web/app/big/rest/desktop/dark`, { id: `web/app/big/rest/ff${i}/dark` }),
+    );
+    const batches = batchShots([shot("web/app/small/rest/desktop/dark"), ...big], 6);
+    const bigBatch = batches.find((b) => b.length === 9);
+    expect(bigBatch).toBeDefined();
+    expect(new Set(bigBatch!.map(viewGroupId)).size).toBe(1);
+    expect(batches.flat().length).toBe(10);
   });
 });
 
@@ -88,5 +122,22 @@ describe("judgeBatch through the mock binary", () => {
 describe("ledger", () => {
   test("key includes hash, rubric version, and model", () => {
     expect(ledgerKey("abc", 3, "sonnet")).toBe("abc@r3@sonnet");
+  });
+
+  test("group hash is order-independent", () => {
+    const a = shot("web/app/login/rest/desktop/dark");
+    const b = shot("web/app/login/rest/desktop/light");
+    expect(groupHash([a, b])).toBe(groupHash([b, a]));
+  });
+
+  test("one member changing invalidates the whole view", () => {
+    // The regression this keying exists for: fixing the light shot must send
+    // its unchanged dark partner back to the judge too, or the comparative
+    // finding filed against the pair silently reads as fixed.
+    const dark = shot("web/app/login/rest/desktop/dark");
+    const light = shot("web/app/login/rest/desktop/light");
+    const before = groupHash([dark, light]);
+    const after = groupHash([dark, { ...light, hash: "hash-after-the-fix" }]);
+    expect(after).not.toBe(before);
   });
 });

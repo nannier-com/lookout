@@ -1,20 +1,36 @@
 /**
- * Judge cache: a shot judged under a given rubric version and model is never
- * judged again while its pixels are unchanged. Keyed `<hash>@r<version>@<model>`.
+ * Judge cache, keyed by VIEW GROUP rather than by single shot.
+ *
+ * The rubric asks the judge to compare a view's dark/light pair and its
+ * form-factor progression (BASE.md, judging procedure steps 2 and 3). A
+ * per-shot cache breaks that: after a fix changes only the light shot, the
+ * dark partner would be served from cache and never enter the batch, so the
+ * judge would be asked for a comparison with one side missing and would
+ * silently stop filing it. The auto loop would then read that silence as
+ * "fixed". Grouping the cache the way the rubric groups the judgement is what
+ * makes a scoped re-check trustworthy.
+ *
+ * A group is one target + platform + route + state, across every form factor
+ * and scheme. Its key is `<groupHash>@r<version>@<model>`, where groupHash
+ * covers every member's pixel hash, so any member changing re-judges the whole
+ * group.
+ *
  * Lives in .lookout/ledger.json (committed by projects that want cheap re-runs
  * across machines; harmless if ignored).
  */
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { ResolvedConfig } from "../types.js";
+import type { ResolvedConfig, ShotRecord } from "../types.js";
 import { lookoutDir } from "../config.js";
-import { nowIso } from "../util.js";
+import { nowIso, sha256 } from "../util.js";
 import type { AiFinding } from "./engine.js";
 
 export interface LedgerEntry {
   verdict: "clean" | "findings";
   findings?: AiFinding[];
+  /** Member shot ids, so a stale entry is readable when debugging. */
+  shotIds: string[];
   judgedAt: string;
   runId: string;
 }
@@ -25,10 +41,24 @@ export interface Ledger {
 }
 
 const NOTE =
-  "lookout judge cache. Key = <shotHash>@r<rubricVersion>@<model>. Delete entries (or bump the rubric version) to force fresh judging.";
+  "lookout judge cache. Key = <viewGroupHash>@r<rubricVersion>@<model>, where a view group is one " +
+  "target+platform+route+state across every form factor and scheme, so comparative findings never " +
+  "cache apart. Delete entries (or bump the rubric version) to force fresh judging.";
 
 export function ledgerPath(resolved: ResolvedConfig): string {
   return join(lookoutDir(resolved), "ledger.json");
+}
+
+/**
+ * Hash of a whole view group: every member's pixel hash, sorted by shot id so
+ * capture order cannot perturb it. One member changing changes the group hash.
+ */
+export function groupHash(shots: ShotRecord[]): string {
+  const parts = shots
+    .map((s) => `${s.id}@${s.hash}`)
+    .sort()
+    .join("\n");
+  return sha256(new TextEncoder().encode(parts));
 }
 
 export function ledgerKey(hash: string, rubricVersion: number, model: string): string {
@@ -54,17 +84,24 @@ export async function saveLedger(resolved: ResolvedConfig, ledger: Ledger): Prom
   await rename(tmp, p);
 }
 
+/**
+ * Record one entry per judged view group. Findings are stored whole: on a
+ * cache hit the group's findings come back together, which is what keeps a
+ * comparative finding attached to the view it was made about.
+ */
 export function recordVerdicts(
   ledger: Ledger,
   runId: string,
   rubricVersion: number,
   model: string,
-  perShot: Map<string, { hash: string; findings: AiFinding[] }>,
+  judged: { shots: ShotRecord[]; findings: AiFinding[] }[],
 ): void {
-  for (const { hash, findings } of perShot.values()) {
-    ledger.entries[ledgerKey(hash, rubricVersion, model)] = {
+  for (const { shots, findings } of judged) {
+    if (shots.length === 0) continue;
+    ledger.entries[ledgerKey(groupHash(shots), rubricVersion, model)] = {
       verdict: findings.length === 0 ? "clean" : "findings",
       ...(findings.length > 0 ? { findings } : {}),
+      shotIds: shots.map((s) => s.id).sort(),
       judgedAt: nowIso(),
       runId,
     };

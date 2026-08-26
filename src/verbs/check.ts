@@ -11,9 +11,9 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { loadConfig, evidenceDir } from "../config.js";
 import { loadReport } from "../capture/store.js";
-import { batchShots, judgeBatch, type AiFinding } from "../judge/engine.js";
+import { batchShots, groupShots, judgeBatch, type AiFinding } from "../judge/engine.js";
 import { loadRubric } from "../judge/rubric.js";
-import { ledgerKey, loadLedger, recordVerdicts, saveLedger } from "../judge/ledger.js";
+import { groupHash, ledgerKey, loadLedger, recordVerdicts, saveLedger } from "../judge/ledger.js";
 import { verifyFindings, type VerifiedFinding } from "../judge/verify.js";
 import { LookoutError, type ShotRecord } from "../types.js";
 import { list, num, printJson, runId, str, type Parsed } from "../util.js";
@@ -75,15 +75,20 @@ export async function runCheck(parsed: Parsed): Promise<{
   const toJudge: ShotRecord[] = [];
   const cachedFindings: (VerifiedFinding & { cached: boolean })[] = [];
   let cached = 0;
-  for (const s of shots) {
-    const entry = ledger.entries[ledgerKey(s.hash, rubric.version, model)];
-    if (entry && !s.animated) {
-      cached++;
+  // Cache by view group, not by single shot: a group re-judges whole whenever
+  // any member's pixels moved, so a comparative finding never loses the shot
+  // it compares against. Per-shot caching made a scoped re-check report a
+  // dark/light or responsive finding as gone when only its partner had changed,
+  // which is exactly the false "fixed" the auto loop must never see.
+  for (const group of groupShots(shots).values()) {
+    const entry = ledger.entries[ledgerKey(groupHash(group), rubric.version, model)];
+    if (entry && !group.some((s) => s.animated)) {
+      cached += group.length;
       for (const f of entry.findings ?? []) {
         cachedFindings.push({ ...f, verified: true, cached: true });
       }
     } else {
-      toJudge.push(s);
+      toJudge.push(...group);
     }
   }
 
@@ -138,10 +143,11 @@ export async function runCheck(parsed: Parsed): Promise<{
 
   // 6. Ledger: judged shots record their post-verification findings.
   const checkRunId = runId("check");
-  const perShot = new Map<string, { hash: string; findings: AiFinding[] }>();
-  for (const s of toJudge) perShot.set(s.id, { hash: s.hash, findings: [] });
-  for (const f of confirmed) perShot.get(f.shotId)?.findings.push(f);
-  recordVerdicts(ledger, checkRunId, rubric.version, model, perShot);
+  const judgedGroups = [...groupShots(toJudge).values()].map((members) => {
+    const ids = new Set(members.map((s) => s.id));
+    return { shots: members, findings: confirmed.filter((f) => ids.has(f.shotId)) };
+  });
+  recordVerdicts(ledger, checkRunId, rubric.version, model, judgedGroups);
   await saveLedger(resolved, ledger);
 
   const allFindings = [...confirmed, ...cachedFindings];
