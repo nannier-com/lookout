@@ -24,6 +24,18 @@ describe("validateConfig", () => {
     ).toThrow(/duplicate/);
   });
 
+  test("accepts a signIn function and rejects a non-function", () => {
+    const signIn = async () => {};
+    const c = validateConfig(
+      { targets: [{ name: "app", url: "http://localhost:1", signIn }] },
+      "t",
+    );
+    expect(c.targets[0]!.signIn).toBe(signIn);
+    expect(() =>
+      validateConfig({ targets: [{ name: "app", url: "http://localhost:1", signIn: "yes" }] }, "t"),
+    ).toThrow(/signIn/);
+  });
+
   test("rejects a bad scheme mode and an unknown viewport key", () => {
     expect(() =>
       validateConfig({ targets: [{ name: "a", url: "http://localhost:1" }], scheme: { mode: "x" } }, "t"),
@@ -34,6 +46,35 @@ describe("validateConfig", () => {
         "t",
       ),
     ).toThrow(/form factor/);
+  });
+});
+
+describe("design hand-off references", () => {
+  test("resolves a route's design path relative to the config file", () => {
+    const [r] = resolveRoutes(
+      { name: "app", url: "http://localhost:1", routes: [{ path: "/x", design: "mocks/x.png" }] },
+      undefined,
+      "/repo/.lookout/config.ts",
+    );
+    expect(r!.design).toBe("/repo/.lookout/mocks/x.png");
+  });
+
+  test("leaves routes without a design reference undefined", () => {
+    const [r] = resolveRoutes(
+      { name: "app", url: "http://localhost:1", routes: ["/x"] },
+      undefined,
+      "/repo/.lookout/config.ts",
+    );
+    expect(r!.design).toBeUndefined();
+  });
+
+  test("rejects a non-string design reference", () => {
+    expect(() =>
+      validateConfig(
+        { targets: [{ name: "app", url: "http://localhost:1", routes: [{ path: "/x", design: 7 }] }] },
+        "t",
+      ),
+    ).toThrow(/design/);
   });
 });
 

@@ -115,10 +115,13 @@ const DETERMINISTIC_MAP: Record<
   "capture-error": { category: "render-failure", attribute: "capture-error" },
   "scheme-mismatch": { category: "color-scheme", attribute: "scheme-mechanism" },
   "stale-frame": { category: "render-failure", attribute: "stale-frame" },
+  "off-origin": { category: "render-failure", attribute: "off-origin" },
 };
 
 function severityFromDeterministic(f: DeterministicFinding): Severity {
-  if (f.type === "blank-shot") return "critical";
+  // Both mean the pixels are not the thing the shot claims to be, which makes
+  // every other finding on that shot describe the wrong screen.
+  if (f.type === "blank-shot" || f.type === "off-origin") return "critical";
   if (f.severity === "error") return "high";
   if (f.severity === "warning") return "medium";
   return "low";

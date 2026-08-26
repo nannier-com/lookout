@@ -22,5 +22,9 @@ export type {
   CaptureReport,
 } from "./types.js";
 export { DEFAULT_VIEWPORTS, LookoutError } from "./types.js";
+// Configs that write a signIn hook or a state recipe are handed a Playwright
+// Page; re-exported so a consumer types its callbacks without depending on
+// playwright directly.
+export type { Page } from "playwright";
 export { loadConfig, validateConfig, assertTargetsAllowed } from "./config.js";
 export { resolveTargets, resolveRoutes, preflight } from "./targets.js";

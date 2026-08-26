@@ -28,6 +28,7 @@ import {
   attachConsoleCollector,
   blankShotGuard,
   checkHorizontalOverflow,
+  checkOffOrigin,
   detectAnimated,
   runAxe,
 } from "./checks.js";
@@ -84,6 +85,19 @@ export async function captureWeb(
     const collector = attachConsoleCollector(page);
 
     for (const target of targets) {
+      if (target.def.signIn) {
+        try {
+          progress(`signing in to ${target.def.name}`);
+          await target.def.signIn(page);
+        } catch (e) {
+          // Every route on this target would now photograph a signed-out app
+          // under a signed-in label, so skip the target rather than mislabel it.
+          const message = (e as Error).message.slice(0, 500);
+          failures.push({ target: target.def.name, route: "*", step: "signIn", message });
+          progress(`FAIL ${target.def.name} signIn: ${message.slice(0, 200)}`);
+          continue;
+        }
+      }
       for (const route of target.routes) {
         try {
           await captureRoute(resolved, target, route, page, {
@@ -242,6 +256,7 @@ async function captureRoute(
           ? await element.screenshot({ animations: "disabled" })
           : await page.screenshot({ fullPage: true, animations: "disabled" });
 
+        findings.push(...checkOffOrigin(page.url(), target.def.url));
         findings.push(...(await blankShotGuard(png)));
         findings.push(...(await checkHorizontalOverflow(page, element)));
         const axeHere =
@@ -269,6 +284,7 @@ async function captureRoute(
           width: meta.width ?? 0,
           height: meta.height ?? 0,
           animated,
+          design: route.design,
           capturedAt: nowIso(),
           runId: ctx.runId,
           deterministicFindings: findings,

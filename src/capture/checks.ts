@@ -189,6 +189,38 @@ export async function blankShotGuard(png: Buffer | Uint8Array): Promise<Determin
   return [];
 }
 
+/**
+ * The page must still be on the target it was pointed at. An app that bounces
+ * to a different origin (a login host, an SSO provider, a marketing site) will
+ * otherwise be photographed and filed under the route that was requested, so
+ * every finding on that shot describes the wrong application.
+ *
+ * Same-origin redirects are fine and stay silent: only a different origin is
+ * reported, because that is the one the route label can no longer describe.
+ */
+export function checkOffOrigin(finalUrl: string, targetUrl: string): DeterministicFinding[] {
+  let landed: URL;
+  let expected: URL;
+  try {
+    landed = new URL(finalUrl);
+    expected = new URL(targetUrl);
+  } catch {
+    return [];
+  }
+  if (landed.origin === expected.origin) return [];
+  return [
+    {
+      type: "off-origin",
+      severity: "error",
+      message:
+        `capture landed on ${landed.origin}, not the target's ${expected.origin}; ` +
+        `this shot shows a different app, so its route label and any finding on it are misattributed ` +
+        `(sign the target in with a signIn hook, or capture that origin as its own target)`,
+      meta: { landed: landed.origin, expected: expected.origin, finalUrl: landed.href },
+    },
+  ];
+}
+
 /** Two samples 400ms apart differing means animation; hash caching is then unreliable. */
 export async function detectAnimated(
   page: Page,

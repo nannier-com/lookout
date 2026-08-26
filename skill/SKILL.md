@@ -51,15 +51,67 @@ anywhere: `lookout capture --url http://localhost:3000`.
 ## Per-project facts
 
 - A repo with `.lookout/config.ts` is wired: targets, routes, state recipes,
-  rubric extension, never-file suppressions live there. Wired today: canvas
-  (the docs, 100 component routes + overlay recipes + native apps), ionize
-  dashboard / auth / site (public routes through Caddy addresses).
+  rubric extension, sign-in hooks, never-file suppressions live there. Wired
+  today: canvas (the docs, 100 component routes + overlay recipes + native
+  apps), ionize dashboard (13 admin routes behind a demo-admin `signIn`),
+  ionize auth / site (public routes through Caddy addresses).
 - lookout never starts services. A down target prints its startHint; start
   the app the way that project intends (canvas: `cd docs && bun run dev`;
   ionize stack: ask the user to start it, NEVER run ionctl yourself).
 - Native capture (`--platforms ios,android`) needs a booted simulator or
   emulator with the app installed; both schemes on device need the app's
   appearance URL param (canvas has one: `?scheme=light`).
+
+## Authenticated routes: sign in by clicking, never by typing
+
+Most admin surfaces are worth judging only signed in, and a signed-out capture
+is worse than none: the app redirects to a login host and every shot gets filed
+under the product route it never reached. Two pieces handle this.
+
+`TargetDef.signIn(page)` runs ONCE per target before its routes, in the browser
+context the whole run shares, so the session persists across every route, form
+factor and scheme. lookout has no idea how any app authenticates; the project's
+`.lookout/config.ts` supplies the flow. If the hook throws, that target's routes
+are skipped and recorded as a `signIn` failure rather than mislabeled.
+
+Drive it the way a person would, and CLICK a demo account rather than typing
+credentials. Dev stacks expose demo accounts as buttons precisely so automation
+never handles secrets:
+
+```ts
+async function signIn(page: Page): Promise<void> {
+  await page.goto(`${APP}/dashboard`, { waitUntil: "networkidle" });
+  if (page.url().startsWith(APP)) return;            // already holding a session
+  await page.locator("button", { hasText: "admin@demo.user" }).first().click();
+  await page.waitForURL((u) => u.href.startsWith(APP), { timeout: 60_000 });
+}
+```
+
+End it by waiting for the app's own origin. That wait is what proves the OAuth
+redirects finished; returning early parks the run on the login host.
+
+The `off-origin` check is the safety net: every shot's final URL is compared to
+its target's origin, and a mismatch is a CRITICAL finding, because the shot
+shows a different application and every other finding on it is misattributed.
+Same-origin redirects stay silent. If a run comes back full of findings about a
+login screen, read this check before believing any of them.
+
+## Design hand-offs
+
+`RouteDef.design` points a route at a hand-off image (resolved relative to the
+config file); the judge reads it beside every shot of that route and compares
+one to one.
+
+```ts
+routes: [{ path: "/dashboard", design: "mocks/dashboard.png" }]
+```
+
+The hand-off informs the judgement, it does not win it. lookout rules on each
+divergence by user impact, so it can find the build improved on the hand-off and
+decline to file it, find the build drifted and file against it, or find both
+wrong and say what correct would be. Divergences that are only divergences get
+the `design-parity` category. Export the artboard to an image; lookout does not
+render hand-offs itself.
 
 ## The fix loop
 
@@ -80,7 +132,7 @@ anywhere: `lookout capture --url http://localhost:3000`.
 
 - Localhost targets only unless the user explicitly wants `--allow-remote`.
 - Never judge intentionally-wrong demo content (docs "Don't" examples).
-- Never type credentials into captured apps; authed areas wait for a session
-  recipe feature.
+- Never type credentials into captured apps. Authed areas use a target's
+  `signIn` hook clicking a demo account, per the section above.
 - Findings are the app's problems, not lookout's: fix the app, or adjudicate
   with a reason; never edit backlog.json by hand.

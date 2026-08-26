@@ -30,6 +30,7 @@ export const CATEGORIES = [
   "consistency",
   "a11y",
   "content",
+  "design-parity",
 ] as const;
 export type Category = (typeof CATEGORIES)[number];
 

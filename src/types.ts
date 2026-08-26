@@ -30,6 +30,18 @@ export interface RouteDef {
   states?: string[];
   /** CSS selector to element-screenshot instead of the full page, for this route. */
   element?: string;
+  /**
+   * Path to a design hand-off image for this route, resolved relative to the
+   * config file. The judge reads it alongside every shot of this route and
+   * compares one to one. It is a reference, not an authority: the judge rules
+   * on each divergence by user impact and may find the build improved on the
+   * hand-off.
+   *
+   * Point at an exported image of the artboard. lookout does not render a
+   * hand-off itself: what a design tool exports is that tool's business, and
+   * an image is the one form every design tool can produce.
+   */
+  design?: string;
 }
 
 export interface TargetDef {
@@ -51,6 +63,23 @@ export interface TargetDef {
    * pin an app mode for capture). The scheme url-param rides on top.
    */
   query?: Record<string, string>;
+  /**
+   * Drive the browser into an authenticated session, once, before any of this
+   * target's routes are captured. The whole run shares one browser context, so
+   * whatever cookies or storage this leaves behind persist for every later
+   * shot.
+   *
+   * lookout knows nothing about how a project authenticates: it only calls
+   * this. Projects put their own flow here (click a demo-account button, walk
+   * an OAuth redirect, seed a token). If it throws, every route on the target
+   * is skipped and recorded as a failure, because capturing a login screen and
+   * labelling it a product route is the mislabeling this engine exists to
+   * prevent.
+   *
+   * NEVER type real credentials here. Prefer an affordance the app already
+   * exposes for testing, such as a demo-account button.
+   */
+  signIn?: (page: Page) => Promise<void>;
 }
 
 /** How a target switches color scheme. */
@@ -147,7 +176,8 @@ export interface DeterministicFinding {
     | "blank-shot"
     | "capture-error"
     | "scheme-mismatch"
-    | "stale-frame";
+    | "stale-frame"
+    | "off-origin";
   severity: "error" | "warning" | "info";
   message: string;
   meta?: Record<string, unknown>;
@@ -172,6 +202,8 @@ export interface ShotRecord {
   height: number;
   /** True when two samples 400ms apart differed (hash caching unreliable). */
   animated: boolean;
+  /** Absolute path of this route's design hand-off image, when one is configured. */
+  design?: string;
   capturedAt: string;
   runId: string;
   deterministicFindings: DeterministicFinding[];

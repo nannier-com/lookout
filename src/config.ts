@@ -156,8 +156,15 @@ export function validateConfig(raw: unknown, path: string): LookoutConfig {
         if (!isRecord(r) || typeof r.path !== "string") {
           fail(path, `targets[${i}].routes[${j}] must be a string or { path }`);
         }
+        if (r.design !== undefined && typeof r.design !== "string") {
+          fail(path, `targets[${i}].routes[${j}].design must be a path string`);
+        }
         return r as unknown as RouteDef;
       });
+    }
+    const signIn = t.signIn;
+    if (signIn !== undefined && typeof signIn !== "function") {
+      fail(path, `targets[${i}].signIn must be a function (page) => Promise<void>`);
     }
     let query: Record<string, string> | undefined;
     if (t.query !== undefined) {
@@ -175,6 +182,7 @@ export function validateConfig(raw: unknown, path: string): LookoutConfig {
       readyPath: typeof t.readyPath === "string" ? t.readyPath : undefined,
       startHint: typeof t.startHint === "string" ? t.startHint : undefined,
       query,
+      signIn: signIn as TargetDef["signIn"],
     };
   });
 

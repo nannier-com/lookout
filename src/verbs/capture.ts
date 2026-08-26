@@ -39,6 +39,7 @@ export async function runCapture(parsed: Parsed): Promise<{
     resolved.config,
     list(parsed.flags.targets),
     list(parsed.flags.routes),
+    resolved.configPath,
   );
   requireUp(await preflight(targets));
 

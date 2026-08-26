@@ -11,6 +11,7 @@ import {
   type RouteDef,
   type TargetDef,
 } from "./types.js";
+import { dirname, resolve } from "node:path";
 import { probe } from "./util.js";
 
 export interface ResolvedRoute {
@@ -19,6 +20,8 @@ export interface ResolvedRoute {
   url: string;
   states: string[];
   element?: string;
+  /** Absolute path of the route's design hand-off image, when configured. */
+  design?: string;
 }
 
 export interface ResolvedTarget {
@@ -36,7 +39,12 @@ export interface TargetStatus {
 }
 
 /** Normalize a target's routes ("/x" strings and RouteDef objects) to one shape. */
-export function resolveRoutes(target: TargetDef, defaultElement?: string): ResolvedRoute[] {
+export function resolveRoutes(
+  target: TargetDef,
+  defaultElement?: string,
+  /** Config file path; design references resolve relative to it. */
+  designBase?: string | null,
+): ResolvedRoute[] {
   const raw = target.routes && target.routes.length > 0 ? target.routes : ["/"];
   return raw.map((r) => {
     const def: RouteDef = typeof r === "string" ? { path: r } : r;
@@ -53,6 +61,11 @@ export function resolveRoutes(target: TargetDef, defaultElement?: string): Resol
       url,
       states: def.states ?? [],
       element: def.element ?? defaultElement,
+      design: def.design
+        ? designBase
+          ? resolve(dirname(designBase), def.design)
+          : def.design
+        : undefined,
     };
   });
 }
@@ -62,6 +75,8 @@ export function resolveTargets(
   config: LookoutConfig,
   only?: string[],
   routesFilter?: string[],
+  /** Config file path; route design references resolve relative to it. */
+  configPath?: string | null,
 ): ResolvedTarget[] {
   let defs = config.targets;
   if (only && only.length > 0) {
@@ -77,7 +92,7 @@ export function resolveTargets(
     defs = defs.filter((t) => only.includes(t.name));
   }
   const resolved = defs.map((def) => {
-    let routes = resolveRoutes(def, config.element);
+    let routes = resolveRoutes(def, config.element, configPath);
     if (routesFilter && routesFilter.length > 0) {
       routes = routes.filter((r) =>
         routesFilter.some((f) => r.path === f || r.path === `/${f}` || r.name === f),

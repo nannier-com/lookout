@@ -125,13 +125,16 @@ export function buildJudgePrompt(
   const manifest = shots
     .map(
       (s) =>
-        `- shotId: ${s.id}\n  file: ${evidenceDir}/${s.path}\n  route: ${s.route} (${s.routeName})  state: ${s.state}  formFactor: ${s.formFactor}  scheme: ${s.scheme}  size: ${s.width}x${s.height}`,
+        `- shotId: ${s.id}\n  file: ${evidenceDir}/${s.path}\n  route: ${s.route} (${s.routeName})  state: ${s.state}  formFactor: ${s.formFactor}  scheme: ${s.scheme}  size: ${s.width}x${s.height}` +
+        (s.design ? `\n  design: ${s.design}` : ""),
     )
     .join("\n");
   return [
     `You are lookout's visual judge for the project "${project}".`,
     `Read each screenshot listed below with the Read tool, then judge them ALL against the rubric.`,
-    `Do not read any files other than these screenshots. You cannot and must not edit anything.`,
+    `A shot with a \`design:\` line also has a design hand-off image: read that too and compare them`,
+    `one to one, per the hand-off section of the rubric.`,
+    `Read only these screenshots and design images. You cannot and must not edit anything.`,
     ``,
     `=== RUBRIC ===`,
     rubricText,
