@@ -108,9 +108,17 @@ describe("a handoff stands on its own", () => {
       expect(markdown.toLowerCase()).not.toContain(word);
     }
     expect(markdown).toContain("Nothing about how you fix it is prescribed.");
+    // However lookout is invoked here, the document has to end with a command
+    // that actually runs: "lookout" is not on PATH in a source checkout, and a
+    // handoff telling an agent to run a command that does not exist is worse
+    // than one that says nothing.
     expect(markdown).toContain(
-      "lookout verify-fix --cluster app--layout-overflow--header-icon-overlap",
+      "verify-fix --cluster app--layout-overflow--header-icon-overlap --commit <sha>",
     );
+    const cmd = markdown
+      .split("\n")
+      .find((l) => l.includes("verify-fix --cluster"))!;
+    expect(cmd.startsWith("lookout ") || cmd.includes("cli.js")).toBe(true);
   });
 
   test("a grouped issue lists every defect in it", async () => {

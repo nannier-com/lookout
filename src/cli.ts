@@ -98,7 +98,53 @@ function help(): void {
   );
 }
 
+/**
+ * Running from a source checkout with a build older than the source.
+ *
+ * The published package ships `dist` alone, so this only ever fires for someone
+ * running out of the repository. It exists because a stale build is invisible:
+ * the code runs, it just is not the code you wrote, and every symptom points
+ * somewhere else. That cost real time before this check existed.
+ */
+function warnIfStale(): void {
+  void (async () => {
+    try {
+      const { statSync, existsSync, readdirSync } = await import("node:fs");
+      const { fileURLToPath } = await import("node:url");
+      const { dirname, join } = await import("node:path");
+      const distDir = dirname(fileURLToPath(import.meta.url));
+      const srcDir = join(distDir, "..", "src");
+      if (!existsSync(srcDir)) return;
+
+      let newestSrc = 0;
+      const walk = (dir: string): void => {
+        for (const e of readdirSync(dir, { withFileTypes: true })) {
+          const p = join(dir, e.name);
+          if (e.isDirectory()) walk(p);
+          else if (e.name.endsWith(".ts")) {
+            const t = statSync(p).mtimeMs;
+            if (t > newestSrc) newestSrc = t;
+          }
+        }
+      };
+      walk(srcDir);
+      const built = statSync(join(distDir, "cli.js")).mtimeMs;
+      if (newestSrc > built) {
+        const mins = Math.round((newestSrc - built) / 60000);
+        console.error(
+          `lookout: this build is stale; source changed ${mins} minute(s) after it was compiled.\n` +
+            "  run `bun run build`, and restart anything already running: a server\n" +
+            "  holds the old code in memory until it does.",
+        );
+      }
+    } catch {
+      // A warning that cannot be produced is not worth failing a run over.
+    }
+  })();
+}
+
 async function main(): Promise<number> {
+  warnIfStale();
   const [verbName, ...rest] = process.argv.slice(2);
   if (!verbName || verbName === "help" || verbName === "--help" || verbName === "-h") {
     help();

@@ -13,6 +13,7 @@
  * about a defect, handed over on request.
  */
 import { existsSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { evidenceDir } from "../config.js";
@@ -63,6 +64,24 @@ export const TOOLS: Record<string, { bin: string; label: string; mark: string }>
   "claude-code": { bin: "claude", label: "Claude Code", mark: MARKS["claude-code"]! },
   codex: { bin: "codex", label: "Codex", mark: MARKS.codex! },
 };
+
+/**
+ * How to invoke lookout from somewhere else on this machine.
+ *
+ * A handoff is read by an agent in another process, and telling it to run
+ * `lookout` is only useful if that is actually on PATH. It often is not: this
+ * repository is run straight out of its build. Falling back to the absolute
+ * path of the running CLI means the command in the document is one that works.
+ */
+async function invocation(): Promise<string> {
+  if (await have("lookout")) return "lookout";
+  // Relative to this module, which is dist/report/ in a real install. Checked
+  // rather than assumed: running straight from the TypeScript resolves to a
+  // file that does not exist, and a command that cannot run is worse than the
+  // bare name somebody can at least look up.
+  const cli = fileURLToPath(new URL("../cli.js", import.meta.url));
+  return existsSync(cli) ? `${process.execPath} ${cli}` : "lookout";
+}
 
 /** A logo the project supplied, which beats anything lookout draws itself. */
 function suppliedMark(resolved: ResolvedConfig, key: string): string | null {
@@ -116,6 +135,7 @@ export async function renderHandoff(
 
   const evDir = evidenceDir(resolved);
   const label = clusterLabel(cluster);
+  const lookoutCmd = await invocation();
   const l: string[] = [];
 
   l.push(`# ${cluster.title}`, "");
@@ -186,7 +206,7 @@ export async function renderHandoff(
     "",
     "```bash",
     `cd ${resolved.projectDir}`,
-    `lookout verify-fix --cluster ${cluster.id} --commit <sha> --note "<root cause>"`,
+    `${lookoutCmd} verify-fix --cluster ${cluster.id} --commit <sha> --note "<root cause>"`,
     "```",
     "",
     "It re-captures these routes, re-judges them, and either closes the finding",
