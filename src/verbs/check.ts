@@ -15,9 +15,10 @@ import { batchShots, groupShots, judgeBatch, type AiFinding } from "../judge/eng
 import { loadRubric } from "../judge/rubric.js";
 import { groupHash, ledgerKey, loadLedger, recordVerdicts, saveLedger } from "../judge/ledger.js";
 import { verifyFindings, type VerifiedFinding } from "../judge/verify.js";
-import { LookoutError, type Severity, type ShotRecord } from "../types.js";
+import { LookoutError, type ResolvedConfig, type Severity, type ShotRecord } from "../types.js";
 import { list, num, printJson, runId, str, type Parsed } from "../util.js";
 import { runCapture } from "./capture.js";
+import { resolveTargets } from "../targets.js";
 import { SEVERITIES } from "../judge/rubric.js";
 import { emit, EventLog, setCurrentLog } from "../report/events.js";
 
@@ -152,16 +153,18 @@ export async function runCheck(
   // they were paid for only to be dropped.
   const limited = !!parsed.flags.first || num(parsed.flags.limit) !== undefined;
   const concurrency = num(parsed.flags.concurrency) ?? (limited ? 1 : 2);
-  log(
-    `judging ${toJudge.length} shot(s) in ${batches.length} batch(es) with model ${model} ` +
-      `(${cached} cached under rubric v${rubric.version})`,
-  );
-  emit("judge-start", `judging ${toJudge.length} shot(s) in ${batches.length} batch(es)`, {
-    shots: toJudge.length,
-    batches: batches.length,
-    model,
-    cached,
-  });
+  if (!skipJudging) {
+    log(
+      `judging ${toJudge.length} shot(s) in ${batches.length} batch(es) with model ${model} ` +
+        `(${cached} cached under rubric v${rubric.version})`,
+    );
+    emit("judge-start", `judging ${toJudge.length} shot(s) in ${batches.length} batch(es)`, {
+      shots: toJudge.length,
+      batches: batches.length,
+      model,
+      cached,
+    });
+  }
   if (opts.onStart) await opts.onStart(toJudge);
 
   const confirmed: VerifiedFinding[] = [];
@@ -320,6 +323,66 @@ export function autoSeverity(parsed: Parsed): Severity {
   return raw as Severity;
 }
 
+/**
+ * One issue, found as cheaply as it can be.
+ *
+ * Each route is captured and judged on its own, in config order, and the walk
+ * stops at the first that turns something up. A route is a handful of
+ * screenshots rather than the whole application, so a run that finds something
+ * early costs a fraction of a full sweep, and one that finds nothing costs the
+ * same as a full sweep and says so.
+ */
+async function firstIssue(parsed: Parsed, pre: ResolvedConfig): Promise<number> {
+  const targets = resolveTargets(
+    pre.config,
+    list(parsed.flags.targets),
+    list(parsed.flags.routes),
+    pre.configPath,
+  );
+  const stops: { target: string; route: string }[] = [];
+  for (const t of targets) for (const r of t.routes) stops.push({ target: t.def.name, route: r.path });
+
+  if (stops.length === 0) throw new LookoutError("no routes match the given --targets/--routes");
+  const quiet = !!parsed.flags.json || !!parsed.flags.quiet;
+  const log = (line: string): void => {
+    if (!quiet) console.log(line);
+  };
+
+  for (const [i, stop] of stops.entries()) {
+    emit("phase", `looking at ${stop.target}${stop.route} (${i + 1}/${stops.length})`);
+    log(`\n[${i + 1}/${stops.length}] ${stop.target}${stop.route}`);
+    // One route at a time, through the ordinary path: same capture, same judge,
+    // same rules, just scoped.
+    const scoped: Parsed = {
+      ...parsed,
+      flags: { ...parsed.flags, targets: stop.target, routes: stop.route },
+    };
+    const { outcome, resolved } = await runCheck(scoped, {});
+    const { mergeLatest } = await import("./backlog.js");
+    const merged = await mergeLatest(resolved, { judgeOutcome: outcome, firstIssueOnly: true });
+
+    if (merged.added > 0 || merged.reopened > 0) {
+      const note =
+        `found an issue on ${stop.target}${stop.route} after ${i + 1} of ${stops.length} route(s)` +
+        (merged.dropped ? `; ${merged.dropped} other finding(s) seen but not filed` : "");
+      log(`\n${note}`);
+      emit("note", note, { route: stop.route, checked: i + 1, of: stops.length });
+      emit("run-end", note, { findings: 1, costUsd: outcome.costUsd });
+      if (parsed.flags.json) printJson({ ...outcome, foundOn: stop.route, checked: i + 1 });
+      return 1;
+    }
+    log(`  nothing on ${stop.route}`);
+  }
+
+  // Every route looked at, nothing found: that is a real result and worth
+  // saying as clearly as a finding would be.
+  const clean = `no issues found across ${stops.length} route(s)`;
+  log(`\n${clean}`);
+  emit("run-end", clean, { findings: 0 });
+  if (parsed.flags.json) printJson({ findings: [], checked: stops.length });
+  return 0;
+}
+
 export async function check(parsed: Parsed): Promise<number> {
   const checkRun = runId("check");
 
@@ -337,6 +400,17 @@ export async function check(parsed: Parsed): Promise<number> {
     routes: str(parsed.flags.routes) ?? null,
   });
   setCurrentLog(elog);
+
+  // Asked for one issue? Then walk the application one route at a time and
+  // stop the moment something is found. Capturing all thirteen routes across
+  // every form factor and scheme before judging anything is exactly what "find
+  // me one issue" is asking you not to do: it is seventy-odd screenshots and
+  // several minutes to answer a question that the first route usually settles.
+  if (parsed.flags.first && pre.configPath) {
+    const code = await firstIssue(parsed, pre);
+    setCurrentLog(null);
+    return code;
+  }
 
   const { outcome, resolved, shotsById } = await runCheck(parsed, {});
 

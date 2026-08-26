@@ -20,12 +20,11 @@
 import { statSync } from "node:fs";
 import { join } from "node:path";
 import { evidenceDir } from "../config.js";
-import { clusterFindings, clusterIdOf, type FixCluster } from "../fix/cluster.js";
+import { clusterFindings, type FixCluster } from "../fix/cluster.js";
 import { clusterLabel } from "../fix/brief.js";
 import { loadState, type ClusterState } from "../fix/state.js";
 import { loadBacklog } from "../verbs/backlog.js";
-import type { FindingStatus } from "../backlog/lib.js";
-import type { ResolvedConfig, Severity } from "../types.js";
+import type { ResolvedConfig } from "../types.js";
 import { readEvents, type LookoutEvent } from "./events.js";
 
 /**
@@ -90,6 +89,13 @@ export interface BoardEntry {
   routes: string[];
   severity: string;
   category: string;
+  /**
+   * Every distinct defect grouped under this root cause, worst first, with the
+   * judge's own words. This used to live in a separate findings list, which
+   * showed the same screenshot and the same severity next to a pointer back
+   * here: two cards for one thing.
+   */
+  defects: { attribute: string; severity: string; title: string; problem: string }[];
   /** The screenshots this issue was filed against. */
   shots: BoardShot[];
   /** What the most recent `verify-fix` saw afterwards. */
@@ -273,6 +279,12 @@ export async function buildBoard(
         routes: c.routes,
         severity: c.severity,
         category: c.category,
+        defects: c.defects.map((d) => ({
+          attribute: d.attribute,
+          severity: d.severity,
+          title: d.title,
+          problem: d.problem,
+        })),
         shots: shotsOf(resolved, c),
         recheck: [],
         lastSeenAt: seen,
@@ -308,71 +320,12 @@ export async function buildBoard(
 }
 
 /**
- * A finding as the page needs it: the claim, the screenshot that proves it, and
- * which cluster owns it.
- *
- * Read from the backlog for the same reason the board is. The findings section
- * used to be built from `finding` events, so it emptied out with the log on
- * every re-capture, and the severity counts beside it described whatever
- * happened to be in the log rather than what is actually outstanding.
+ * Counts by severity, for the headline row. Takes issues now rather than
+ * findings: an issue is the thing you act on, and counting its findings
+ * separately made "5 critical" mean something different from the five cards
+ * underneath it.
  */
-export interface BoardFinding {
-  fingerprint: string;
-  severity: Severity;
-  status: FindingStatus;
-  category: string;
-  attribute: string;
-  title: string;
-  problem: string;
-  route: string;
-  formFactor: string;
-  scheme: string;
-  path: string | null;
-  /** Absolute, for whoever has to go and open it. */
-  absPath: string | null;
-  verified: boolean;
-  /** The cluster this finding is dispatched under. */
-  cluster: string;
-}
-
-const SEVERITY_RANK: Record<Severity, number> = { critical: 0, high: 1, medium: 2, low: 3 };
-
-/** Everything still outstanding, worst first. */
-export async function durableFindings(resolved: ResolvedConfig): Promise<BoardFinding[]> {
-  const backlog = await loadBacklog(resolved);
-  const evDir = evidenceDir(resolved);
-  const out: BoardFinding[] = [];
-  for (const f of Object.values(backlog.findings)) {
-    // Every status, including the settled ones: the page needs them to offer
-    // "done" and "archived" views, and filters them back out by default.
-    const ev = f.evidence[f.evidence.length - 1];
-    out.push({
-      fingerprint: f.fingerprint,
-      severity: f.severity,
-      status: f.status,
-      category: f.category,
-      attribute: f.attribute,
-      title: f.title,
-      problem: f.problem,
-      route: f.route,
-      formFactor: f.formFactor,
-      scheme: f.scheme,
-      path: ev?.path ?? null,
-      absPath: ev ? join(evDir, ev.path) : null,
-      verified: f.verified,
-      cluster: clusterIdOf(f),
-    });
-  }
-  return out.sort(
-    (a, b) =>
-      SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] ||
-      a.category.localeCompare(b.category) ||
-      a.attribute.localeCompare(b.attribute),
-  );
-}
-
-/** Counts by severity, for the headline row. */
-export function severityTally(findings: BoardFinding[]): {
+export function severityTally(items: { severity: string }[]): {
   critical: number;
   high: number;
   medium: number;
@@ -380,8 +333,8 @@ export function severityTally(findings: BoardFinding[]): {
   total: number;
 } {
   const t = { critical: 0, high: 0, medium: 0, low: 0, total: 0 };
-  for (const f of findings) {
-    t[f.severity]++;
+  for (const f of items) {
+    if (f.severity in t) t[f.severity as keyof typeof t]++;
     t.total++;
   }
   return t;

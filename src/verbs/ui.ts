@@ -24,7 +24,7 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { extname, join, resolve, sep } from "node:path";
 import { evidenceDir, loadConfig } from "../config.js";
 import { readEvents, summarise } from "../report/events.js";
-import { buildBoard, durableFindings, severityTally, tally } from "../report/board.js";
+import { buildBoard, severityTally, tally } from "../report/board.js";
 import { launchHandoff, toolsAvailable } from "../report/handoff.js";
 import { execFileAsync, num, str, type Parsed } from "../util.js";
 import type { ResolvedConfig } from "../types.js";
@@ -239,22 +239,16 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
         // per-cluster state files. The event log only says what is happening
         // this second, and every capture truncates it.
         const board = await buildBoard(resolved, events);
-        // Findings come from the backlog for the same reason the board does:
-        // built from `finding` events they emptied out with the log on every
-        // re-capture, and the severity counts described the log rather than
-        // what is actually outstanding.
-        const findings = await durableFindings(resolved);
-        // The severity numbers are the triage signal and now also filters, so
-        // they count work that still needs doing. A critical somebody already
-        // fixed must not keep inflating "critical".
-        const outstanding = findings.filter(
-          (f) => f.status === "open" || f.status === "blocked",
+        // Severity counts issues, not findings: an issue is the thing you act
+        // on, and counting its findings separately made "5 critical" mean
+        // something different from the five cards under it.
+        const outstanding = board.filter(
+          (b) => b.status !== "done" && b.status !== "archived",
         );
         const body = JSON.stringify({
           project: resolved.project,
           projectDir: resolved.projectDir,
           configured: resolved.configPath !== null,
-          findings,
           status: {
             ...status,
             board,
@@ -602,28 +596,15 @@ animation:blink 1.1s step-end infinite}
 word-break:break-all;user-select:all}
 .paths div{padding:1px 0}
 
-/* --- findings ---------------------------------------------------------- */
-.finds{display:grid;grid-template-columns:repeat(auto-fill,minmax(500px,1fr));gap:14px;
-align-items:start}
-@media(max-width:560px){.finds{grid-template-columns:1fr}}
-.fcard{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--line);
-border-radius:12px;padding:13px 15px 14px;box-shadow:var(--shadow);display:flex;gap:14px}
-@media(max-width:560px){.fcard{flex-direction:column}}
-.fcard.critical{border-left-color:var(--crit)}.fcard.high{border-left-color:var(--high)}
-.fcard.medium{border-left-color:var(--med)}.fcard.low{border-left-color:var(--low)}
-.fshot{flex:0 0 auto;width:168px;text-decoration:none;color:inherit}
-.fshot img{display:block;width:168px;height:134px;object-fit:cover;object-position:top;
-border:1px solid var(--line);border-radius:8px;background:var(--sunk)}
-.fshot:hover img{border-color:var(--accent)}
-.fshot span{display:block;font-size:10.5px;color:var(--faint);margin-top:4px;
-overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-@media(max-width:560px){.fshot,.fshot img{width:100%}}
-.fbody{min-width:0;display:flex;flex-direction:column;gap:7px}
-.problem{margin:0;font-size:12.5px;line-height:1.5;color:var(--dim)}
-.pill.critical{color:var(--crit);border-color:var(--crit)}
-.pill.high{color:var(--high);border-color:var(--high)}
-.pill.medium{color:var(--med);border-color:var(--med)}
-.pill.low{color:var(--low);border-color:var(--low)}
+/* --- a defect inside an issue ------------------------------------------ */
+.defect{border-left:2px solid var(--line);padding:2px 0 2px 10px;margin-bottom:9px}
+.defect:last-child{margin-bottom:0}
+.defect.critical{border-left-color:var(--crit)}.defect.high{border-left-color:var(--high)}
+.defect.medium{border-left-color:var(--med)}.defect.low{border-left-color:var(--low)}
+.dtitle{font-size:13px;font-weight:600;line-height:1.4}
+.dattr{font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--faint)}
+.problem{margin:4px 0 0;font-size:12.5px;line-height:1.5;color:var(--dim)}
+.evi h4 .n{font-weight:500;letter-spacing:0;text-transform:none;color:var(--dim)}
 .empty{color:var(--faint);font-style:italic;font-size:13px}
 </style></head><body>
 <header>
@@ -645,8 +626,6 @@ overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 <div class="filterbar" id="filterbar" hidden></div>
 <section id="issues"><h2>Issues <span class="n" id="bn"></span></h2>
   <div class="board" id="board"></div></section>
-<section id="findingsSection"><h2>Findings <span class="n" id="fn"></span></h2>
-  <div class="finds" id="findings"></div></section>
 </main>
 <script>
 const STALE_MS = 10 * 60 * 1000;
@@ -696,27 +675,20 @@ const STATES = {
 // Work that is finished with is kept and reachable, but it is not what the page
 // opens on: unfiltered, this is a view of what still needs doing.
 const SETTLED = ["done", "archived"];
-const SETTLED_FINDING = ["fixed", "by-design"];
 
 function matchesIssue(b){
   if (!filter) return !SETTLED.includes(b.status);
   if (filter.kind === "state") return STATES[filter.value].includes(b.status);
   return b.severity === filter.value && !SETTLED.includes(b.status);
 }
-function matchesFinding(f, shown){
-  if (!filter) return !SETTLED_FINDING.includes(f.status);
-  if (filter.kind === "severity") {
-    return f.severity === filter.value && !SETTLED_FINDING.includes(f.status);
-  }
-  return shown.has(f.cluster);
-}
+
 
 function setFilter(kind, value, label){
   const same = filter && filter.kind === kind && filter.value === value;
   filter = same ? null : { kind, value, label };
   tick();
   if (!filter) return;
-  const target = el(kind === "severity" ? "findingsSection" : "issues");
+  const target = el("issues");
   target.scrollIntoView({ behavior: "smooth", block: "start" });
   target.classList.remove("flash");
   void target.offsetWidth;
@@ -797,6 +769,22 @@ function paths(b){
     + rows.map(p => '<div>' + esc(p) + '</div>').join("") + '</div></div>';
 }
 
+// The judge's own words for every defect grouped under this root cause. A
+// summary of them would be lookout paraphrasing its own evidence.
+function defects(b){
+  const list = b.defects || [];
+  if (!list.length) return "";
+  const rows = list.map(d =>
+    '<div class="defect ' + esc(d.severity) + '">'
+    + '<div class="dtitle">' + esc(d.title) + '</div>'
+    + (list.length > 1 ? '<div class="dattr">' + esc(d.attribute) + '</div>' : '')
+    + (d.problem ? '<p class="problem">' + esc(d.problem) + '</p>' : '')
+    + '</div>').join("");
+  return '<div class="evi"><h4>What is wrong'
+    + (list.length > 1 ? ' <span class="n">' + list.length + ' defects</span>' : '')
+    + '</h4>' + rows + '</div>';
+}
+
 function whatLine(b){
   if (b.status === "verifying") return '<div class="what">lookout is re-judging this now.</div>';
   const n = b.attempt ? ' after ' + esc(b.attempt) + (b.attempt === 1 ? ' attempt' : ' attempts') : '';
@@ -830,41 +818,11 @@ function card(b){
     + whatLine(b)
     + '<div class="meta"><span class="chip sev ' + esc(b.severity) + '">' + esc(b.severity) + '</span>'
     + '<span class="chip">' + esc(b.category) + '</span>' + routes + attempt + '</div>'
+    + defects(b)
     + strip("What lookout saw", b.shots)
     + strip("What verify-fix saw afterwards", b.recheck)
     + judge + feed(b) + paths(b)
     + '</article>';
-}
-
-function ownerOf(f, board){ return board.find(b => b.id === f.cluster) || null; }
-
-function findingCard(f, board){
-  const shot = f.path
-    ? '<a class="fshot" href="/evidence/' + enc(f.path) + '" target="_blank" title="' + esc(f.absPath) + '">'
-      + '<img loading="lazy" src="/thumb/' + enc(f.path) + '?w=336" alt=""/>'
-      + '<span>' + esc([f.formFactor, f.scheme].filter(Boolean).join(" \\u00b7 ")) + '</span></a>'
-    : "";
-  const owner = ownerOf(f, board);
-  const chips = [f.route, f.formFactor, f.scheme].filter(Boolean)
-    .map(v => '<span class="chip">' + esc(v) + '</span>').join("");
-  const verified = f.verified
-    ? '<span class="chip" title="a second pass was asked to refute this, and could not">verified</span>'
-    : "";
-  const blocked = f.status === "blocked"
-    ? '<span class="chip" title="lookout ran out of attempts on this">blocked</span>' : "";
-  const own = owner
-    ? '<div class="what faint">Part of <b>' + esc(owner.label) + '</b> \\u00b7 ' + esc(owner.status) + '</div>'
-    : "";
-  const p = f.absPath ? '<div class="paths">' + esc(f.absPath) + '</div>' : "";
-  return '<article class="fcard ' + esc(f.severity) + '">' + shot
-    + '<div class="fbody">'
-    + '<div class="top"><span class="pill ' + esc(f.severity) + '">' + esc(f.severity) + '</span></div>'
-    + '<h3 class="title">' + esc(f.title) + '</h3>'
-    + '<div class="meta"><span class="chip">' + esc(f.category) + "/" + esc(f.attribute) + '</span>'
-    + chips + verified + blocked + '</div>'
-    + (f.problem ? '<p class="problem">' + esc(f.problem) + '</p>' : "")
-    + own + p
-    + '</div></article>';
 }
 
 // Where lookout is pointed, and whether it can run there at all.
@@ -1014,23 +972,6 @@ async function tick(){
       f.scrollTop = (b && b.status === "verifying") || was === undefined ? f.scrollHeight : was;
     }
   }
-
-  const allFinds = d.findings || [];
-  const shown = new Set(issues.map(b => b.id));
-  const finds = allFinds.filter(f => matchesFinding(f, shown));
-  el("fn").textContent = allFinds.length
-    ? (finds.length === allFinds.length
-        ? allFinds.length + " outstanding"
-        : finds.length + " of " + allFinds.length)
-    : "";
-  paint("findings", JSON.stringify([filter,
-      finds.map(f => [f.fingerprint, f.severity, f.status]),
-      allIssues.map(b => [b.id, b.status])]),
-    finds.length
-      ? finds.map(f => findingCard(f, allIssues)).join("")
-      : '<div class="panel empty">'
-        + (filter && allFinds.length ? 'No ' + esc(filter.label) + ' findings.' : 'No findings yet.')
-        + '</div>');
 
   ticks();
 }

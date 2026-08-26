@@ -10,7 +10,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildBoard, durableFindings, severityTally, tally } from "../src/report/board.js";
+import { buildBoard, severityTally, tally } from "../src/report/board.js";
 import { EventLog } from "../src/report/events.js";
 import type { BacklogFinding } from "../src/backlog/lib.js";
 import type { ClusterState } from "../src/fix/state.js";
@@ -188,68 +188,56 @@ describe("the log only marks what is in flight", () => {
   });
 });
 
-describe("findings come from the backlog too", () => {
-  // Same bug as the board had: built from `finding` events, the findings
-  // section emptied out with the log on every re-capture, and the severity
-  // numbers beside it counted whatever happened to be in the log. Those
-  // numbers are now filter controls, so counting the wrong thing would filter
-  // the wrong thing.
-  test("findings survive a log that holds none, whatever their status", async () => {
+describe("an issue carries its own defects and its own severity", () => {
+  // These used to be asserted over a separate findings list. That list showed
+  // the same screenshot and the same severity next to a pointer back to the
+  // issue, so it was folded in: the invariants belong to the issue now.
+  test("the judge's words travel with the issue, not in a second list", async () => {
     const r = project();
-    writeBacklog(r, [
-      finding({ severity: "critical" }),
-      finding({ attribute: "target-size", severity: "high" }),
-      finding({ attribute: "focus-ring", severity: "high", status: "blocked", reason: "upstream" }),
-      finding({ attribute: "closed", status: "fixed" }),
-      finding({ attribute: "waived", status: "by-design", reason: "intentional" }),
-    ]);
-    const f = await durableFindings(r);
-    // Every status is carried, so the page can offer "done" and "archived"
-    // views; it filters them out of the default triage view itself.
-    expect(f).toHaveLength(5);
-    expect(f.map((x) => x.status).sort()).toEqual([
-      "blocked", "by-design", "fixed", "open", "open",
-    ]);
+    writeBacklog(r, [finding()]);
+    const b = (await buildBoard(r))[0]!;
+    expect(b.defects).toHaveLength(1);
+    expect(b.defects[0]!.problem).toBe("2.9:1 against the card surface.");
+    expect(b.defects[0]!.title).toBe("Body text is too faint");
   });
 
-  test("the severity headline counts outstanding work, not settled record", async () => {
+  test("a root cause seen twice is one issue listing one defect", async () => {
+    const r = project();
+    writeBacklog(r, [
+      finding(),
+      finding({
+        fingerprint: "app./dash.rest.phone.dark.a11y.contrast",
+        formFactor: "phone",
+        evidence: [
+          {
+            shotId: "web/app/dash/rest/phone/dark",
+            path: "web/app/dash/rest--phone-dark.png",
+            hash: "h2",
+            runId: "r1",
+          },
+        ],
+      }),
+    ]);
+    const board = await buildBoard(r);
+    expect(board).toHaveLength(1);
+    // One defect, two screenshots: the same thing seen twice.
+    expect(board[0]!.defects).toHaveLength(1);
+    expect(board[0]!.shots).toHaveLength(2);
+  });
+
+  test("severity counts issues, and leaves settled work out of the count", async () => {
     const r = project();
     writeBacklog(r, [
       finding({ severity: "critical" }),
       finding({ attribute: "target-size", severity: "high" }),
       finding({ attribute: "focus-ring", severity: "high", status: "blocked", reason: "upstream" }),
-      // A critical somebody already fixed must not keep inflating "critical",
-      // because that number is the triage signal and now also a filter.
+      // Already fixed: it must not keep inflating the number somebody triages by.
       finding({ attribute: "closed", severity: "critical", status: "fixed" }),
-      finding({ attribute: "waived", severity: "low", status: "by-design", reason: "ok" }),
     ]);
-    const outstanding = (await durableFindings(r)).filter(
-      (x) => x.status === "open" || x.status === "blocked",
-    );
+    const board = await buildBoard(r);
+    const outstanding = board.filter((b) => b.status !== "done" && b.status !== "archived");
     expect(severityTally(outstanding)).toEqual({
       critical: 1, high: 2, medium: 0, low: 0, total: 3,
     });
-  });
-
-  test("worst first, so the top of the list is the thing to fix", async () => {
-    const r = project();
-    writeBacklog(r, [
-      finding({ attribute: "a", severity: "low" }),
-      finding({ attribute: "b", severity: "critical" }),
-      finding({ attribute: "c", severity: "medium" }),
-      finding({ attribute: "d", severity: "high" }),
-    ]);
-    expect((await durableFindings(r)).map((x) => x.severity)).toEqual([
-      "critical", "high", "medium", "low",
-    ]);
-  });
-
-  test("each finding names the cluster that owns it, so a card can link them", async () => {
-    const r = project();
-    writeBacklog(r, [finding()]);
-    const [f] = await durableFindings(r);
-    const board = await buildBoard(r);
-    expect(f!.cluster).toBe(board[0]!.id);
-    expect(f!.path).toBe("web/app/dash/rest--desktop-dark.png");
   });
 });
