@@ -3,6 +3,7 @@
  * lookout: a project-agnostic visual AI tester.
  *
  * Verbs:
+ *   protocol  the operating contract, printed by lookout for whichever agent runs it
  *   capture   screenshots + deterministic findings, no AI
  *   check     capture + judge against best practices; findings merge into the backlog
  *             (--auto also writes one fix brief per root cause for dispatch)
@@ -26,6 +27,10 @@ type Verb = (parsed: Parsed) => Promise<number>;
 // Verbs register here as their phases land; the registry is the single source
 // for dispatch and help.
 const VERBS: Record<string, { load: () => Promise<Verb>; summary: string }> = {
+  protocol: {
+    load: async () => (await import("./verbs/protocol.js")).protocol,
+    summary: "how to drive lookout: the operating contract, for any agent",
+  },
   capture: {
     load: async () => (await import("./verbs/capture.js")).capture,
     summary: "screenshots + deterministic findings, no AI",
@@ -80,9 +85,8 @@ function help(): void {
       "\n  lookout verify-fix --cluster app--contrast--body-text --commit <sha>" +
       '\n  lookout verify --criteria ticket.md --targets app' +
       '\n  lookout ask "does the sidebar collapse below 640px?" --targets app' +
-      "\n\nlookout is run by agents. `check --auto` writes one brief per root cause" +
-      "\nand a PLAN.json naming the dispatch protocol; follow it rather than fixing" +
-      "\nfindings inline.",
+      "\n\nlookout is run by agents, of any make. Run `lookout protocol` for the" +
+      "\nfull operating contract; it is the tool's own instructions, not a plugin.",
   );
 }
 

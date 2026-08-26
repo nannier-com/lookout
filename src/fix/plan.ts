@@ -9,7 +9,7 @@ import { relative } from "node:path";
 import { nowIso } from "../util.js";
 import type { ResolvedConfig } from "../types.js";
 import type { FixCluster } from "./cluster.js";
-import { PROTOCOL, renderBrief, type FixPlan, type PlanCluster } from "./brief.js";
+import { clusterLabel, PROTOCOL, renderBrief, spawnLine, type FixPlan, type PlanCluster } from "./brief.js";
 import { briefPath, fixDir, loadState, planPath } from "./state.js";
 
 /** Render and write one cluster's brief; returns its absolute path. */
@@ -21,6 +21,10 @@ export async function writeBrief(
   const state = await loadState(resolved, cluster.id);
   const p = briefPath(resolved, cluster.id);
   await mkdir(fixDir(resolved), { recursive: true });
+  const { clusterSheet } = await import("./stream.js");
+  const sheet = await clusterSheet(resolved, cluster);
+  const { discoverRuleFiles } = await import("./rules.js");
+  const ruleFiles = await discoverRuleFiles(resolved.projectDir);
   await writeFile(
     p,
     renderBrief(cluster, {
@@ -28,6 +32,8 @@ export async function writeBrief(
       attempt: cluster.attemptsSpent + 1,
       maxAttempts,
       priorAttempts: state.attempts,
+      sheet,
+      ruleFiles,
     }),
   );
   return p;
@@ -43,6 +49,9 @@ export async function writeFixPlan(
     const brief = await writeBrief(resolved, c, opts.maxAttempts);
     planClusters.push({
       id: c.id,
+      label: clusterLabel(c),
+      spawn: spawnLine(c, brief),
+      sheet: await (await import("./stream.js")).clusterSheet(resolved, c),
       severity: c.severity,
       category: c.category,
       attribute: c.attribute,
@@ -77,9 +86,11 @@ export function renderDispatch(plan: FixPlan, resolved: ResolvedConfig): string 
   }
   const rows = plan.clusters.map(
     (c) =>
-      `  ${c.id}\n` +
+      `  ${c.id}  (${c.label})\n` +
       `    ${c.severity.padEnd(8)} ${c.category}/${c.attribute}  ${c.shotCount} shot(s)  ${c.routes.join(" ")}\n` +
       `    brief:  ${c.brief}\n` +
+      (c.sheet ? `    sheet:  ${c.sheet}\n` : "") +
+      `    ${c.spawn}\n` +
       `    verify: ${c.verify}`,
   );
   return [

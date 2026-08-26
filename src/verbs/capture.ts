@@ -7,10 +7,12 @@
 import { assertTargetsAllowed, loadConfig } from "../config.js";
 import { preflight, requireUp, resolveTargets } from "../targets.js";
 import { captureWeb, type WebCaptureOptions } from "../capture/web.js";
-import { mergeRun } from "../capture/store.js";
-import type { FormFactor, Scheme } from "../types.js";
+import { mergeRun, loadReport } from "../capture/store.js";
+import { buildContactSheet, sheetNote } from "../capture/sheet.js";
+import type { FormFactor, Scheme, ShotRecord } from "../types.js";
 import { LookoutError } from "../types.js";
 import { list, num, printJson, runId, str, type Parsed } from "../util.js";
+import { join } from "node:path";
 
 const FORM_FACTORS: FormFactor[] = ["desktop", "tablet", "phone"];
 const SCHEMES: Scheme[] = ["dark", "light"];
@@ -22,6 +24,8 @@ export interface CaptureOutcome {
   failures: { target: string; route: string; step: string; message: string }[];
   reportPath: string;
   evidenceDir: string;
+  /** Labelled composite of this run's shots, for the calling session to read. */
+  contactSheet: string | null;
 }
 
 /** Shared by capture/check: run the web engine per current flags. */
@@ -118,6 +122,9 @@ export async function runCapture(parsed: Parsed): Promise<{
   const all = shots.flatMap((s) => s.deterministicFindings);
   const outcome: CaptureOutcome = {
     runId: run.id,
+    // Filled in by the verb once the sheet is composited; runCapture itself is
+    // shared with `check`, which builds its own marked-up sheet instead.
+    contactSheet: null,
     shots: shots.length,
     findings: {
       errors: all.filter((f) => f.severity === "error").length,
@@ -132,7 +139,9 @@ export async function runCapture(parsed: Parsed): Promise<{
 }
 
 export async function capture(parsed: Parsed): Promise<number> {
-  const { outcome } = await runCapture(parsed);
+  const { outcome, resolved } = await runCapture(parsed);
+  const sheet = await runContactSheet(resolved, await shotsOfRun(resolved, outcome.runId));
+  outcome.contactSheet = sheet?.path ?? null;
 
   if (parsed.flags.json) {
     printJson(outcome);
@@ -145,6 +154,35 @@ export async function capture(parsed: Parsed): Promise<number> {
     for (const f of outcome.failures) {
       console.log(`  FAILED ${f.target}${f.route}: ${f.message}`);
     }
+    if (sheet) console.log(`\n${sheetNote(sheet)}`);
   }
   return outcome.failures.length > 0 || outcome.findings.errors > 0 ? 1 : 0;
+}
+
+/**
+ * Composite a set of shots into a labelled sheet under the evidence directory.
+ * Shared with `check` and `verify-fix`, which pass finding counts so the tiles
+ * carrying defects are marked.
+ */
+export async function runContactSheet(
+  resolved: Awaited<ReturnType<typeof loadConfig>>,
+  shots: ShotRecord[],
+  findingsByShot?: Map<string, number>,
+  outName = "contact-sheet.png",
+): Promise<Awaited<ReturnType<typeof buildContactSheet>>> {
+  const evDir = join(resolved.projectDir, ".lookout", "evidence");
+  return buildContactSheet(
+    shots.map((shot) => ({ shot, findings: findingsByShot?.get(shot.id) })),
+    evDir,
+    join(evDir, outName),
+  );
+}
+
+/** The shots one run produced, for a run-scoped sheet. */
+export async function shotsOfRun(
+  resolved: Awaited<ReturnType<typeof loadConfig>>,
+  runIdValue: string,
+): Promise<ShotRecord[]> {
+  const report = await loadReport(resolved);
+  return report ? report.shots.filter((s) => s.runId === runIdValue) : [];
 }

@@ -3,175 +3,48 @@ name: lookout
 description: Verify UI work with the lookout visual AI tester: capture what the app actually renders across form factors, schemes, and platforms; judge it against best practices; verify a ticket's acceptance criteria; fact-check a visual assumption; track findings in the project backlog. Use BEFORE declaring UI work done, when a ticket carries acceptance criteria, when unsure whether a visual or responsive assumption holds, or when asked to audit an app's UI.
 ---
 
-# lookout: evidence-based visual verification
+# lookout
 
 lookout (`@nannier-com/lookout`, source at ~/Workspaces/lookout, runs via
-`~/Workspaces/lookout/dist/cli.js` until the npm release lands) is a pure
-oracle: it captures screenshots, runs deterministic checks, judges evidence
-through the local `claude -p`, and tracks findings. It NEVER edits code and
-NEVER starts services. You do the fixing; lookout verifies.
+`~/Workspaces/lookout/dist/cli.js` until the npm release lands) is a visual
+oracle: it captures what an app renders, judges it, and rules on whether a
+defect is gone. It never edits code and never starts services.
+
+**lookout carries its own instructions.** It is meant to be driven by any
+agent, not only this one, so the operating contract lives in the tool rather
+than in this file:
+
+```bash
+lookout protocol
+```
+
+Run that first. It prints what lookout is, the loop, the dispatch protocol for
+`check --auto`, the exit codes, and the rules. This file exists only to point
+you at it and to carry the few facts that are specific to this machine.
 
 ## When to reach for it
 
-- You changed UI and are about to say "done": run `lookout check` (or at
-  minimum `lookout capture`) on the affected routes first. Tests verify code;
-  lookout verifies pixels.
-- A ticket has acceptance criteria: `lookout verify --criteria <file|text>`
-  returns per-criterion pass / fail / not-verifiable with evidence paths.
-- You are unsure a visual assumption holds ("does the sidebar collapse below
-  640px?", "is the dark-mode contrast readable?"): `lookout ask "..."`.
-- Sweeping an app for conformance issues: `lookout check`, findings land in
-  `.lookout/backlog.json`.
+- You changed UI and are about to say "done": run `lookout check` on the
+  affected routes first. Tests verify code; lookout verifies pixels.
+- You want the defects fixed, not just found: `lookout check --auto`, then
+  follow the dispatch protocol it prints.
+- A ticket has acceptance criteria: `lookout verify --criteria <file|text>`.
+- You are unsure a visual assumption holds: `lookout ask "..."`.
 
-## Prerequisites (check once per machine)
+## Machine-specific facts
 
-`lookout doctor` reports everything. Judging (`check`, `verify`, `ask`)
-shells out to `claude -p` and needs the standalone CLI logged in: if doctor
-or a judge run reports "Not logged in", ask the user to run `claude` in a
-terminal once and complete /login; `lookout doctor --handshake` confirms.
-Capture-only verbs work regardless.
-
-## The verbs
-
-```bash
-lookout targets                      # what this project declares, up or down
-lookout capture --routes /checkout   # evidence only: shots + console/axe/overflow findings
-lookout check                        # capture + AI judge; findings merge into the backlog
-lookout check --auto                 # the same, plus one fix brief per root cause to dispatch
-lookout check --routes /x --targets docs   # scoped re-check (ledger-cached, cheap)
-lookout verify-fix --cluster <id>    # rule on a claimed fix: pass it or hand it back
-lookout backlog plan                 # re-emit the dispatch plan, judging nothing
-lookout verify --criteria ticket.md  # acceptance criteria verdicts with evidence
-lookout ask "is the empty state readable in dark mode?"
-lookout backlog stats                # open findings by severity
-lookout backlog check                # gate: schema, reasons, staleness
-```
-
-Exit codes: 0 clean, 1 findings or failed criteria, 2 execution error.
-`--json` on any verb for machine-readable output. Zero-config mode works
-anywhere: `lookout capture --url http://localhost:3000`.
-
-## Per-project facts
-
-- A repo with `.lookout/config.ts` is wired: targets, routes, state recipes,
-  rubric extension, sign-in hooks, never-file suppressions live there. Wired
-  today: canvas (the docs, 100 component routes + overlay recipes + native
-  apps), ionize dashboard (13 admin routes behind a demo-admin `signIn`),
-  ionize auth / site (public routes through Caddy addresses).
-- lookout never starts services. A down target prints its startHint; start
-  the app the way that project intends (canvas: `cd docs && bun run dev`;
+- Judging shells out to `claude -p` and needs the standalone CLI logged in.
+  `lookout doctor` reports it; if it says "Not logged in", ask the user to run
+  `claude` in a terminal once and complete /login.
+- Wired projects: canvas (the docs, 100 component routes, overlay recipes and
+  native apps), ionize dashboard (13 admin routes behind a demo-admin
+  `signIn`), ionize auth and site (public routes through Caddy addresses).
+- lookout never starts services. A down target prints its startHint; start the
+  app the way that project intends (canvas: `cd docs && bun run dev`; the
   ionize stack: ask the user to start it, NEVER run ionctl yourself).
 - Native capture (`--platforms ios,android`) needs a booted simulator or
-  emulator with the app installed; both schemes on device need the app's
-  appearance URL param (canvas has one: `?scheme=light`).
-
-## Authenticated routes: sign in by clicking, never by typing
-
-Most admin surfaces are worth judging only signed in, and a signed-out capture
-is worse than none: the app redirects to a login host and every shot gets filed
-under the product route it never reached. Two pieces handle this.
-
-`TargetDef.signIn(page)` runs ONCE per target before its routes, in the browser
-context the whole run shares, so the session persists across every route, form
-factor and scheme. lookout has no idea how any app authenticates; the project's
-`.lookout/config.ts` supplies the flow. If the hook throws, that target's routes
-are skipped and recorded as a `signIn` failure rather than mislabeled.
-
-Drive it the way a person would, and CLICK a demo account rather than typing
-credentials. Dev stacks expose demo accounts as buttons precisely so automation
-never handles secrets:
-
-```ts
-async function signIn(page: Page): Promise<void> {
-  await page.goto(`${APP}/dashboard`, { waitUntil: "networkidle" });
-  if (page.url().startsWith(APP)) return;            // already holding a session
-  await page.locator("button", { hasText: "admin@demo.user" }).first().click();
-  await page.waitForURL((u) => u.href.startsWith(APP), { timeout: 60_000 });
-}
-```
-
-End it by waiting for the app's own origin. That wait is what proves the OAuth
-redirects finished; returning early parks the run on the login host.
-
-The `off-origin` check is the safety net: every shot's final URL is compared to
-its target's origin, and a mismatch is a CRITICAL finding, because the shot
-shows a different application and every other finding on it is misattributed.
-Same-origin redirects stay silent. If a run comes back full of findings about a
-login screen, read this check before believing any of them.
-
-## Design hand-offs
-
-`RouteDef.design` points a route at a hand-off image (resolved relative to the
-config file); the judge reads it beside every shot of that route and compares
-one to one.
-
-```ts
-routes: [{ path: "/dashboard", design: "mocks/dashboard.png" }]
-```
-
-The hand-off informs the judgement, it does not win it. lookout rules on each
-divergence by user impact, so it can find the build improved on the hand-off and
-decline to file it, find the build drifted and file against it, or find both
-wrong and say what correct would be. Divergences that are only divergences get
-the `design-parity` category. Export the artboard to an image; lookout does not
-render hand-offs itself.
-
-## The fix loop: `--auto` and the dispatch protocol
-
-lookout is run by agents, not read by people. `--auto` is the handshake: it
-turns the open backlog into work you dispatch, then rules on whether the work
-landed. lookout still edits nothing and spawns nothing; you do both.
-
-```bash
-lookout check --auto            # or `lookout backlog plan` to resume for free
-```
-
-That clusters open findings by root cause (one code cause, not one screenshot),
-writes a self-contained brief per cluster under `.lookout/evidence/fix/`, and
-writes `PLAN.json`. Then, as the orchestrating session:
-
-1. **Spawn one subagent per cluster**, whose entire prompt is "Read `<brief>`
-   and execute it fully. Reply with only the JSON it asks for." Keeping the
-   brief out of your own context is the point: you hold cluster ids and
-   verdicts, the subagent holds the screenshots and the diff. Clusters on
-   different routes can run in parallel; clusters sharing a route must not, or
-   the sessions collide in the same files.
-2. **Rule on what comes back**, passing along what the session reported:
-   `lookout verify-fix --cluster <id> --commit <sha> --note "<rootCause>"`.
-   This re-captures and re-judges that cluster's own routes. It is the only
-   thing allowed to decide a defect is gone.
-3. **Branch on the exit code.** `0` passed: the backlog is already adjudicated
-   to fixed, move on. `1` not fixed: a fresh brief has been written carrying
-   what the judge sees NOW, so spawn a NEW subagent on that same path. `2`
-   lookout failed to run. `3` blocked after `--max-attempts` (default 2), with
-   the reason recorded: stop dispatching it and report it.
-4. **Never mark a finding fixed yourself**, and never let a fix session verify
-   its own work. A fix session that reports "fixed" is making a claim, not a
-   finding.
-
-`--severity` sets the dispatch floor (critical and high by default); widen it
-with `--severity medium` once the serious clusters are clear.
-
-### Doing it by hand
-
-Without `--auto` the same loop is manual: `lookout check`, fix the code per THAT
-repo's conventions (canvas: kit law applies, semantic boolean props, no styling
-escape hatches, skins in *.styles.ts, changeset per kit fix), re-check the
-affected scope, then `lookout backlog set <fingerprint> --status fixed --commit
-<sha>`. Intended behavior gets `--status by-design --reason "..."` (suppressed
-forever after); after 2 failed rounds use `--status blocked --reason "..."` and
-move on. `lookout backlog check` gates before you commit backlog changes.
-
-## Guardrails
-
-- Localhost targets only unless the user explicitly wants `--allow-remote`.
-- Never judge intentionally-wrong demo content (docs "Don't" examples).
-- Never type credentials into captured apps. Authed areas use a target's
-  `signIn` hook clicking a demo account, per the section above.
-- Findings are the app's problems, not lookout's: fix the app, or adjudicate
-  with a reason; never edit backlog.json by hand.
-- A scoped re-check re-judges a whole view (every form factor and scheme of one
-  route and state), not just the shot whose pixels moved. That is deliberate:
-  the judge compares dark against light and desktop against phone, so caching
-  them apart would make a comparative finding read as fixed when only its
-  partner had changed. Do not add per-shot filtering to work around the cost.
+  emulator with the app installed.
+- Authenticated targets sign in via the project's `signIn` hook, which clicks a
+  demo account rather than typing credentials. If a run comes back full of
+  findings about a login screen, read the `off-origin` finding before believing
+  any of them: the shots are of a different application.

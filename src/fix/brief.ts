@@ -19,6 +19,10 @@ export interface BriefContext {
   attempt: number;
   maxAttempts: number;
   priorAttempts: AttemptRecord[];
+  /** Absolute path of this cluster's contact sheet, when one was composited. */
+  sheet?: string | null;
+  /** Rule files governing the target repository, discovered by lookout. */
+  ruleFiles?: string[];
 }
 
 /** Absolute path of a member's most recent screenshot. */
@@ -27,8 +31,31 @@ function latestEvidence(resolved: ResolvedConfig, m: FixCluster["members"][numbe
   return ev ? join(evidenceDir(resolved), ev.path) : null;
 }
 
+/** Short name for the subagent working this cluster, so the session can say who is doing what. */
+export function clusterLabel(c: FixCluster): string {
+  const what = c.defects.length > 1 ? `${c.category} (${c.defects.length} rules)` : `${c.category}/${c.attribute}`;
+  const where = c.routes.length > 2 ? `${c.routes.length} routes` : c.routes.join(" ");
+  return `fix ${what} on ${where}`;
+}
+
+/**
+ * The exact instruction the orchestrating session follows to dispatch this
+ * cluster. It names the subagent, so the run shows who is fixing what rather
+ * than a row of anonymous workers.
+ */
+export function spawnLine(c: FixCluster, briefPath: string): string {
+  return (
+    `spawn: announce "${clusterLabel(c)}", then start ONE separate agent session\n` +
+    `          (subagent, task, worker: whatever your harness calls a child session\n` +
+    `          with its own context) named "${clusterLabel(c)}", whose entire prompt is:\n` +
+    `          "Open ${briefPath} and execute it fully.\n` +
+    `          Reply with only the JSON it asks for."`
+  );
+}
+
 export function renderBrief(cluster: FixCluster, ctx: BriefContext): string {
   const { resolved, attempt, maxAttempts, priorAttempts } = ctx;
+  const ruleFiles = ctx.ruleFiles ?? [];
   // One screenshot can carry several findings, so dedupe by path: listing the
   // same image five times tells a fix session nothing and wastes its reads.
   const seenShots = new Set<string>();
@@ -72,6 +99,32 @@ export function renderBrief(cluster: FixCluster, ctx: BriefContext): string {
     "",
   );
 
+  // Rules before evidence: an agent that starts editing before it knows the
+  // project's conventions has already done the damage by the time it reads
+  // them. lookout cannot rely on the agent's harness having loaded these, so it
+  // names them.
+  lines.push("## Project rules: read these FIRST", "");
+  if (ruleFiles.length > 0) {
+    lines.push(
+      "This repository carries rules that govern how changes are made in it.",
+      "Read every one of these before you edit anything:",
+      "",
+      ...ruleFiles.map((f) => `- ${f}`),
+      "",
+      "They are not advisory. Where a project rule conflicts with anything in this",
+      "brief, the project rule wins and you say so in your reply. Where it forbids",
+      "the obvious fix, find the one it allows rather than the one it forbids.",
+      "",
+    );
+  } else {
+    lines.push(
+      "lookout found no rules file (CLAUDE.md, AGENTS.md, CONVENTIONS.md and the",
+      "like) governing this repository. Before editing, look for conventions in the",
+      "surrounding code and match them; do not introduce a new pattern.",
+      "",
+    );
+  }
+
   const heading = cluster.channel === "ai" ? "## What the judge saw" : "## What the checks found";
   lines.push(heading, "");
   if (cluster.defects.length > 1) {
@@ -95,7 +148,23 @@ export function renderBrief(cluster: FixCluster, ctx: BriefContext): string {
   if (cluster.observed) lines.push(`**Observed.** ${cluster.observed}`, "");
 
   lines.push("## Evidence", "");
-  lines.push("Read every one of these images with the Read tool before you edit anything.", "");
+  if (ctx.sheet) {
+    lines.push(
+      "Start with the contact sheet: one image, every affected screenshot, labelled.",
+      "",
+      `- ${ctx.sheet}`,
+      "",
+      "Then open the full-resolution shots below for anything the sheet crops or",
+      "downscales. You must actually view these images, not infer from filenames.",
+      "",
+    );
+  } else {
+    lines.push(
+      "Open every one of these images before you edit anything. You must actually",
+      "view them, not infer from the filenames.",
+      "",
+    );
+  }
   lines.push(...shots, "");
   if (cluster.routes.length > 1) {
     lines.push(
@@ -125,8 +194,8 @@ export function renderBrief(cluster: FixCluster, ctx: BriefContext): string {
   lines.push(
     "1. Look first. The defect is visual, and you cannot fix what you have not seen.",
     "2. Fix the root cause, not the individual screenshots. Screenshots are symptoms.",
-    "3. Follow this repository's own conventions. Read its CLAUDE.md and match the",
-    "   surrounding code before adding anything new.",
+    "3. Obey the project rules listed above, and match the surrounding code before",
+    "   adding anything new.",
     "4. Do not edit anything under `.lookout/`. The backlog and the evidence belong",
     "   to lookout and are written by it alone.",
     "5. Do not run lookout, and do not judge your own work. A separate verification",
@@ -164,6 +233,12 @@ export function renderBrief(cluster: FixCluster, ctx: BriefContext): string {
 
 export interface PlanCluster {
   id: string;
+  /** What to call the subagent that works this cluster. */
+  label: string;
+  /** The dispatch instruction, verbatim. */
+  spawn: string;
+  /** Contact sheet for this cluster, or null when none could be composited. */
+  sheet: string | null;
   severity: FixCluster["severity"];
   category: string;
   attribute: string;
@@ -189,10 +264,12 @@ export interface FixPlan {
 }
 
 export const PROTOCOL: string[] = [
-  "For each cluster below, spawn ONE separate subagent whose entire prompt is: " +
-    "\"Read <brief> and execute it fully. Reply with only the JSON it asks for.\" " +
-    "Keeping the brief out of your own context is the point: you hold ids and verdicts, " +
-    "the subagent holds the screenshots.",
+  "For each cluster below, ANNOUNCE what you are about to fix and who is fixing it " +
+    "(the cluster's `label`), then spawn ONE separate subagent under that name whose " +
+    "entire prompt is: \"Read <brief> and execute it fully. Reply with only the JSON it " +
+    "asks for.\" Keeping the brief out of your own context is the point: you hold ids and " +
+    "verdicts, the subagent holds the screenshots. Say which subagent is on which cluster " +
+    "as you go, and report each verdict as it lands, so the run is legible while it runs.",
   "Clusters touching different targets or routes can run in parallel. Clusters that " +
     "share a route must run one at a time, or the fix sessions will collide in the same files.",
   "When a subagent replies, run its cluster's verify command, passing what it reported: " +

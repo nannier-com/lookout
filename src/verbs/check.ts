@@ -17,12 +17,15 @@ import { groupHash, ledgerKey, loadLedger, recordVerdicts, saveLedger } from "..
 import { verifyFindings, type VerifiedFinding } from "../judge/verify.js";
 import { LookoutError, type Severity, type ShotRecord } from "../types.js";
 import { list, num, printJson, runId, str, type Parsed } from "../util.js";
-import { runCapture } from "./capture.js";
+import { runCapture, runContactSheet } from "./capture.js";
+import { sheetNote } from "../capture/sheet.js";
 import { SEVERITIES } from "../judge/rubric.js";
 import { clusterFindings } from "../fix/cluster.js";
-import { renderDispatch, writeFixPlan } from "../fix/plan.js";
+import { writeFixPlan } from "../fix/plan.js";
+import { planPath } from "../fix/state.js";
 import type { FixPlan } from "../fix/brief.js";
 import type { Backlog } from "../backlog/lib.js";
+import { createAutoStreamer, type BatchEvent } from "../fix/stream.js";
 
 /** Attempts a cluster gets before `verify-fix` blocks it. */
 export const DEFAULT_MAX_ATTEMPTS = 2;
@@ -42,10 +45,25 @@ export interface CheckOutcome {
   reportPath: string;
 }
 
-export async function runCheck(parsed: Parsed): Promise<{
+export interface RunCheckOptions {
+  /** Called once the cache partition is known, before any judging begins. */
+  onStart?: (toJudge: ShotRecord[]) => Promise<void>;
+  /**
+   * Invoked after each batch is judged AND verified, in order, never
+   * concurrently. This is what lets a caller act on findings while the rest of
+   * the app is still being judged instead of waiting for the slowest batch.
+   */
+  onBatch?: (e: BatchEvent) => Promise<void>;
+}
+
+export async function runCheck(
+  parsed: Parsed,
+  opts: RunCheckOptions = {},
+): Promise<{
   outcome: CheckOutcome;
   resolved: Awaited<ReturnType<typeof loadConfig>>;
   shotsById: Map<string, ShotRecord>;
+  toJudge: ShotRecord[];
 }> {
   // 1. Fresh evidence unless the caller judges an existing set.
   let resolved;
@@ -113,41 +131,67 @@ export async function runCheck(parsed: Parsed): Promise<{
     `judging ${toJudge.length} shot(s) in ${batches.length} batch(es) with model ${model} ` +
       `(${cached} cached under rubric v${rubric.version})`,
   );
+  if (opts.onStart) await opts.onStart(toJudge);
 
-  const fresh: AiFinding[] = [];
+  const confirmed: VerifiedFinding[] = [];
+  const refuted: (AiFinding & { verifierNote: string })[] = [];
   let rejectedCount = 0;
   let costUsd = 0;
   let batchIndex = 0;
+
+  // Callbacks run one at a time even though batches judge concurrently: they
+  // write the backlog and print, and interleaving either would corrupt it.
+  let tail: Promise<void> = Promise.resolve();
+  const serialize = (fn: () => Promise<void>): Promise<void> => {
+    tail = tail.then(fn, fn);
+    return tail;
+  };
+
   const worker = async (): Promise<void> => {
     for (;;) {
       const i = batchIndex++;
       if (i >= batches.length) return;
       const batch = batches[i]!;
       const res = await judgeBatch(rubric.text, resolved.project, batch, evDir, model);
-      fresh.push(...res.findings);
       rejectedCount += res.rejected.length;
       costUsd += res.costUsd ?? 0;
+
+      // 5. Verify this batch now rather than at the end. A finding the caller
+      // can act on immediately is worth more than a tidy single verify pass,
+      // and the smaller prompts judge the same evidence either way.
+      let batchFindings: VerifiedFinding[];
+      if (parsed.flags["no-verify"] || res.findings.length === 0) {
+        batchFindings = res.findings.map((f) => ({ ...f, verified: false }));
+      } else {
+        const v = await verifyFindings(res.findings, shotsById, evDir, model);
+        batchFindings = v.confirmed;
+        refuted.push(...v.refuted);
+        costUsd += v.costUsd ?? 0;
+      }
+      confirmed.push(...batchFindings);
+
       log(
         `  batch ${i + 1}/${batches.length}: ${batch.length} shot(s), ` +
-          `${res.findings.length} finding(s)${res.rejected.length ? `, ${res.rejected.length} rejected` : ""}` +
+          `${batchFindings.length} finding(s)` +
+          (res.rejected.length ? `, ${res.rejected.length} rejected` : "") +
           ` (${(res.durationMs / 1000).toFixed(0)}s)`,
       );
+      if (opts.onBatch) {
+        await serialize(() =>
+          opts.onBatch!({
+            index: i,
+            total: batches.length,
+            shots: batch,
+            findings: batchFindings,
+            shotsById,
+          }),
+        );
+      }
     }
   };
   await Promise.all(Array.from({ length: Math.max(1, concurrency) }, () => worker()));
-
-  // 5. Adversarial verification for critical/high.
-  let confirmed: VerifiedFinding[];
-  let refuted: (AiFinding & { verifierNote: string })[] = [];
-  if (parsed.flags["no-verify"] || fresh.length === 0) {
-    confirmed = fresh.map((f) => ({ ...f, verified: false }));
-  } else {
-    const res = await verifyFindings(fresh, shotsById, evDir, model);
-    confirmed = res.confirmed;
-    refuted = res.refuted;
-    costUsd += res.costUsd ?? 0;
-    if (refuted.length > 0) log(`verifier refuted ${refuted.length} finding(s)`);
-  }
+  await tail;
+  if (refuted.length > 0) log(`verifier refuted ${refuted.length} finding(s)`);
 
   // 6. Ledger: judged shots record their post-verification findings.
   const checkRunId = runId("check");
@@ -182,7 +226,7 @@ export async function runCheck(parsed: Parsed): Promise<{
     reportPath,
   };
   await writeFile(reportPath, JSON.stringify(outcome, null, 2));
-  return { outcome, resolved, shotsById };
+  return { outcome, resolved, shotsById, toJudge };
 }
 
 /** The worst-acceptable severity `--auto` dispatches; critical and high by default. */
@@ -199,7 +243,44 @@ export function autoSeverity(parsed: Parsed): Severity {
 }
 
 export async function check(parsed: Parsed): Promise<number> {
-  const { outcome, resolved, shotsById } = await runCheck(parsed);
+  const auto = !!parsed.flags.auto;
+  const maxAttempts = num(parsed.flags["max-attempts"]) ?? DEFAULT_MAX_ATTEMPTS;
+  const quiet = !!parsed.flags.json || !!parsed.flags.quiet;
+
+  // In auto mode the streamer emits as evidence lands: deterministic clusters
+  // before judging even starts, judged clusters as soon as their routes are
+  // done. The session can be spawning fix sessions while the rest of the app
+  // is still being looked at.
+  let streamer: ReturnType<typeof createAutoStreamer> | null = null;
+  if (auto) {
+    const pre = await loadConfig({
+      configPath: str(parsed.flags.config),
+      url: str(parsed.flags.url),
+    });
+    if (!pre.configPath) {
+      throw new LookoutError(
+        "--auto needs a project backlog",
+        "run `lookout init` to create .lookout/config.ts; zero-config runs are report-only",
+      );
+    }
+    streamer = createAutoStreamer({
+      resolved: pre,
+      runId: runId("auto"),
+      minSeverity: autoSeverity(parsed),
+      maxAttempts,
+      log: (line) => {
+        if (!quiet) console.log(line);
+      },
+    });
+  }
+
+  const { outcome, resolved, shotsById } = await runCheck(
+    parsed,
+    streamer
+      ? { onStart: (toJudge) => streamer!.start(toJudge), onBatch: (e) => streamer!.onBatch(e) }
+      : {},
+  );
+  const streamed = streamer ? await streamer.finish() : null;
 
   // Projects with a config file track findings in the backlog automatically;
   // zero-config runs stay report-only (a backlog in a random cwd is noise).
@@ -212,30 +293,40 @@ export async function check(parsed: Parsed): Promise<number> {
     backlogNote = `backlog: ${merged.added} added, ${merged.reopened} reopened, ${merged.refreshed} refreshed`;
   }
 
-  // --auto turns the open backlog into dispatchable work: one brief per root
-  // cause, written for a fix session to execute. lookout still fixes nothing;
-  // it hands the calling session a plan and later rules on the result.
+  // The plan file is the settled record of what was dispatched; the streamer
+  // already printed each cluster as it became dispatchable.
   let plan: FixPlan | null = null;
-  if (parsed.flags.auto) {
-    if (!backlog) {
-      throw new LookoutError(
-        "--auto needs a project backlog",
-        "run `lookout init` to create .lookout/config.ts; zero-config runs are report-only",
-      );
-    }
-    plan = await writeFixPlan(resolved, clusterFindings(Object.values(backlog.findings), {
-      minSeverity: autoSeverity(parsed),
-      maxAttempts: num(parsed.flags["max-attempts"]) ?? DEFAULT_MAX_ATTEMPTS,
-    }), {
-      runId: outcome.runId,
-      maxAttempts: num(parsed.flags["max-attempts"]) ?? DEFAULT_MAX_ATTEMPTS,
-    });
+  if (auto && backlog) {
+    plan = await writeFixPlan(
+      resolved,
+      clusterFindings(Object.values(backlog.findings), {
+        minSeverity: autoSeverity(parsed),
+        maxAttempts,
+      }),
+      { runId: outcome.runId, maxAttempts },
+    );
   }
 
+  // The session running lookout should be able to look at what lookout looked
+  // at. One labelled sheet costs a single Read; the full-resolution paths below
+  // it are there when a finding needs close reading.
+  const findingsByShot = new Map<string, number>();
+  for (const f of outcome.findings) {
+    findingsByShot.set(f.shotId, (findingsByShot.get(f.shotId) ?? 0) + 1);
+  }
+  const sheet = await runContactSheet(resolved, [...shotsById.values()], findingsByShot);
+
   if (parsed.flags.json) {
-    printJson(plan ? { ...outcome, plan } : outcome);
+    printJson({ ...outcome, contactSheet: sheet?.path ?? null, ...(plan ? { plan } : {}) });
   } else if (plan) {
-    console.log(`\n${renderDispatch(plan, resolved)}`);
+    console.log(
+      `\nall ${plan.clusters.length} cluster(s) dispatched` +
+        (streamed && streamed.dispatched.length !== plan.clusters.length
+          ? ` (${streamed.dispatched.length} emitted while judging)`
+          : "") +
+        `; plan: ${planPath(resolved)}`,
+    );
+    if (sheet) console.log(`\n${sheetNote(sheet)}`);
     if (backlogNote) console.log(`\n${backlogNote}`);
   } else {
     console.log(
@@ -248,10 +339,11 @@ export async function check(parsed: Parsed): Promise<number> {
       console.log(
         `  [${f.severity}] ${f.category}/${f.attribute} ${f.title}` +
           `\n    shot: ${f.shotId}${f.cached ? " (cached)" : ""}${f.verified ? " (verified)" : ""}` +
-          (shot ? `\n    evidence: .lookout/evidence/${shot.path}` : ""),
+          (shot ? `\n    evidence: ${join(evidenceDir(resolved), shot.path)}` : ""),
       );
     }
     console.log(`\nreport: ${outcome.reportPath}`);
+    if (sheet) console.log(`\n${sheetNote(sheet)}`);
     if (backlogNote) console.log(backlogNote);
   }
   return outcome.findings.length > 0 || outcome.deterministicErrors > 0 ? 1 : 0;

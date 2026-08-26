@@ -20,6 +20,8 @@ import { loadState, saveState, type Verdict } from "../fix/state.js";
 import { aiToFindings, setStatus, type Backlog } from "../backlog/lib.js";
 import { loadBacklog, mergeLatest, saveBacklog } from "./backlog.js";
 import { runCheck, DEFAULT_MAX_ATTEMPTS } from "./check.js";
+import { runContactSheet } from "./capture.js";
+import { sheetNote } from "../capture/sheet.js";
 import { LookoutError } from "../types.js";
 import { execFileAsync, nowIso, num, printJson, str, type Parsed } from "../util.js";
 
@@ -79,6 +81,17 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
       routes: scope.routes.join(","),
     },
   });
+
+  // The session ruling on this should be able to see the state it is ruling
+  // on, so composite what was just re-captured.
+  const freshByShot = new Map<string, number>();
+  for (const f of outcome.findings) freshByShot.set(f.shotId, (freshByShot.get(f.shotId) ?? 0) + 1);
+  const sheet = await runContactSheet(
+    resolved,
+    [...shotsById.values()],
+    freshByShot,
+    `fix/${clusterId}.after.png`,
+  );
 
   // 2. Fold the fresh evidence into the backlog, then read the answer off it.
   const merged = await mergeLatest(resolved, { judgeOutcome: outcome });
@@ -164,6 +177,7 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
     judgeNote: judgeNote || null,
     commit: reportedCommit ?? null,
     brief: briefPathOut,
+    contactSheet: sheet?.path ?? null,
     next:
       verdict === "passed"
         ? "confirmed and adjudicated; move to the next cluster"
@@ -182,6 +196,7 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
         (briefPathOut ? `\n  next brief: ${briefPathOut}` : "") +
         `\n  ${payload.next}`,
     );
+    if (sheet) console.log(`\n${sheetNote(sheet)}`);
   }
   return exit;
 }
