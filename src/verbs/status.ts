@@ -75,7 +75,12 @@ export async function status(parsed: Parsed): Promise<number> {
   if (s.board.length > 0) {
     console.log(
       `  work: ${s.agents.working} being worked, ${s.agents.reported} reported back,` +
-        ` ${s.agents.queued} waiting on a session, ${s.agents.resolved} settled`,
+        ` ${s.agents.queued} waiting on a session` +
+        // Blocked is not settled: lookout gave up on these and they still need
+        // fixing, so they are named rather than folded into a done-pile.
+        (s.agents.blocked ? `, ${s.agents.blocked} BLOCKED (out of attempts)` : "") +
+        (s.agents.done ? `, ${s.agents.done} done` : "") +
+        (s.agents.archived ? `, ${s.agents.archived} archived` : ""),
     );
   }
   for (const b of s.board) {

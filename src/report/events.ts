@@ -237,10 +237,13 @@ export type AgentStatus =
   | "working"
   | "reported"
   | "verifying"
-  | "passed"
   | "still-open"
   | "regressed"
-  | "blocked";
+  | "blocked"
+  /** lookout confirmed the defect is gone. */
+  | "done"
+  /** Adjudicated as intentional, so it is kept as record rather than work. */
+  | "archived";
 
 /** A screenshot, as the board needs it: enough to render a tile and a caption. */
 export interface BoardShot {
@@ -349,7 +352,28 @@ function dedupeShots(shots: BoardShot[]): BoardShot[] {
   return out;
 }
 
-const RESOLVED: ReadonlySet<AgentStatus> = new Set<AgentStatus>(["passed", "blocked"]);
+const RESOLVED: ReadonlySet<AgentStatus> = new Set<AgentStatus>([
+  "done",
+  "blocked",
+  "archived",
+]);
+
+/**
+ * Read top to bottom, this is "what needs a person now" before "what is
+ * already dealt with". Blocked sits above done and archived because lookout
+ * gave up on it and the defect is still there.
+ */
+export const ORDER_BY_ATTENTION: Record<AgentStatus, number> = {
+  working: 0,
+  reported: 1,
+  verifying: 2,
+  regressed: 3,
+  "still-open": 4,
+  queued: 5,
+  blocked: 6,
+  done: 7,
+  archived: 8,
+};
 
 /** Steps kept per cluster. A chatty session must not grow the board unboundedly. */
 const MAX_STEPS = 200;
@@ -556,12 +580,10 @@ export function summarise(events: LookoutEvent[]): RunStatus {
         entry.verdict = verdict;
         entry.attempt = Number(e.data?.attempt ?? entry.attempt);
         entry.judgeNote = typeof e.data?.judgeNote === "string" ? e.data.judgeNote : null;
-        if (
-          verdict === "passed" ||
-          verdict === "still-open" ||
-          verdict === "regressed" ||
-          verdict === "blocked"
-        ) {
+        // The verdict is lookout's ruling and keeps its own word; the card's
+        // status describes the work, and work that passed is done.
+        if (verdict === "passed") entry.status = "done";
+        else if (verdict === "still-open" || verdict === "regressed" || verdict === "blocked") {
           entry.status = verdict;
         }
         step(
@@ -585,16 +607,7 @@ export function summarise(events: LookoutEvent[]): RunStatus {
 
   // Worst first, and within a status the oldest dispatch first, so a board read
   // top to bottom is "what needs a session now" before "what is already ruled".
-  const ORDER: Record<AgentStatus, number> = {
-    working: 0,
-    reported: 1,
-    verifying: 2,
-    regressed: 3,
-    "still-open": 4,
-    queued: 5,
-    blocked: 6,
-    passed: 7,
-  };
+  const ORDER: Record<AgentStatus, number> = ORDER_BY_ATTENTION;
   s.board = [...board.values()].sort(
     (a, b) =>
       ORDER[a.status] - ORDER[b.status] ||

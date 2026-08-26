@@ -148,7 +148,7 @@ describe("a fix session's stint is visible while it runs", () => {
     const done = summarise(events);
     seen.push(done.board[0]!.status);
 
-    expect(seen).toEqual(["queued", "working", "reported", "verifying", "passed"]);
+    expect(seen).toEqual(["queued", "working", "reported", "verifying", "done"]);
     expect(done.agents.resolved).toBe(1);
     // The session's own history survives the ruling; a passed card still says
     // who fixed it and how long it took.
@@ -426,7 +426,7 @@ describe("one log, several processes", () => {
 
     const s = summarise(readEvents(resolved));
     expect(s.board.map((b) => b.id).sort()).toEqual(["a", "b"]);
-    expect(s.board.find((b) => b.id === "a")!.status).toBe("passed");
+    expect(s.board.find((b) => b.id === "a")!.status).toBe("done");
     expect(s.board.find((b) => b.id === "b")!.status).toBe("queued");
     // The headline still describes the run that defined the board.
     expect(s.boardRunId).toBe("check-1");

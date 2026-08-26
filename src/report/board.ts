@@ -26,6 +26,7 @@ import { loadBacklog } from "../verbs/backlog.js";
 import type { FindingStatus } from "../backlog/lib.js";
 import type { ResolvedConfig, Severity } from "../types.js";
 import {
+  ORDER_BY_ATTENTION,
   readEvents,
   summarise,
   type AgentStatus,
@@ -61,7 +62,15 @@ function shotsOf(c: FixCluster): BoardShot[] {
  * not.
  */
 function durableStatus(c: FixCluster, state: ClusterState): AgentStatus {
-  if (c.members.every((m) => m.status === "blocked")) return "blocked";
+  // Precedence is by how much attention it still wants: anything still open is
+  // live work, then work lookout gave up on, then work it confirmed fixed, and
+  // last the findings somebody adjudicated as intentional.
+  const hasOpen = c.members.some((m) => m.status === "open");
+  if (!hasOpen) {
+    if (c.members.some((m) => m.status === "blocked")) return "blocked";
+    if (c.members.some((m) => m.status === "fixed")) return "done";
+    return "archived";
+  }
   const lastAttempt = state.attempts[state.attempts.length - 1];
   const sessions = state.sessions ?? [];
   const lastSession = sessions[sessions.length - 1];
@@ -190,7 +199,7 @@ export async function buildBoard(
   // No attempt cap: a cluster that exhausted its attempts is blocked, and
   // blocked work is exactly what somebody looking at this needs to see.
   const clusters = clusterFindings(Object.values(backlog.findings), {
-    statuses: ["open", "blocked"],
+    statuses: ["open", "blocked", "fixed", "by-design"],
   });
 
   const durable = await Promise.all(
@@ -253,7 +262,7 @@ export async function buildBoard(
     // Disk is authoritative for what the work IS. The log is authoritative only
     // for what is happening this second: a re-judge in flight, a verdict that
     // has not been written back yet, and re-check screenshots.
-    if (l.status === "verifying" || l.status === "passed") d.status = l.status;
+    if (l.status === "verifying" || l.status === "done") d.status = l.status;
     if (l.recheck.length > 0) d.recheck = l.recheck;
     if (l.verdict) {
       d.verdict = l.verdict;
@@ -263,16 +272,7 @@ export async function buildBoard(
     d.timeline = mergeSteps(d.timeline, l.timeline);
   }
 
-  const ORDER: Record<AgentStatus, number> = {
-    working: 0,
-    reported: 1,
-    verifying: 2,
-    regressed: 3,
-    "still-open": 4,
-    queued: 5,
-    blocked: 6,
-    passed: 7,
-  };
+  const ORDER = ORDER_BY_ATTENTION;
   return [...byId.values()].sort(
     (a, b) =>
       ORDER[a.status] - ORDER[b.status] ||
@@ -316,7 +316,8 @@ export async function durableFindings(resolved: ResolvedConfig): Promise<BoardFi
   const backlog = await loadBacklog(resolved);
   const out: BoardFinding[] = [];
   for (const f of Object.values(backlog.findings)) {
-    if (f.status !== "open" && f.status !== "blocked") continue;
+    // Every status, including the settled ones: the page needs them to offer
+    // "done" and "archived" views, and filters them back out by default.
     const ev = f.evidence[f.evidence.length - 1];
     out.push({
       fingerprint: f.fingerprint,
@@ -358,18 +359,30 @@ export function severityTally(findings: BoardFinding[]): {
   return t;
 }
 
-/** Counts by state, for a caller that wants the headline without folding. */
+/**
+ * Counts by state, for a caller that wants the headline without folding.
+ *
+ * `blocked` is counted on its own and never with `fixed`. It means lookout
+ * exhausted a cluster's attempts and stopped dispatching it, so the defect is
+ * still there and now needs a person. Filing it under a heading like "settled",
+ * next to work that actually passed, reads as success and buries exactly the
+ * work somebody needs to pick up.
+ */
 export function tally(board: BoardEntry[]): {
   queued: number;
   working: number;
   reported: number;
-  resolved: number;
+  blocked: number;
+  done: number;
+  archived: number;
 } {
-  const t = { queued: 0, working: 0, reported: 0, resolved: 0 };
+  const t = { queued: 0, working: 0, reported: 0, blocked: 0, done: 0, archived: 0 };
   for (const e of board) {
     if (e.status === "working" || e.status === "verifying") t.working++;
     else if (e.status === "reported") t.reported++;
-    else if (e.status === "passed" || e.status === "blocked") t.resolved++;
+    else if (e.status === "blocked") t.blocked++;
+    else if (e.status === "done") t.done++;
+    else if (e.status === "archived") t.archived++;
     else t.queued++;
   }
   return t;

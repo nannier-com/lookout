@@ -115,6 +115,12 @@ function handle(resolved: ResolvedConfig, req: IncomingMessage, res: ServerRespo
         // re-capture, and the severity counts described the log rather than
         // what is actually outstanding.
         const findings = await durableFindings(resolved);
+        // The severity numbers are the triage signal and now also filters, so
+        // they count work that still needs doing. A critical somebody already
+        // fixed must not keep inflating "critical".
+        const outstanding = findings.filter(
+          (f) => f.status === "open" || f.status === "blocked",
+        );
         // One image with every capture on it answers "what did lookout look at"
         // better than a grid of the ones nothing was filed against, and costs
         // the page a single link instead of a section.
@@ -128,7 +134,7 @@ function handle(resolved: ResolvedConfig, req: IncomingMessage, res: ServerRespo
             ...status,
             board: board.map((b) => ({ ...b, sheetRel: evidenceRel(evDir, b.sheet) })),
             agents: tally(board),
-            findings: severityTally(findings),
+            findings: severityTally(outstanding),
           },
           events: events.slice(-400),
         });
@@ -307,6 +313,9 @@ button.stat:hover{border-color:var(--line);background:var(--sunk)}
 button.stat:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 button.stat[aria-pressed="true"]{border-color:var(--accent);background:var(--sunk)}
 button.stat[disabled]{cursor:default;opacity:.55}
+button.stat.clear{border-color:var(--line);color:var(--dim)}
+button.stat.clear b{font-size:19px;line-height:1.4}
+button.stat.clear:hover{border-color:var(--accent);color:var(--accent)}
 .filterbar{display:flex;align-items:center;gap:10px;margin:0 0 11px;font-size:12.5px;
 color:var(--dim)}
 .filterbar b{color:var(--ink);font-weight:600}
@@ -465,17 +474,25 @@ const STATES = {
   working: ["working", "verifying"],
   reported: ["reported"],
   queued: ["queued", "still-open", "regressed"],
-  settled: ["passed", "blocked"],
+  blocked: ["blocked"],
+  done: ["done"],
+  archived: ["archived"],
 };
+// Work that is finished with is kept and reachable, but it is not what the page
+// opens on: unfiltered, this is a view of what still needs doing.
+const SETTLED = ["done", "archived"];
+const SETTLED_FINDING = ["fixed", "by-design"];
 
 function matchesBoard(b){
-  if (!filter) return true;
+  if (!filter) return !SETTLED.includes(b.status);
   if (filter.kind === "state") return STATES[filter.value].includes(b.status);
-  return b.severity === filter.value;
+  return b.severity === filter.value && !SETTLED.includes(b.status);
 }
 function matchesFinding(f, shownClusters){
-  if (!filter) return true;
-  if (filter.kind === "severity") return f.severity === filter.value;
+  if (!filter) return !SETTLED_FINDING.includes(f.status);
+  if (filter.kind === "severity") {
+    return f.severity === filter.value && !SETTLED_FINDING.includes(f.status);
+  }
   // Under a state filter, show the findings belonging to the sessions on screen,
   // so the two sections always describe the same slice of work.
   return shownClusters.has(f.cluster);
@@ -521,7 +538,10 @@ function statFilter(kind, value, l, v, c){
     + ' data-label="' + esc(l) + '"'
     + ' aria-pressed="' + (on ? 'true' : 'false') + '"'
     + (zero ? ' disabled' : '')
-    + ' title="' + (zero ? 'nothing to show' : 'show only ' + esc(l)) + '">'
+    + ' title="' + (zero ? 'nothing to show'
+        : value === "blocked"
+          ? 'lookout exhausted its attempts on these and stopped dispatching them; they still need fixing'
+          : 'show only ' + esc(l)) + '">'
     + statBody(v, l, c, zero) + '</button>';
 }
 
@@ -720,7 +740,11 @@ async function tick(){
       statFilter("state", "working", "working", a.working, "var(--work)")
     + statFilter("state", "reported", "reported back", a.reported, "var(--rep)")
     + statFilter("state", "queued", "awaiting a session", a.queued)
-    + statFilter("state", "settled", "settled", a.resolved, "var(--ok)")
+    + statFilter("state", "blocked", "blocked", a.blocked, "var(--crit)")
+    + statFilter("state", "done", "done", a.done, "var(--ok)")
+    + statFilter("state", "archived", "archived", a.archived)
+    + (filter ? '<button type="button" class="stat clear" id="clearTile"'
+        + ' title="show everything again (Escape)"><b>\\u00d7</b><span>clear</span></button>' : "")
     + '<div class="rule"></div>'
     + stat("shots", s.shots)
     + stat("batches", s.batches.total ? s.batches.done + "/" + s.batches.total : "\\u2014")
@@ -740,9 +764,9 @@ async function tick(){
   const allBoard = s.board || [];
   const board = allBoard.filter(matchesBoard);
   el("bn").textContent = allBoard.length
-    ? (filter && board.length !== allBoard.length
-        ? board.length + " of " + allBoard.length
-        : allBoard.length + " dispatched")
+    ? (board.length === allBoard.length
+        ? allBoard.length + " dispatched"
+        : board.length + " of " + allBoard.length)
     : "";
   // The signature carries everything a card renders, so a card is rebuilt when
   // its session moves and left alone (thumbnails intact) when it does not.
@@ -755,8 +779,8 @@ async function tick(){
   const rebuilt = paint("board", sig, board.length
     ? board.map(card).join("")
     : '<div class="panel empty">'
-      + (filter && allBoard.length
-          ? 'No fix session is ' + esc(filter.label) + '.'
+      + (allBoard.length
+          ? (filter ? 'Nothing is ' + esc(filter.label) + '.' : 'No outstanding work.')
           : 'Nothing dispatched yet. Run <code>lookout check --auto</code>.')
       + '</div>');
   if (rebuilt) {
@@ -778,9 +802,9 @@ async function tick(){
   const shownClusters = new Set(board.map(b => b.id));
   const finds = allFinds.filter(f => matchesFinding(f, shownClusters));
   el("fn").textContent = allFinds.length
-    ? (filter && finds.length !== allFinds.length
-        ? finds.length + " of " + allFinds.length
-        : allFinds.length + " outstanding")
+    ? (finds.length === allFinds.length
+        ? allFinds.length + " outstanding"
+        : finds.length + " of " + allFinds.length)
     : "";
   paint("findings", JSON.stringify([filter,
       finds.map(f => [f.fingerprint, f.severity, f.status]),
@@ -801,12 +825,18 @@ async function tick(){
 }
 // Delegated, because the stat row is rebuilt whenever its numbers move.
 document.addEventListener("click", e => {
+  // The clear control is styled as a tile, so it must be taken out first: it
+  // carries no kind or value, and falling into the branch below set a filter
+  // matching nothing at all.
+  if (filter && (e.target.closest("#clearTile") || e.target.closest("#clearf"))) {
+    setFilter(filter.kind, filter.value, filter.label);
+    return;
+  }
   const tile = e.target.closest("button.stat");
-  if (tile && !tile.disabled) {
+  if (tile && !tile.disabled && tile.dataset.kind) {
     setFilter(tile.dataset.kind, tile.dataset.value, tile.dataset.label);
     return;
   }
-  if (e.target.closest("#clearf")) setFilter(filter.kind, filter.value, filter.label);
 });
 // Escape clears the filter, which is what every other filtered view does.
 document.addEventListener("keydown", e => {

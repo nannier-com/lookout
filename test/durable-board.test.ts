@@ -100,7 +100,7 @@ describe("the board survives a truncated log", () => {
     const board = await buildBoard(r);
     expect(board).toHaveLength(2);
     expect(board.every((b) => b.shots.length > 0)).toBe(true);
-    expect(tally(board)).toEqual({ queued: 2, working: 0, reported: 0, resolved: 0 });
+    expect(tally(board)).toEqual({ queued: 2, working: 0, reported: 0, blocked: 0, done: 0, archived: 0 });
   });
 
   test("blocked work stays on the board rather than vanishing", async () => {
@@ -111,8 +111,9 @@ describe("the board survives a truncated log", () => {
     ]);
     const board = await buildBoard(r);
     expect(board.map((b) => b.status).sort()).toEqual(["blocked", "queued"]);
-    // Blocked is settled work: it must not read as something awaiting a session.
-    expect(tally(board)).toEqual({ queued: 1, working: 0, reported: 0, resolved: 1 });
+    // Blocked is counted on its own: lookout gave up on it and it still needs
+    // fixing, so it must read neither as awaiting a session nor as done.
+    expect(tally(board)).toEqual({ queued: 1, working: 0, reported: 0, blocked: 1, done: 0, archived: 0 });
   });
 
   test("a fix session's history outlives the run that recorded it", async () => {
@@ -216,7 +217,7 @@ describe("the log lays over the board without replacing it", () => {
       attempt: 1,
     });
     const board = await buildBoard(r);
-    expect(board.map((b) => b.status)).toEqual(["passed"]);
+    expect(board.map((b) => b.status)).toEqual(["done"]);
   });
 
   test("the log cannot resurrect work the backlog says is settled", async () => {
@@ -243,7 +244,7 @@ describe("findings come from the backlog too", () => {
   // numbers beside it counted whatever happened to be in the log. Those
   // numbers are now filter controls, so counting the wrong thing would filter
   // the wrong thing.
-  test("outstanding findings survive a log that holds none", async () => {
+  test("findings survive a log that holds none, whatever their status", async () => {
     const r = project();
     writeBacklog(r, [
       finding({ severity: "critical" }),
@@ -253,9 +254,31 @@ describe("findings come from the backlog too", () => {
       finding({ attribute: "waived", status: "by-design", reason: "intentional" }),
     ]);
     const f = await durableFindings(r);
-    // Open and blocked are outstanding; fixed and by-design are settled record.
-    expect(f).toHaveLength(3);
-    expect(severityTally(f)).toEqual({ critical: 1, high: 2, medium: 0, low: 0, total: 3 });
+    // Every status is carried, so the page can offer "done" and "archived"
+    // views; it filters them out of the default triage view itself.
+    expect(f).toHaveLength(5);
+    expect(f.map((x) => x.status).sort()).toEqual([
+      "blocked", "by-design", "fixed", "open", "open",
+    ]);
+  });
+
+  test("the severity headline counts outstanding work, not settled record", async () => {
+    const r = project();
+    writeBacklog(r, [
+      finding({ severity: "critical" }),
+      finding({ attribute: "target-size", severity: "high" }),
+      finding({ attribute: "focus-ring", severity: "high", status: "blocked", reason: "upstream" }),
+      // A critical somebody already fixed must not keep inflating "critical",
+      // because that number is the triage signal and now also a filter.
+      finding({ attribute: "closed", severity: "critical", status: "fixed" }),
+      finding({ attribute: "waived", severity: "low", status: "by-design", reason: "ok" }),
+    ]);
+    const outstanding = (await durableFindings(r)).filter(
+      (x) => x.status === "open" || x.status === "blocked",
+    );
+    expect(severityTally(outstanding)).toEqual({
+      critical: 1, high: 2, medium: 0, low: 0, total: 3,
+    });
   });
 
   test("worst first, so the top of the list is the thing to fix", async () => {
