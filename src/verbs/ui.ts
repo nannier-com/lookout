@@ -237,7 +237,8 @@ box-shadow:var(--shadow)}
 .rule{width:1px;align-self:stretch;background:var(--line)}
 
 /* --- the board ------------------------------------------------------- */
-.board{display:grid;grid-template-columns:repeat(auto-fill,minmax(430px,1fr));gap:14px}
+.board{display:grid;grid-template-columns:repeat(auto-fill,minmax(430px,1fr));gap:14px;
+align-items:start}
 @media(max-width:520px){.board{grid-template-columns:1fr}}
 .card{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--line);
 border-radius:12px;padding:13px 15px 14px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:9px}
@@ -281,7 +282,7 @@ color:var(--faint);font-weight:700}
 .tile{flex:0 0 auto;width:132px;text-decoration:none;color:inherit;display:block}
 .tile img{display:block;width:132px;height:106px;object-fit:cover;object-position:top;
 border:1px solid var(--line);border-radius:7px;background:var(--sunk)}
-.tile.sheet img{height:132px;object-fit:contain;background:var(--sunk)}
+.tile.sheet img{object-fit:contain;background:var(--sunk)}
 .tile:hover img{border-color:var(--accent)}
 .tile span{display:block;font-size:10.5px;color:var(--faint);margin-top:4px;
 overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -387,12 +388,24 @@ function whoLine(b){
   if (!a) return '<div class="who faint">' + esc(b.status) + '</div>';
   const clock = '<span data-since="' + esc(a.startedAt) + '"'
     + (a.finishedAt ? ' data-until="' + esc(a.finishedAt) + '"' : '') + '>\\u2014</span>';
-  if (b.status === "working") return '<div class="who"><b>' + esc(a.name) + '</b> has been on this for ' + clock + '.</div>';
-  const worked = 'Worked by <b>' + esc(a.name) + '</b> for ' + clock;
-  if (b.status === "reported") {
-    return '<div class="who">' + worked + ', then reported back. Awaiting <b>verify-fix</b>.</div>';
+  // Sessions are normally named after the cluster they were handed, so naming
+  // one here would print the card's own title back at it.
+  const who = a.name && a.name !== b.label ? '<b>' + esc(a.name) + '</b>' : 'A fix session';
+  if (b.status === "working") return '<div class="who">' + who + ' has been on this for ' + clock + '.</div>';
+  if (b.status === "verifying") {
+    return '<div class="who">' + who + ' worked it for ' + clock
+      + '. <b>verify-fix</b> is re-judging it now.</div>';
   }
-  return '<div class="who">' + worked + '.</div>';
+  if (b.status === "reported") {
+    return '<div class="who">' + who + ' worked it for ' + clock
+      + ', then reported back. Awaiting <b>verify-fix</b>.</div>';
+  }
+  if (b.status === "passed") return '<div class="who">' + who + ' fixed it in ' + clock + '.</div>';
+  if (b.status === "blocked") {
+    return '<div class="who">' + who + ' spent ' + clock + ' on it and ran out of attempts.</div>';
+  }
+  return '<div class="who">' + who + ' worked it for ' + clock
+    + ', and the defect is still there.</div>';
 }
 
 function card(b){

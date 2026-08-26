@@ -102,7 +102,7 @@ export async function agent(parsed: Parsed): Promise<number> {
       };
       sessions.push(session);
       message = `${session.name} started on ${clusterId}`;
-      elog.join(`agent ${action} ${clusterId}`, { cluster: clusterId });
+      elog.join(`agent ${action} ${clusterId}`, { cluster: clusterId, verb: "agent" });
       elog.emit("agent-start", message, { cluster: clusterId, name: session.name });
       break;
     }
@@ -120,13 +120,13 @@ export async function agent(parsed: Parsed): Promise<number> {
         // rather than dropping it: the run is telling us somebody is on this.
         session = { name: name ?? clusterId, startedAt: at, lastSeenAt: at, notes: [] };
         sessions.push(session);
-        elog.join(`agent ${action} ${clusterId}`, { cluster: clusterId });
+        elog.join(`agent ${action} ${clusterId}`, { cluster: clusterId, verb: "agent" });
         elog.emit("agent-start", `${session.name} started on ${clusterId}`, {
           cluster: clusterId,
           name: session.name,
         });
       } else {
-        elog.join(`agent ${action} ${clusterId}`, { cluster: clusterId });
+        elog.join(`agent ${action} ${clusterId}`, { cluster: clusterId, verb: "agent" });
       }
       session.lastSeenAt = at;
       session.notes.push({ at, text });
@@ -151,7 +151,7 @@ export async function agent(parsed: Parsed): Promise<number> {
       };
       message =
         `${session.name} reported back on ${clusterId}` + (commit ? ` (commit ${commit})` : "");
-      elog.join(`agent ${action} ${clusterId}`, { cluster: clusterId });
+      elog.join(`agent ${action} ${clusterId}`, { cluster: clusterId, verb: "agent" });
       elog.emit("agent-done", message, {
         cluster: clusterId,
         name: session.name,

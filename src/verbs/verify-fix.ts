@@ -61,7 +61,7 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
   // Join, never start: this run rules on one cluster of a board another run
   // dispatched, and truncating here would erase every other cluster's dispatch
   // along with whichever fix sessions are still working them.
-  elog.join(`lookout verify-fix ${clusterId}`, { cluster: clusterId });
+  elog.join(`lookout verify-fix ${clusterId}`, { cluster: clusterId, verb: "verify-fix" });
   setCurrentLog(elog);
   const before = await loadBacklog(preResolved);
   const cluster = findCluster(before, clusterId);

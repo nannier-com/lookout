@@ -354,11 +354,15 @@ export function summarise(events: LookoutEvent[]): RunStatus {
           s.boardRunId = e.runId;
           s.startedAt = e.at;
         }
-        run = { id: e.runId, isBoard, cluster: cid };
+        // Both `verify-fix` and `agent` name the cluster they are about, but
+        // only one of them is re-judging it. An agent reporting a heartbeat
+        // must not read as lookout ruling on the fix.
+        const verifying = e.data?.verb === "verify-fix";
+        run = { id: e.runId, isBoard, cluster: verifying ? cid : null };
         s.running = true;
         s.endedAt = null;
         s.phase = isBoard ? "starting" : e.message;
-        if (cid) {
+        if (verifying && cid) {
           const entry = board.get(cid);
           if (entry && !RESOLVED.has(entry.status)) {
             entry.status = "verifying";

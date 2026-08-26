@@ -55,8 +55,11 @@ export async function status(parsed: Parsed): Promise<number> {
     );
   }
   for (const b of s.board) {
+    // Sessions are normally named after the cluster they were given, so
+    // printing both is the same sentence twice.
     const who = b.agent
-      ? `  ${b.agent.name} (${elapsed(b.agent.startedAt, b.agent.finishedAt ?? null)})`
+      ? (b.agent.name === b.label ? "" : `  ${b.agent.name}`) +
+        `  (${elapsed(b.agent.startedAt, b.agent.finishedAt ?? null)})`
       : "";
     console.log(`  ${b.status.padEnd(11)} ${b.id}  ${b.label}${who}`);
     console.log(`    brief: ${b.brief}`);

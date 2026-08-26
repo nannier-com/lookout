@@ -41,15 +41,25 @@ export function clusterLabel(c: FixCluster): string {
 /**
  * The exact instruction the orchestrating session follows to dispatch this
  * cluster. It names the subagent, so the run shows who is fixing what rather
- * than a row of anonymous workers.
+ * than a row of anonymous workers, and it registers that name with lookout.
+ *
+ * The registration is not bookkeeping. lookout dispatches work into a child
+ * process it cannot see, so without it there is no difference on the board
+ * between a cluster nobody has started and one an agent has been grinding on
+ * for twenty minutes: both are just "dispatched". One command on each side of
+ * the spawn is what makes a watching person able to tell those apart.
  */
 export function spawnLine(c: FixCluster, briefPath: string): string {
   return (
-    `spawn: announce "${clusterLabel(c)}", then start ONE separate agent session\n` +
-    `          (subagent, task, worker: whatever your harness calls a child session\n` +
-    `          with its own context) named "${clusterLabel(c)}", whose entire prompt is:\n` +
+    `spawn: announce "${clusterLabel(c)}", then run\n` +
+    `            lookout agent start --cluster ${c.id} --name "${clusterLabel(c)}"\n` +
+    `          and start ONE separate agent session (subagent, task, worker:\n` +
+    `          whatever your harness calls a child session with its own context)\n` +
+    `          named "${clusterLabel(c)}", whose entire prompt is:\n` +
     `          "Open ${briefPath} and execute it fully.\n` +
-    `          Reply with only the JSON it asks for."`
+    `          Reply with only the JSON it asks for."\n` +
+    `          When it replies, run\n` +
+    `            lookout agent done --cluster ${c.id} --commit <sha> --note "<rootCause>"`
   );
 }
 
@@ -265,17 +275,25 @@ export interface FixPlan {
 
 export const PROTOCOL: string[] = [
   "For each cluster below, ANNOUNCE what you are about to fix and who is fixing it " +
-    "(the cluster's `label`), then start ONE separate agent session under that name: a " +
-    "subagent, task, worker, or whatever your harness calls a child session with its own " +
-    "context. Its entire prompt is: \"Open <brief> and execute it fully. Reply with only " +
-    "the JSON it asks for.\" Keeping the brief out of your own context is the point: you " +
-    "hold ids and verdicts, the child session holds the screenshots. Say which session is " +
-    "on which cluster as you go, and report each verdict as it lands, so the run is " +
-    "legible while it runs.",
+    "(the cluster's `label`), run `lookout agent start --cluster <id> --name \"<label>\"`, " +
+    "then start ONE separate agent session under that name: a subagent, task, worker, or " +
+    "whatever your harness calls a child session with its own context. Its entire prompt " +
+    "is: \"Open <brief> and execute it fully. Reply with only the JSON it asks for.\" " +
+    "Keeping the brief out of your own context is the point: you hold ids and verdicts, " +
+    "the child session holds the screenshots.",
+  "Tell lookout what your children are doing, because it cannot see them. `agent start` " +
+    "when you spawn one, `lookout agent done --cluster <id> --commit <sha> --note " +
+    "\"<rootCause>\"` when it replies, and `lookout agent note --cluster <id> --note " +
+    "\"...\"` any time you want to say where a long one has got to. Without those calls a " +
+    "cluster somebody has been working for twenty minutes is indistinguishable from one " +
+    "nobody has touched, both on `lookout status` and on the board in `lookout ui`. None " +
+    "of it adjudicates anything: an agent saying it is done is a claim, and `verify-fix` " +
+    "still rules.",
   "Clusters touching different targets or routes can run in parallel. Clusters that " +
     "share a route must run one at a time, or the fix sessions will collide in the same files.",
-  "When a session replies, run its cluster's verify command, passing what it reported: " +
-    "`lookout verify-fix --cluster <id> --commit <sha> --note \"<rootCause>\"`.",
+  "When a session replies, mark it done and then run its cluster's verify command, " +
+    "passing what it reported: `lookout verify-fix --cluster <id> --commit <sha> --note " +
+    "\"<rootCause>\"`.",
   "Branch on the verify exit code: 0 the fix is confirmed and the backlog is already " +
     "adjudicated, so move on. 1 it is not fixed and a fresh brief has been written, so " +
     "spawn a NEW subagent on that same brief path. 2 lookout failed to run. 3 the cluster " +
