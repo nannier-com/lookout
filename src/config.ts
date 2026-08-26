@@ -81,7 +81,7 @@ export async function loadConfig(opts: LoadOptions = {}): Promise<ResolvedConfig
     if (!process.versions.bun) {
       throw new LookoutError(
         "a TypeScript config needs the bun runtime",
-        "run lookout via bun (the published bin already does): bunx @nannier/lookout",
+        "run lookout via bun (the published bin already does): bunx @nannier-com/lookout",
       );
     }
     const mod = (await import(pathToFileURL(path).href)) as Record<string, unknown>;

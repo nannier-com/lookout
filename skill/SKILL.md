@@ -5,7 +5,7 @@ description: Verify UI work with the lookout visual AI tester: capture what the 
 
 # lookout: evidence-based visual verification
 
-lookout (`@nannier/lookout`, source at ~/Workspaces/lookout, runs via
+lookout (`@nannier-com/lookout`, source at ~/Workspaces/lookout, runs via
 `~/Workspaces/lookout/dist/cli.js` until the npm release lands) is a pure
 oracle: it captures screenshots, runs deterministic checks, judges evidence
 through the local `claude -p`, and tracks findings. It NEVER edits code and

@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       npm:
-        description: "Publish @nannier/lookout to npm"
+        description: "Publish @nannier-com/lookout to npm"
         type: boolean
         default: false
 
@@ -42,7 +42,7 @@ jobs:
       - name: Block automatic major releases
         id: major_guard
         run: |
-          major=$(grep -lE "^['\"]?@nannier/lookout['\"]?:[[:space:]]*major" .changeset/*.md 2>/dev/null | wc -l | tr -d ' ')
+          major=$(grep -lE "^['\"]?@nannier-com/lookout['\"]?:[[:space:]]*major" .changeset/*.md 2>/dev/null | wc -l | tr -d ' ')
           echo "major=$major" >> "$GITHUB_OUTPUT"
           if [ "$major" != "0" ] && [ "${{ github.event_name }}" = "push" ]; then
             echo "blocked=true" >> "$GITHUB_OUTPUT"
@@ -127,8 +127,8 @@ jobs:
             if [ "${{ steps.has_changesets.outputs.count }}" = "0" ]; then
               echo "No pending changesets, so nothing was published. Current version is \`$version\`."
             else
-              echo "Published **@nannier/lookout@$version**"
+              echo "Published **@nannier-com/lookout@$version**"
               echo ""
-              echo "- [View on npm](https://www.npmjs.com/package/@nannier/lookout/v/$version)"
+              echo "- [View on npm](https://www.npmjs.com/package/@nannier-com/lookout/v/$version)"
             fi
           } >> "$GITHUB_STEP_SUMMARY"

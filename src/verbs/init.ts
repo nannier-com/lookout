@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { LookoutError } from "../types.js";
 import type { Parsed } from "../util.js";
 
-const TEMPLATE = `import type { LookoutConfig } from "@nannier/lookout";
+const TEMPLATE = `import type { LookoutConfig } from "@nannier-com/lookout";
 
 // lookout project config. Targets are the apps this repo renders; lookout
 // captures them, judges them, and tracks findings in .lookout/backlog.json.

@@ -69,7 +69,7 @@ recipes are real functions) default-exporting a `LookoutConfig`. Everything
 below is optional except `targets`.
 
 ```ts
-import type { LookoutConfig } from "@nannier/lookout";
+import type { LookoutConfig } from "@nannier-com/lookout";
 import type { Page } from "playwright";
 
 const config: LookoutConfig = {
