@@ -265,14 +265,16 @@ export interface FixPlan {
 
 export const PROTOCOL: string[] = [
   "For each cluster below, ANNOUNCE what you are about to fix and who is fixing it " +
-    "(the cluster's `label`), then spawn ONE separate subagent under that name whose " +
-    "entire prompt is: \"Read <brief> and execute it fully. Reply with only the JSON it " +
-    "asks for.\" Keeping the brief out of your own context is the point: you hold ids and " +
-    "verdicts, the subagent holds the screenshots. Say which subagent is on which cluster " +
-    "as you go, and report each verdict as it lands, so the run is legible while it runs.",
+    "(the cluster's `label`), then start ONE separate agent session under that name: a " +
+    "subagent, task, worker, or whatever your harness calls a child session with its own " +
+    "context. Its entire prompt is: \"Open <brief> and execute it fully. Reply with only " +
+    "the JSON it asks for.\" Keeping the brief out of your own context is the point: you " +
+    "hold ids and verdicts, the child session holds the screenshots. Say which session is " +
+    "on which cluster as you go, and report each verdict as it lands, so the run is " +
+    "legible while it runs.",
   "Clusters touching different targets or routes can run in parallel. Clusters that " +
     "share a route must run one at a time, or the fix sessions will collide in the same files.",
-  "When a subagent replies, run its cluster's verify command, passing what it reported: " +
+  "When a session replies, run its cluster's verify command, passing what it reported: " +
     "`lookout verify-fix --cluster <id> --commit <sha> --note \"<rootCause>\"`.",
   "Branch on the verify exit code: 0 the fix is confirmed and the backlog is already " +
     "adjudicated, so move on. 1 it is not fixed and a fresh brief has been written, so " +

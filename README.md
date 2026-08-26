@@ -49,12 +49,33 @@ lookout targets               # resolve + probe the configured targets
 | `backlog` | adjudicate findings: merge, set statuses (fixed / by-design / blocked, with mandatory reasons), `plan` to re-emit the dispatch plan for free, regenerate the report, `check` for staleness |
 | `targets` | list configured targets and probe reachability |
 | `init`    | scaffold `.lookout/config.ts` |
+| `status`  | what the run in flight is doing, folded out of the event log; exit 1 while a run is going, so an agent can poll it |
+| `ui`      | a local page rendering that same log live, with thumbnails, findings and verdicts, for a person to watch |
+| `protocol`| the operating contract, printed by lookout itself, for whichever agent is driving it |
 | `doctor`  | verify prerequisites |
 
 Exit codes: `0` clean, `1` findings / failed criteria, `2` execution error, so
 agents and CI can gate on the result. `verify-fix` adds `3` for a cluster
 blocked after exhausting its attempts. Every verb takes `--json` for
 machine-readable output.
+
+## Watching a run
+
+A run takes minutes, and a subprocess's stdout does not reach its caller until
+it exits. So lookout narrates to `.lookout/evidence/events.jsonl` as it goes,
+and two readers render it while the run is still going:
+
+```bash
+lookout status          # for an agent: phase, shots, findings, dispatched work
+lookout ui              # for a person: the same log as a live local page
+```
+
+Both are readers. Either can watch a run started by anything, in any terminal.
+
+`capture`, `check` and `verify-fix` also composite every shot into one labelled
+contact sheet, a view's dark and light captures side by side and defect-carrying
+tiles marked, so a session can see what lookout saw for the cost of one read.
+Full-resolution paths are printed beside it for close reading.
 
 ## Auto mode
 
@@ -67,7 +88,12 @@ lookout check --auto              # judge, then write the dispatch plan
 lookout backlog plan              # re-emit the plan from the backlog, judging nothing
 ```
 
-`--auto` clusters open findings by root cause rather than by screenshot: one
+`--auto` streams. Deterministic clusters are dispatched before judging even
+starts, because a rule cannot be contradicted by a judge, and each judged
+cluster is dispatched as soon as the routes it touches are done. A cluster that
+grows after it was dispatched is re-emitted as an amendment.
+
+It clusters open findings by root cause rather than by screenshot: one
 target + category + attribute, so a theme that never switches is one unit of
 work across every route it spoils rather than one per shot. Co-located
 accessibility violations group by route instead, because an axe rule id names
@@ -75,8 +101,10 @@ the rule that fired rather than the thing that is wrong, and one malformed
 widget trips several at once.
 
 Each cluster gets a self-contained brief under `.lookout/evidence/fix/`: the
-defect, the screenshots to read, the repository to change, the rules, and the
-JSON the fix session must reply with. `PLAN.json` lists the clusters and the
+defect, its contact sheet and full-resolution screenshots, the repository to
+change, the rule files that govern it (CLAUDE.md, AGENTS.md and the like,
+discovered and listed by path, because lookout cannot assume the agent's harness
+loaded them), and the JSON the fix session must reply with. `PLAN.json` lists the clusters and the
 protocol. The orchestrating session spawns one subagent per brief, so it carries
 cluster ids and verdicts while the subagent carries the evidence.
 
