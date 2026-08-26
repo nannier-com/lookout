@@ -8,6 +8,7 @@
  */
 import { loadConfig } from "../config.js";
 import { readEvents, summarise, type LookoutEvent } from "../report/events.js";
+import { buildBoard, tally } from "../report/board.js";
 import { num, printJson, str, type Parsed } from "../util.js";
 
 /**
@@ -30,7 +31,11 @@ export async function status(parsed: Parsed): Promise<number> {
     url: str(parsed.flags.url),
   });
   const events = readEvents(resolved);
-  const s = summarise(events);
+  const run = summarise(events);
+  // Outstanding work comes from the backlog, not the log: a capture truncates
+  // the log, and the work outlives the run that found it.
+  const board = await buildBoard(resolved, events);
+  const s = { ...run, board, agents: tally(board) };
 
   if (parsed.flags.json) {
     const tail = num(parsed.flags.tail);
@@ -38,9 +43,13 @@ export async function status(parsed: Parsed): Promise<number> {
     return s.running ? 1 : 0;
   }
 
-  if (!s.runId) {
+  if (!s.runId && s.board.length === 0) {
     console.log("no run recorded yet (run `lookout check --auto`)");
     return 0;
+  }
+  if (!s.runId) {
+    // The log was truncated or never written, but the backlog remembers.
+    console.log(`no run in flight; ${s.board.length} cluster(s) outstanding`);
   }
 
   // A run that died without emitting `run-end` stays `running` in the log. Say
@@ -49,7 +58,7 @@ export async function status(parsed: Parsed): Promise<number> {
     ? Date.now() - new Date(s.lastEventAt).getTime()
     : 0;
   const stalled = s.running && silentFor > STALE_MS;
-  console.log(
+  if (s.runId) console.log(
     `${stalled ? "STALLED" : s.running ? "RUNNING" : "done"}  ${s.runId}  phase: ${s.phase}` +
       (s.startedAt ? `  elapsed: ${elapsed(s.startedAt, s.endedAt)}` : "") +
       (stalled ? `  silent for ${elapsed(s.lastEventAt!, null)}` : ""),

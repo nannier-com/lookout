@@ -18,7 +18,8 @@
  * its cards at `queued`, which is exactly what lookout knew before.
  */
 import { loadConfig } from "../config.js";
-import { EventLog, readEvents, summarise, setCurrentLog } from "../report/events.js";
+import { EventLog, readEvents, setCurrentLog } from "../report/events.js";
+import { buildBoard, tally } from "../report/board.js";
 import { loadState, saveState, type AgentSession } from "../fix/state.js";
 import { LookoutError } from "../types.js";
 import { nowIso, printJson, runId as makeRunId, str, type Parsed } from "../util.js";
@@ -47,7 +48,8 @@ export async function agent(parsed: Parsed): Promise<number> {
   });
 
   if (action === "list") {
-    const s = summarise(readEvents(resolved));
+    const board = await buildBoard(resolved, readEvents(resolved));
+    const s = { board, agents: tally(board) };
     if (parsed.flags.json) {
       printJson({ board: s.board, agents: s.agents });
       return 0;

@@ -283,7 +283,8 @@ export interface BoardEntry {
   shots: BoardShot[];
   /** What the most recent `verify-fix` saw, after a fix was claimed. */
   recheck: BoardShot[];
-  dispatchedAt: string;
+  /** When the work went out, or null when it has never been dispatched. */
+  dispatchedAt: string | null;
   amended: boolean;
   status: AgentStatus;
   agent: BoardAgent | null;
@@ -595,7 +596,9 @@ export function summarise(events: LookoutEvent[]): RunStatus {
     passed: 7,
   };
   s.board = [...board.values()].sort(
-    (a, b) => ORDER[a.status] - ORDER[b.status] || a.dispatchedAt.localeCompare(b.dispatchedAt),
+    (a, b) =>
+      ORDER[a.status] - ORDER[b.status] ||
+      (a.dispatchedAt ?? "").localeCompare(b.dispatchedAt ?? ""),
   );
 
   for (const e of s.board) {

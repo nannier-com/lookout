@@ -22,6 +22,7 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { extname, join, relative, resolve, sep } from "node:path";
 import { evidenceDir, loadConfig } from "../config.js";
 import { readEvents, summarise } from "../report/events.js";
+import { buildBoard, tally } from "../report/board.js";
 import { execFileAsync, num, str, type Parsed } from "../util.js";
 import type { ResolvedConfig } from "../types.js";
 
@@ -62,29 +63,79 @@ function evidenceRel(evDir: string, abs: string | null): string | null {
   return rel && !rel.startsWith("..") && !rel.startsWith(sep) ? rel.split(sep).join("/") : null;
 }
 
+/**
+ * The board is derived from the backlog and one state file per cluster, which
+ * is a hundred kilobytes of reads. The page polls every 1.5 seconds, so the
+ * result is held until something on disk actually moves.
+ */
+let boardCache: { key: string; body: string } | null = null;
+
+function diskKey(resolved: ResolvedConfig): string {
+  const parts: string[] = [];
+  for (const p of [
+    join(lookoutRoot(resolved), "backlog.json"),
+    join(evidenceDir(resolved), "events.jsonl"),
+    join(evidenceDir(resolved), "fix"),
+  ]) {
+    try {
+      const st = statSync(p);
+      parts.push(`${st.mtimeMs}:${st.size}`);
+    } catch {
+      parts.push("-");
+    }
+  }
+  return parts.join("|");
+}
+
+function lookoutRoot(resolved: ResolvedConfig): string {
+  return join(evidenceDir(resolved), "..");
+}
+
 function handle(resolved: ResolvedConfig, req: IncomingMessage, res: ServerResponse): void {
   const url = new URL(req.url ?? "/", "http://localhost");
   const evDir = evidenceDir(resolved);
 
   if (url.pathname === "/api/status") {
-    const events = readEvents(resolved);
-    const status = summarise(events);
-    // One image with every capture on it answers "what did lookout look at"
-    // better than a grid of the ones nothing was filed against, and costs the
-    // page a single link instead of a section.
-    const sheet = join(evDir, "contact-sheet.png");
-    const body = JSON.stringify({
-      project: resolved.project,
-      projectDir: resolved.projectDir,
-      contactSheet: existsSync(sheet) ? "contact-sheet.png" : null,
-      status: {
-        ...status,
-        board: status.board.map((b) => ({ ...b, sheetRel: evidenceRel(evDir, b.sheet) })),
-      },
-      events: events.slice(-400),
-    });
-    res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
-    res.end(body);
+    const key = diskKey(resolved);
+    if (boardCache?.key === key) {
+      res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+      res.end(boardCache.body);
+      return;
+    }
+    void (async () => {
+      try {
+        const events = readEvents(resolved);
+        const status = summarise(events);
+        // The board is what work exists, which lives in the backlog and the
+        // per-cluster state files. The event log only says what is happening
+        // this second, and every capture truncates it.
+        const board = await buildBoard(resolved, events);
+        // One image with every capture on it answers "what did lookout look at"
+        // better than a grid of the ones nothing was filed against, and costs
+        // the page a single link instead of a section.
+        const sheet = join(evDir, "contact-sheet.png");
+        const body = JSON.stringify({
+          project: resolved.project,
+          projectDir: resolved.projectDir,
+          contactSheet: existsSync(sheet) ? "contact-sheet.png" : null,
+          status: {
+            ...status,
+            board: board.map((b) => ({ ...b, sheetRel: evidenceRel(evDir, b.sheet) })),
+            agents: tally(board),
+          },
+          events: events.slice(-400),
+        });
+        boardCache = { key, body };
+        res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+        res.end(body);
+      } catch (err) {
+        // A malformed backlog must not take the page down; say so instead.
+        if (!res.headersSent) {
+          res.writeHead(500, { "content-type": "application/json" });
+        }
+        res.end(JSON.stringify({ error: String(err) }));
+      }
+    })();
     return;
   }
 
@@ -429,7 +480,25 @@ function whoLine(b){
   if (b.status === "queued") {
     return '<div class="who hint">No fix session has been reported on this yet.</div>';
   }
-  if (!a) return '<div class="who faint">' + esc(b.status) + '</div>';
+  if (!a) {
+    // No session was ever reported against this cluster, but lookout may still
+    // have ruled on it. Say what that means for the reader rather than echoing
+    // the status word that is already in the pill above.
+    const n = b.attempt ? ' on attempt ' + esc(b.attempt) : '';
+    if (b.status === "still-open") {
+      return '<div class="who">lookout handed this back' + n + '. It needs a fresh session.</div>';
+    }
+    if (b.status === "regressed") {
+      return '<div class="who">A fix here introduced new defects' + n
+        + '. It needs a fresh session.</div>';
+    }
+    if (b.status === "blocked") {
+      return '<div class="who">Out of attempts' + n + '. lookout will not dispatch it again.</div>';
+    }
+    if (b.status === "verifying") return '<div class="who">lookout is re-judging this now.</div>';
+    if (b.status === "passed") return '<div class="who">Confirmed fixed.</div>';
+    return '<div class="who faint">' + esc(b.status) + '</div>';
+  }
   const clock = '<span data-since="' + esc(a.startedAt) + '"'
     + (a.finishedAt ? ' data-until="' + esc(a.finishedAt) + '"' : '') + '>\\u2014</span>';
   // Sessions are normally named after the cluster they were handed, so naming
@@ -482,7 +551,10 @@ function card(b){
   const judge = b.judgeNote ? '<div class="note"><b>judge:</b> ' + esc(b.judgeNote) + '</div>' : "";
   return '<article class="card ' + esc(b.status) + '">'
     + '<div class="top"><span class="pill">' + esc(b.status) + '</span>'
-    + '<span class="tick" data-since="' + esc(b.dispatchedAt) + '" data-prefix="dispatched ">\\u2014</span></div>'
+    + (b.dispatchedAt
+        ? '<span class="tick" data-since="' + esc(b.dispatchedAt) + '" data-prefix="dispatched ">\\u2014</span>'
+        : '<span class="tick faint">not dispatched yet</span>')
+    + '</div>'
     + '<h3 class="title">' + esc(b.label) + '</h3>'
     + whoLine(b)
     + '<div class="meta"><span class="chip sev ' + esc(b.severity) + '">' + esc(b.severity) + '</span>'
