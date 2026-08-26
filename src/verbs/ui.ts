@@ -463,10 +463,16 @@ color:var(--dim);display:flex;align-items:center;line-height:0}
 .toggle button[aria-pressed="true"]{background:var(--sunk);color:var(--ink);
 box-shadow:inset 0 -2px 0 var(--accent)}
 .toggle button[data-missing="1"]{opacity:.45}
-.launch{font:inherit;font-size:11.5px;padding:4px 10px;border:1px solid var(--line);
-border-radius:7px;background:none;color:var(--accent);cursor:pointer;white-space:nowrap}
-.launch:hover{border-color:var(--accent);background:var(--sunk)}
-.launch[disabled]{opacity:.6;cursor:default}
+/* The tool's own mark, with a play beside it: the card shows what it opens in
+   rather than spelling the name out on every issue. */
+.launch{display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border-radius:8px;
+border:1px solid var(--line);background:none;color:var(--dim);cursor:pointer;line-height:0}
+.launch svg{display:block}
+.launch .go{color:var(--go)}
+.launch:hover{border-color:var(--go);background:var(--sunk);color:var(--ink)}
+.launch:focus-visible{outline:2px solid var(--go);outline-offset:2px}
+.launch[disabled]{opacity:.55;cursor:default}
+.launch.busy .go{animation:pulse2 1s infinite}
 .launched{font-size:11.5px;color:var(--dim);word-break:break-all}
 .launched code{font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--ink);
 user-select:all}
@@ -518,6 +524,8 @@ margin:0 0 11px;font-weight:700;display:flex;align-items:baseline;gap:9px}
 h2 .n{color:var(--dim);letter-spacing:0;text-transform:none;font-weight:500;font-size:12px}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:15px 17px;
 box-shadow:var(--shadow)}
+.runnote{font-size:12.5px;color:var(--med);border:1px solid var(--line);border-left:3px solid var(--med);
+border-radius:8px;padding:8px 12px;margin:0 0 14px;background:var(--panel)}
 .filterbar{display:flex;align-items:center;gap:10px;margin:0 0 14px;font-size:12.5px;color:var(--dim)}
 .filterbar b{color:var(--ink);font-weight:600}
 @keyframes flash{from{background:var(--sunk)}to{background:transparent}}
@@ -623,6 +631,7 @@ word-break:break-all;user-select:all}
   </div>
 </header>
 <main>
+<div class="runnote" id="runnote" hidden></div>
 <div class="filterbar" id="filterbar" hidden></div>
 <section id="issues"><h2>Issues <span class="n" id="bn"></span></h2>
   <div class="board" id="board"></div></section>
@@ -651,6 +660,10 @@ try { tool = localStorage.getItem("lookout.tool"); } catch { tool = null; }
 function toolLabel(){
   const t = tools.find(x => x.key === tool);
   return t ? t.label : "your editor";
+}
+function toolMark(){
+  const t = tools.find(x => x.key === tool);
+  return t ? t.mark : "";
 }
 function paintToggle(){
   const html = tools.map(t =>
@@ -811,15 +824,20 @@ function card(b){
   const judge = b.judgeNote ? '<div class="note"><b>judge:</b> ' + esc(b.judgeNote) + '</div>' : "";
   return '<article class="card ' + esc(b.status) + '">'
     + '<div class="top"><span class="pill">' + esc(b.status) + '</span>' + seen + '</div>'
-    + '<div class="meta"><button type="button" class="launch" data-launch="' + esc(b.id) + '">'
-    + 'open in ' + esc(toolLabel()) + '</button>'
+    + '<div class="meta"><button type="button" class="launch" data-launch="' + esc(b.id) + '"'
+    + ' aria-label="Open in ' + esc(toolLabel()) + '"'
+    + ' title="Open this issue in ' + esc(toolLabel()) + '">'
+    + toolMark()
+    + '<svg class="go" viewBox="0 0 24 24" width="11" height="11" aria-hidden="true">'
+    + '<path fill="currentColor" d="M8 5.2 19 12 8 18.8Z"/></svg>'
+    + '</button>'
     + '<span class="launched" data-launched="' + esc(b.id) + '"></span></div>'
     + '<h3 class="title">' + esc(b.label) + '</h3>'
     + whatLine(b)
     + '<div class="meta"><span class="chip sev ' + esc(b.severity) + '">' + esc(b.severity) + '</span>'
     + '<span class="chip">' + esc(b.category) + '</span>' + routes + attempt + '</div>'
     + defects(b)
-    + strip("What lookout saw", b.shots)
+    + strip("Where lookout saw it", b.shots)
     + strip("What verify-fix saw afterwards", b.recheck)
     + judge + feed(b) + paths(b)
     + '</article>';
@@ -939,6 +957,19 @@ async function tick(){
         + ' title="show everything again (Escape)"><b>\\u00d7</b><span>clear</span></button>' : "");
   paint("stats", statsHtml, statsHtml);
 
+  // A --first run files one issue and drops the rest. Those were real findings,
+  // so the page says so rather than letting them vanish between runs.
+  const dropped = (d.events || [])
+    .filter(e => e.kind === "note" && e.data && typeof e.data.dropped === "number")
+    .map(e => e.data.dropped)
+    .pop();
+  const note = el("runnote");
+  if (dropped) {
+    note.hidden = false;
+    note.textContent = dropped + (dropped === 1 ? " other finding was" : " other findings were")
+      + " seen on this run and not filed. Run again to pick up the next one.";
+  } else note.hidden = true;
+
   const bar = el("filterbar");
   if (filter) {
     bar.hidden = false;
@@ -1007,8 +1038,9 @@ document.addEventListener("click", e => {
 async function launch(issue, btn){
   const out = document.querySelector('[data-launched="' + CSS.escape(issue) + '"]');
   btn.disabled = true;
-  const was = btn.textContent;
-  btn.textContent = "opening\u2026";
+  // The button is two SVGs now, so it pulses rather than swapping its text:
+  // writing textContent would delete the mark and never put it back.
+  btn.classList.add("busy");
   try {
     const r = await fetch("/api/launch", {
       method: "POST",
@@ -1027,7 +1059,7 @@ async function launch(issue, btn){
     out.textContent = String(err);
   }
   btn.disabled = false;
-  btn.textContent = was;
+  btn.classList.remove("busy");
 }
 document.addEventListener("keydown", e => {
   if (e.key === "Escape" && filter) setFilter(filter.kind, filter.value, filter.label);

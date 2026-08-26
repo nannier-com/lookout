@@ -366,7 +366,14 @@ async function firstIssue(parsed: Parsed, pre: ResolvedConfig): Promise<number> 
         `found an issue on ${stop.target}${stop.route} after ${i + 1} of ${stops.length} route(s)` +
         (merged.dropped ? `; ${merged.dropped} other finding(s) seen but not filed` : "");
       log(`\n${note}`);
-      emit("note", note, { route: stop.route, checked: i + 1, of: stops.length });
+      emit("note", note, {
+        route: stop.route,
+        checked: i + 1,
+        of: stops.length,
+        // The page reads this: findings lookout made and did not file must not
+        // vanish silently between runs.
+        dropped: merged.dropped,
+      });
       emit("run-end", note, { findings: 1, costUsd: outcome.costUsd });
       if (parsed.flags.json) printJson({ ...outcome, foundOn: stop.route, checked: i + 1 });
       return 1;
