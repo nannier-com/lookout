@@ -37,7 +37,10 @@ Capture-only verbs work regardless.
 lookout targets                      # what this project declares, up or down
 lookout capture --routes /checkout   # evidence only: shots + console/axe/overflow findings
 lookout check                        # capture + AI judge; findings merge into the backlog
+lookout check --auto                 # the same, plus one fix brief per root cause to dispatch
 lookout check --routes /x --targets docs   # scoped re-check (ledger-cached, cheap)
+lookout verify-fix --cluster <id>    # rule on a claimed fix: pass it or hand it back
+lookout backlog plan                 # re-emit the dispatch plan, judging nothing
 lookout verify --criteria ticket.md  # acceptance criteria verdicts with evidence
 lookout ask "is the empty state readable in dark mode?"
 lookout backlog stats                # open findings by severity
@@ -113,20 +116,51 @@ wrong and say what correct would be. Divergences that are only divergences get
 the `design-parity` category. Export the artboard to an image; lookout does not
 render hand-offs itself.
 
-## The fix loop
+## The fix loop: `--auto` and the dispatch protocol
 
-1. `lookout check` (or a scoped variant): findings merge into
-   `.lookout/backlog.json` with stable fingerprints.
-2. Fix the code in the target repo, per THAT repo's conventions (canvas: kit
-   law applies: semantic boolean props, no styling escape hatches, skins in
-   *.styles.ts, changeset per kit fix).
-3. Re-check the affected scope: unchanged pixels stay cached; the fixed
-   finding stops being re-found.
-4. Adjudicate: `lookout backlog set <fingerprint> --status fixed --commit
-   <sha>`; intended behavior gets `--status by-design --reason "..."`
-   (suppressed forever after); after 2 failed fix rounds use `--status
-   blocked --reason "..."` and move on.
-5. `lookout backlog check` gates before you commit backlog changes.
+lookout is run by agents, not read by people. `--auto` is the handshake: it
+turns the open backlog into work you dispatch, then rules on whether the work
+landed. lookout still edits nothing and spawns nothing; you do both.
+
+```bash
+lookout check --auto            # or `lookout backlog plan` to resume for free
+```
+
+That clusters open findings by root cause (one code cause, not one screenshot),
+writes a self-contained brief per cluster under `.lookout/evidence/fix/`, and
+writes `PLAN.json`. Then, as the orchestrating session:
+
+1. **Spawn one subagent per cluster**, whose entire prompt is "Read `<brief>`
+   and execute it fully. Reply with only the JSON it asks for." Keeping the
+   brief out of your own context is the point: you hold cluster ids and
+   verdicts, the subagent holds the screenshots and the diff. Clusters on
+   different routes can run in parallel; clusters sharing a route must not, or
+   the sessions collide in the same files.
+2. **Rule on what comes back**, passing along what the session reported:
+   `lookout verify-fix --cluster <id> --commit <sha> --note "<rootCause>"`.
+   This re-captures and re-judges that cluster's own routes. It is the only
+   thing allowed to decide a defect is gone.
+3. **Branch on the exit code.** `0` passed: the backlog is already adjudicated
+   to fixed, move on. `1` not fixed: a fresh brief has been written carrying
+   what the judge sees NOW, so spawn a NEW subagent on that same path. `2`
+   lookout failed to run. `3` blocked after `--max-attempts` (default 2), with
+   the reason recorded: stop dispatching it and report it.
+4. **Never mark a finding fixed yourself**, and never let a fix session verify
+   its own work. A fix session that reports "fixed" is making a claim, not a
+   finding.
+
+`--severity` sets the dispatch floor (critical and high by default); widen it
+with `--severity medium` once the serious clusters are clear.
+
+### Doing it by hand
+
+Without `--auto` the same loop is manual: `lookout check`, fix the code per THAT
+repo's conventions (canvas: kit law applies, semantic boolean props, no styling
+escape hatches, skins in *.styles.ts, changeset per kit fix), re-check the
+affected scope, then `lookout backlog set <fingerprint> --status fixed --commit
+<sha>`. Intended behavior gets `--status by-design --reason "..."` (suppressed
+forever after); after 2 failed rounds use `--status blocked --reason "..."` and
+move on. `lookout backlog check` gates before you commit backlog changes.
 
 ## Guardrails
 
@@ -136,3 +170,8 @@ render hand-offs itself.
   `signIn` hook clicking a demo account, per the section above.
 - Findings are the app's problems, not lookout's: fix the app, or adjudicate
   with a reason; never edit backlog.json by hand.
+- A scoped re-check re-judges a whole view (every form factor and scheme of one
+  route and state), not just the shot whose pixels moved. That is deliberate:
+  the judge compares dark against light and desktop against phone, so caching
+  them apart would make a comparative finding read as fixed when only its
+  partner had changed. Do not add per-shot filtering to work around the cost.

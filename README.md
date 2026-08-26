@@ -42,17 +42,56 @@ lookout targets               # resolve + probe the configured targets
 | verb      | what it does |
 | --------- | ------------ |
 | `capture` | screenshots + deterministic findings (console errors, overflow, axe), no AI |
-| `check`   | capture + AI judge against the base rubric plus the project rubric; findings merge into `.lookout/backlog.json` |
+| `check`   | capture + AI judge against the base rubric plus the project rubric; findings merge into `.lookout/backlog.json`. `--auto` also writes one fix brief per root cause, ready to dispatch |
+| `verify-fix` | rule on a claimed fix: re-capture and re-judge one cluster, then pass it or hand it back with a fresh brief |
 | `verify`  | judge the app against acceptance criteria (`--criteria ticket.md` or inline text); per-criterion pass / fail / not-visually-verifiable with evidence |
 | `ask`     | answer a free-form question about the rendered app, grounded in fresh screenshots |
-| `backlog` | adjudicate findings: merge, set statuses (fixed / by-design / blocked, with mandatory reasons), regenerate the report, `check` for staleness |
+| `backlog` | adjudicate findings: merge, set statuses (fixed / by-design / blocked, with mandatory reasons), `plan` to re-emit the dispatch plan for free, regenerate the report, `check` for staleness |
 | `targets` | list configured targets and probe reachability |
 | `init`    | scaffold `.lookout/config.ts` |
 | `doctor`  | verify prerequisites |
 
 Exit codes: `0` clean, `1` findings / failed criteria, `2` execution error, so
-agents and CI can gate on the result. Every verb takes `--json` for
+agents and CI can gate on the result. `verify-fix` adds `3` for a cluster
+blocked after exhausting its attempts. Every verb takes `--json` for
 machine-readable output.
+
+## Auto mode
+
+lookout is run by agents rather than read by people, and auto mode is the
+handshake between the oracle and whatever is doing the fixing. lookout still
+edits nothing and spawns nothing.
+
+```bash
+lookout check --auto              # judge, then write the dispatch plan
+lookout backlog plan              # re-emit the plan from the backlog, judging nothing
+```
+
+`--auto` clusters open findings by root cause rather than by screenshot: one
+target + category + attribute, so a theme that never switches is one unit of
+work across every route it spoils rather than one per shot. Co-located
+accessibility violations group by route instead, because an axe rule id names
+the rule that fired rather than the thing that is wrong, and one malformed
+widget trips several at once.
+
+Each cluster gets a self-contained brief under `.lookout/evidence/fix/`: the
+defect, the screenshots to read, the repository to change, the rules, and the
+JSON the fix session must reply with. `PLAN.json` lists the clusters and the
+protocol. The orchestrating session spawns one subagent per brief, so it carries
+cluster ids and verdicts while the subagent carries the evidence.
+
+When a session reports back, lookout rules on the claim:
+
+```bash
+lookout verify-fix --cluster <id> --commit <sha> --note "<root cause>"
+```
+
+That re-captures and re-judges only that cluster's routes. Exit `0` means the
+defect is gone and the backlog is adjudicated to `fixed` with the commit. Exit
+`1` means it is not, and a fresh brief has been written carrying what the judge
+sees now, for a new session. Exit `3` means the cluster exhausted
+`--max-attempts` (default 2) and is recorded as `blocked` with a reason. A fix
+session never grades its own work.
 
 ## Safety defaults
 
