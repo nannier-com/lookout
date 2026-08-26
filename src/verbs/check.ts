@@ -126,6 +126,19 @@ export async function runCheck(
     if (!quiet) console.log(line);
   };
 
+  // Asked for one issue and the capture already found one? Then it is found.
+  // Deterministic findings are free and certain, so judging on would spend
+  // minutes and money to produce something that is going to be dropped anyway.
+  const freeFindings = shots.flatMap((s) => s.deterministicFindings).length;
+  const skipJudging = !!parsed.flags.first && freeFindings > 0;
+  if (skipJudging) {
+    log(
+      `the capture already found ${freeFindings} issue(s) without the judge; ` +
+        "recording the worst and stopping there",
+    );
+    emit("note", "capture found an issue; skipping the judge", { freeFindings });
+  }
+
   // 4. Judge in batches, a couple of subprocesses at a time.
   const evDir = evidenceDir(resolved);
   // One view group (a route and state across its form factors and schemes) is
@@ -134,7 +147,11 @@ export async function runCheck(
   // hostage until the whole batch returns, which on full-page screenshots ran
   // to several silent minutes.
   const batches = batchShots(toJudge, num(parsed.flags["batch-size"]) ?? DEFAULT_BATCH_SIZE);
-  const concurrency = num(parsed.flags.concurrency) ?? 2;
+  // Judging two batches at once is faster, and wrong when a limit is set: the
+  // second batch's findings land after the first has already satisfied it, and
+  // they were paid for only to be dropped.
+  const limited = !!parsed.flags.first || num(parsed.flags.limit) !== undefined;
+  const concurrency = num(parsed.flags.concurrency) ?? (limited ? 1 : 2);
   log(
     `judging ${toJudge.length} shot(s) in ${batches.length} batch(es) with model ${model} ` +
       `(${cached} cached under rubric v${rubric.version})`,
@@ -169,7 +186,7 @@ export async function runCheck(
 
   const worker = async (): Promise<void> => {
     for (;;) {
-      if (confirmed.length >= stopAfter) {
+      if (skipJudging || confirmed.length >= stopAfter) {
         stopped = true;
         return;
       }
@@ -243,7 +260,7 @@ export async function runCheck(
   await Promise.all(Array.from({ length: Math.max(1, concurrency) }, () => worker()));
   await tail;
   if (refuted.length > 0) log(`verifier refuted ${refuted.length} finding(s)`);
-  if (stopped) {
+  if (stopped && !skipJudging) {
     // Say it plainly. Otherwise "1 finding" reads as a clean bill of health for
     // the whole application, when most of it was never looked at.
     const left = batches.length - Math.min(batchIndex, batches.length);
@@ -328,8 +345,20 @@ export async function check(parsed: Parsed): Promise<number> {
   let backlogNote = "";
   if (resolved.configPath) {
     const { mergeLatest } = await import("./backlog.js");
-    const merged = await mergeLatest(resolved, { judgeOutcome: outcome });
-    backlogNote = `backlog: ${merged.added} added, ${merged.reopened} reopened, ${merged.refreshed} refreshed`;
+    const merged = await mergeLatest(resolved, {
+      judgeOutcome: outcome,
+      firstIssueOnly: !!parsed.flags.first,
+    });
+    backlogNote =
+      `backlog: ${merged.added} added, ${merged.reopened} reopened, ${merged.refreshed} refreshed` +
+      // Say what was seen and not filed. Silently discarding findings lookout
+      // actually made would misreport the application as healthier than it is.
+      (merged.dropped
+        ? `; ${merged.dropped} other finding(s) seen but not filed (--first records one issue)`
+        : "");
+    if (merged.dropped) {
+      emit("note", `${merged.dropped} finding(s) seen but not filed`, { dropped: merged.dropped });
+    }
   }
 
 

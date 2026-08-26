@@ -15,6 +15,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig, lookoutDir } from "../config.js";
 import { loadReport } from "../capture/store.js";
+import { clusterIdOf } from "../fix/cluster.js";
 import {
   aiToFindings,
   checkBacklog,
@@ -25,6 +26,7 @@ import {
   setStatus,
   stats,
   type Backlog,
+  type BacklogFinding,
 } from "../backlog/lib.js";
 import type { CheckOutcome } from "./check.js";
 import { LookoutError, type ResolvedConfig } from "../types.js";
@@ -53,10 +55,46 @@ export async function saveBacklog(resolved: ResolvedConfig, backlog: Backlog): P
 }
 
 /** Merge the latest evidence + judge results; shared with `lookout check`. */
+/**
+ * Everything a run turned up, narrowed to the single worst issue.
+ *
+ * "One issue" is one cluster, not one finding: a root cause seen on six
+ * screenshots is one thing to fix, and splitting it would hand back a third of
+ * a defect. Findings outside that cluster are dropped rather than filed, which
+ * is the cost of asking for one: a later run judges those views again.
+ */
+function worstIssueOnly<
+  T extends Pick<
+    BacklogFinding,
+    "target" | "category" | "attribute" | "channel" | "route" | "severity" | "fingerprint"
+  >,
+>(candidates: T[]): T[] {
+  if (candidates.length === 0) return candidates;
+  const rank = { critical: 0, high: 1, medium: 2, low: 3 } as const;
+  const byCluster = new Map<string, T[]>();
+  for (const f of candidates) {
+    const id = clusterIdOf(f);
+    byCluster.set(id, [...(byCluster.get(id) ?? []), f]);
+  }
+  // Worst severity wins; ties go to the cluster seen on the most screenshots,
+  // because that is the one whose fix clears the most evidence.
+  let best: T[] = [];
+  for (const group of byCluster.values()) {
+    const worst = Math.min(...group.map((f) => rank[f.severity]));
+    const bestWorst = best.length ? Math.min(...best.map((f) => rank[f.severity])) : 99;
+    if (worst < bestWorst || (worst === bestWorst && group.length > best.length)) best = group;
+  }
+  return best;
+}
+
 export async function mergeLatest(
   resolved: ResolvedConfig,
-  opts: { judgeOutcome?: CheckOutcome | null },
-): Promise<{ backlog: Backlog; added: number; reopened: number; refreshed: number }> {
+  opts: {
+    judgeOutcome?: CheckOutcome | null;
+    /** Record only the single worst issue this run turned up. */
+    firstIssueOnly?: boolean;
+  },
+): Promise<{ backlog: Backlog; added: number; reopened: number; refreshed: number; dropped: number }> {
   const report = await loadReport(resolved);
   if (!report) throw new LookoutError("no capture-report.json to merge from; run `lookout capture` first");
   const backlog = await loadBacklog(resolved);
@@ -69,20 +107,32 @@ export async function mergeLatest(
     ...report,
     shots: report.shots.filter((s) => latestShots.has(s.id)),
   });
-  const r1 = mergeFindings(backlog, det, latestRun.id, now);
-
   // 2. AI findings from the given or on-disk judge report.
   let judge = opts.judgeOutcome ?? null;
   if (!judge) {
     const jp = join(lookoutDir(resolved), "evidence", "judge-report.json");
     if (existsSync(jp)) judge = JSON.parse(await readFile(jp, "utf8")) as CheckOutcome;
   }
-  let r2 = { added: [] as string[], reopened: [] as string[], refreshed: [] as string[], suppressed: [] as string[] };
-  if (judge) {
-    const shotsById = new Map(report.shots.map((s) => [s.id, s]));
-    const ai = aiToFindings(judge.findings, shotsById);
-    r2 = mergeFindings(backlog, ai, judge.runId, now);
+  const shotsById = new Map(report.shots.map((s) => [s.id, s]));
+  const ai = judge ? aiToFindings(judge.findings, shotsById) : [];
+
+  // Narrowing happens across both channels at once. Deciding per channel would
+  // file every deterministic finding and then narrow only the judged ones,
+  // which is not one issue by any reading.
+  let dropped = 0;
+  let detToMerge = det;
+  let aiToMerge = ai;
+  if (opts.firstIssueOnly) {
+    const keep = new Set(worstIssueOnly([...det, ...ai]).map((f) => f.fingerprint));
+    dropped = det.length + ai.length - keep.size;
+    detToMerge = det.filter((f) => keep.has(f.fingerprint));
+    aiToMerge = ai.filter((f) => keep.has(f.fingerprint));
   }
+
+  const r1 = mergeFindings(backlog, detToMerge, latestRun.id, now);
+  const r2 = judge
+    ? mergeFindings(backlog, aiToMerge, judge.runId, now)
+    : { added: [] as string[], reopened: [] as string[], refreshed: [] as string[], suppressed: [] as string[] };
 
   await saveBacklog(resolved, backlog);
   return {
@@ -90,6 +140,7 @@ export async function mergeLatest(
     added: r1.added.length + r2.added.length,
     reopened: r1.reopened.length + r2.reopened.length,
     refreshed: r1.refreshed.length + r2.refreshed.length,
+    dropped,
   };
 }
 
