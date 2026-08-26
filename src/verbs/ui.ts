@@ -957,17 +957,18 @@ async function tick(){
         + ' title="show everything again (Escape)"><b>\\u00d7</b><span>clear</span></button>' : "");
   paint("stats", statsHtml, statsHtml);
 
-  // A --first run files one issue and drops the rest. Those were real findings,
-  // so the page says so rather than letting them vanish between runs.
-  const dropped = (d.events || [])
-    .filter(e => e.kind === "note" && e.data && typeof e.data.dropped === "number")
-    .map(e => e.data.dropped)
+  // A run stops at the first route with issues and files all of them, so the
+  // page says how far it got: "3 issues" means three on one route, not three
+  // across an application it has mostly not looked at.
+  const walked = (d.events || [])
+    .filter(e => e.kind === "note" && e.data && typeof e.data.checked === "number")
     .pop();
   const note = el("runnote");
-  if (dropped) {
+  if (walked && walked.data.found) {
     note.hidden = false;
-    note.textContent = dropped + (dropped === 1 ? " other finding was" : " other findings were")
-      + " seen on this run and not filed. Run again to pick up the next one.";
+    note.textContent = "Stopped at " + walked.data.route + " after looking at "
+      + walked.data.checked + " of " + walked.data.of
+      + " routes. Fix these, then run again for the next route.";
   } else note.hidden = true;
 
   const bar = el("filterbar");
