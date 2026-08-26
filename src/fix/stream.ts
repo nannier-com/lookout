@@ -24,9 +24,10 @@ import { loadBacklog, saveBacklog } from "../verbs/backlog.js";
 import type { ResolvedConfig, ShotRecord } from "../types.js";
 import type { VerifiedFinding } from "../judge/verify.js";
 import { nowIso } from "../util.js";
+import { emit } from "../report/events.js";
 import { clusterFindings, type FixCluster } from "./cluster.js";
 import { writeBrief } from "./plan.js";
-import { spawnLine } from "./brief.js";
+import { clusterLabel as clusterLabelOf, spawnLine } from "./brief.js";
 import type { Severity } from "../types.js";
 
 export interface BatchEvent {
@@ -76,6 +77,21 @@ export function createAutoStreamer(opts: StreamerOptions): Streamer {
     const brief = await writeBrief(resolved, c, maxAttempts);
     await clusterSheet(resolved, c);
     dispatched.push(c.id);
+    emit(
+      "dispatch",
+      `${amended ? "amended" : "dispatch"} ${c.id}: ${clusterLabelOf(c)}`,
+      {
+        id: c.id,
+        label: clusterLabelOf(c),
+        brief,
+        routes: c.routes,
+        severity: c.severity,
+        category: c.category,
+        shots: c.shotCount,
+        amended,
+      },
+      c.severity,
+    );
     log(
       `\n${amended ? "amended " : "dispatch"} ${c.id}` +
         `\n  ${c.severity} ${c.category}${c.defects.length > 1 ? ` (${c.defects.length} rules)` : `/${c.attribute}`}` +

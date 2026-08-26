@@ -13,6 +13,8 @@
  *   backlog   adjudicate findings (merge / set / reopen / regen / check / stats)
  *   targets   list configured targets and probe reachability
  *   init      scaffold .lookout/config.ts in this repo
+ *   status    what the run in flight is doing, from the event log
+ *   ui        a local page rendering that same log, live, for a person
  *   doctor    check prerequisites (claude CLI, chromium, sharp, simctl, adb)
  *
  * Exit codes: 0 clean, 1 findings or failed criteria or failing checks,
@@ -62,6 +64,14 @@ const VERBS: Record<string, { load: () => Promise<Verb>; summary: string }> = {
   init: {
     load: async () => (await import("./verbs/init.js")).init,
     summary: "scaffold .lookout/config.ts in this repo",
+  },
+  status: {
+    load: async () => (await import("./verbs/status.js")).status,
+    summary: "what the run in flight is doing (poll this while check runs)",
+  },
+  ui: {
+    load: async () => (await import("./verbs/ui.js")).ui,
+    summary: "a local page showing the run live, for a person to watch",
   },
   doctor: {
     load: async () => (await import("./verbs/doctor.js")).doctor,

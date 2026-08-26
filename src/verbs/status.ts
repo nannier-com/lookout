@@ -1,0 +1,67 @@
+/**
+ * `lookout status`: what the run in flight is doing, right now.
+ *
+ * A session that starts `lookout check --auto` in the background sees nothing
+ * until the process exits. Polling this costs one cheap read and answers the
+ * only question that matters mid-run: how far along, what has been found, and
+ * what is ready to dispatch.
+ */
+import { loadConfig } from "../config.js";
+import { readEvents, summarise, type LookoutEvent } from "../report/events.js";
+import { num, printJson, str, type Parsed } from "../util.js";
+
+function elapsed(from: string, to: string | null): string {
+  const ms = new Date(to ?? new Date().toISOString()).getTime() - new Date(from).getTime();
+  const s = Math.max(0, Math.round(ms / 1000));
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
+}
+
+export async function status(parsed: Parsed): Promise<number> {
+  const resolved = await loadConfig({
+    configPath: str(parsed.flags.config),
+    url: str(parsed.flags.url),
+  });
+  const events = readEvents(resolved);
+  const s = summarise(events);
+
+  if (parsed.flags.json) {
+    const tail = num(parsed.flags.tail);
+    printJson({ ...s, ...(tail ? { recent: events.slice(-tail) } : {}) });
+    return s.running ? 1 : 0;
+  }
+
+  if (!s.runId) {
+    console.log("no run recorded yet (run `lookout check --auto`)");
+    return 0;
+  }
+
+  console.log(
+    `${s.running ? "RUNNING" : "done"}  ${s.runId}  phase: ${s.phase}` +
+      (s.startedAt ? `  elapsed: ${elapsed(s.startedAt, s.endedAt)}` : ""),
+  );
+  console.log(
+    `  ${s.shots} shot(s) captured` +
+      (s.batches.total ? `; batches ${s.batches.done}/${s.batches.total}` : ""),
+  );
+  console.log(
+    `  findings: ${s.findings.total}` +
+      ` (${s.findings.critical} critical, ${s.findings.high} high,` +
+      ` ${s.findings.medium} medium, ${s.findings.low} low)`,
+  );
+  for (const d of s.dispatched) {
+    const v = s.verdicts.filter((x) => x.cluster === d.id).pop();
+    console.log(`  dispatch ${d.id}  ${d.label}${v ? `  -> ${v.verdict}` : "  (awaiting a fix session)"}`);
+    console.log(`    brief: ${d.brief}`);
+  }
+  for (const e of s.errors.slice(-5)) console.log(`  ERROR ${e}`);
+  if (s.lastMessage) console.log(`  last: ${s.lastMessage}`);
+
+  const recent = num(parsed.flags.tail);
+  if (recent) {
+    console.log("");
+    for (const e of events.slice(-recent) as LookoutEvent[]) {
+      console.log(`  ${e.at.slice(11, 19)} ${e.kind.padEnd(12)} ${e.message}`);
+    }
+  }
+  return s.running ? 1 : 0;
+}

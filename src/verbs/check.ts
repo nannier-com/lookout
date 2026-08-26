@@ -26,6 +26,7 @@ import { planPath } from "../fix/state.js";
 import type { FixPlan } from "../fix/brief.js";
 import type { Backlog } from "../backlog/lib.js";
 import { createAutoStreamer, type BatchEvent } from "../fix/stream.js";
+import { emit, EventLog, setCurrentLog } from "../report/events.js";
 
 /** Attempts a cluster gets before `verify-fix` blocks it. */
 export const DEFAULT_MAX_ATTEMPTS = 2;
@@ -131,6 +132,12 @@ export async function runCheck(
     `judging ${toJudge.length} shot(s) in ${batches.length} batch(es) with model ${model} ` +
       `(${cached} cached under rubric v${rubric.version})`,
   );
+  emit("judge-start", `judging ${toJudge.length} shot(s) in ${batches.length} batch(es)`, {
+    shots: toJudge.length,
+    batches: batches.length,
+    model,
+    cached,
+  });
   if (opts.onStart) await opts.onStart(toJudge);
 
   const confirmed: VerifiedFinding[] = [];
@@ -176,6 +183,33 @@ export async function runCheck(
           (res.rejected.length ? `, ${res.rejected.length} rejected` : "") +
           ` (${(res.durationMs / 1000).toFixed(0)}s)`,
       );
+      emit("batch", `batch ${i + 1}/${batches.length}: ${batchFindings.length} finding(s)`, {
+        index: i + 1,
+        total: batches.length,
+        shots: batch.length,
+        findings: batchFindings.length,
+        seconds: Math.round(res.durationMs / 1000),
+      });
+      for (const f of batchFindings) {
+        const shot = shotsById.get(f.shotId);
+        emit(
+          "finding",
+          `${f.category}/${f.attribute}: ${f.title}`,
+          {
+            severity: f.severity,
+            category: f.category,
+            attribute: f.attribute,
+            shotId: f.shotId,
+            path: shot?.path,
+            route: shot?.route,
+            formFactor: shot?.formFactor,
+            scheme: shot?.scheme,
+            problem: f.problem,
+            verified: f.verified,
+          },
+          f.severity,
+        );
+      }
       if (opts.onBatch) {
         await serialize(() =>
           opts.onBatch!({
@@ -244,8 +278,25 @@ export function autoSeverity(parsed: Parsed): Severity {
 
 export async function check(parsed: Parsed): Promise<number> {
   const auto = !!parsed.flags.auto;
+  const checkRun = runId("check");
   const maxAttempts = num(parsed.flags["max-attempts"]) ?? DEFAULT_MAX_ATTEMPTS;
   const quiet = !!parsed.flags.json || !!parsed.flags.quiet;
+
+  // Narrate to disk from the first moment. A run takes minutes and its stdout
+  // does not reach the caller until it exits, so `lookout status` and `lookout
+  // ui` read this instead, while the run is still going.
+  const pre = await loadConfig({
+    configPath: str(parsed.flags.config),
+    url: str(parsed.flags.url),
+  });
+  const elog = new EventLog(pre, checkRun);
+  elog.start(auto ? "lookout check --auto" : "lookout check", {
+    project: pre.project,
+    auto,
+    targets: str(parsed.flags.targets) ?? null,
+    routes: str(parsed.flags.routes) ?? null,
+  });
+  setCurrentLog(elog);
 
   // In auto mode the streamer emits as evidence lands: deterministic clusters
   // before judging even starts, judged clusters as soon as their routes are
@@ -253,10 +304,6 @@ export async function check(parsed: Parsed): Promise<number> {
   // is still being looked at.
   let streamer: ReturnType<typeof createAutoStreamer> | null = null;
   if (auto) {
-    const pre = await loadConfig({
-      configPath: str(parsed.flags.config),
-      url: str(parsed.flags.url),
-    });
     if (!pre.configPath) {
       throw new LookoutError(
         "--auto needs a project backlog",
@@ -346,5 +393,11 @@ export async function check(parsed: Parsed): Promise<number> {
     if (sheet) console.log(`\n${sheetNote(sheet)}`);
     if (backlogNote) console.log(backlogNote);
   }
+  emit("run-end", `${outcome.findings.length} finding(s); ~$${outcome.costUsd}`, {
+    findings: outcome.findings.length,
+    costUsd: outcome.costUsd,
+    clusters: plan?.clusters.length ?? 0,
+  });
+  setCurrentLog(null);
   return outcome.findings.length > 0 || outcome.deterministicErrors > 0 ? 1 : 0;
 }

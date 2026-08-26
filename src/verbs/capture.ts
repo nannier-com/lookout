@@ -9,12 +9,26 @@ import { preflight, requireUp, resolveTargets } from "../targets.js";
 import { captureWeb, type WebCaptureOptions } from "../capture/web.js";
 import { mergeRun, loadReport } from "../capture/store.js";
 import { buildContactSheet, sheetNote } from "../capture/sheet.js";
+import { emit, EventLog, setCurrentLog } from "../report/events.js";
 import type { FormFactor, Scheme, ShotRecord } from "../types.js";
 import { LookoutError } from "../types.js";
 import { list, num, printJson, runId, str, type Parsed } from "../util.js";
 import { join } from "node:path";
 
 const FORM_FACTORS: FormFactor[] = ["desktop", "tablet", "phone"];
+
+/** Narrate one shot the moment it lands, so a live watcher sees it appear. */
+function emitShot(shot: ShotRecord): void {
+  emit("shot", `${shot.target}${shot.route} ${shot.formFactor} ${shot.scheme}`, {
+    shotId: shot.id,
+    path: shot.path,
+    route: shot.route,
+    state: shot.state,
+    formFactor: shot.formFactor,
+    scheme: shot.scheme,
+    findings: shot.deterministicFindings.length,
+  });
+}
 const SCHEMES: Scheme[] = ["dark", "light"];
 
 export interface CaptureOutcome {
@@ -73,7 +87,11 @@ export async function runCapture(parsed: Parsed): Promise<{
     states: parsed.flags["no-states"] ? "off" : "all",
     headless: !parsed.flags.headed,
     runId: runId("web"),
-    onProgress: quiet ? undefined : (line) => console.log(line),
+    onProgress: (line) => {
+      if (!quiet) console.log(line);
+      emit(line.startsWith("FAIL") ? "error" : "phase", line);
+    },
+    onShot: emitShot,
   };
 
   const platforms = list(parsed.flags.platforms) ?? ["web"];
@@ -107,7 +125,11 @@ export async function runCapture(parsed: Parsed): Promise<{
       platforms: nativePlatforms,
       schemes,
       runId: opts.runId + "-native",
-      onProgress: quiet ? undefined : (line) => console.log(line),
+      onProgress: (line) => {
+      if (!quiet) console.log(line);
+      emit(line.startsWith("FAIL") ? "error" : "phase", line);
+    },
+    onShot: emitShot,
     });
     await mergeRun(resolved, native.run, native.shots);
     shots = [...shots, ...native.shots];
@@ -139,7 +161,16 @@ export async function runCapture(parsed: Parsed): Promise<{
 }
 
 export async function capture(parsed: Parsed): Promise<number> {
+  const pre = await loadConfig({
+    configPath: str(parsed.flags.config),
+    url: str(parsed.flags.url),
+  });
+  const elog = new EventLog(pre, runId("capture"));
+  elog.start("lookout capture", { project: pre.project });
+  setCurrentLog(elog);
+
   const { outcome, resolved } = await runCapture(parsed);
+  emit("capture-done", `${outcome.shots} shot(s) captured`, { shots: outcome.shots });
   const sheet = await runContactSheet(resolved, await shotsOfRun(resolved, outcome.runId));
   outcome.contactSheet = sheet?.path ?? null;
 
@@ -156,6 +187,11 @@ export async function capture(parsed: Parsed): Promise<number> {
     }
     if (sheet) console.log(`\n${sheetNote(sheet)}`);
   }
+  emit("run-end", `${outcome.shots} shot(s), ${outcome.failures.length} failure(s)`, {
+    shots: outcome.shots,
+    failures: outcome.failures.length,
+  });
+  setCurrentLog(null);
   return outcome.failures.length > 0 || outcome.findings.errors > 0 ? 1 : 0;
 }
 

@@ -40,6 +40,8 @@ export interface NativeCaptureOptions {
   schemes: Scheme[];
   runId: string;
   onProgress?: (line: string) => void;
+  /** Called as each shot lands, so a live watcher sees it appear mid-run. */
+  onShot?: (shot: ShotRecord) => void;
 }
 
 export interface NativeCaptureResult {
@@ -316,6 +318,7 @@ export async function captureNative(
             runId: opts.runId,
             deterministicFindings: findings,
           });
+          opts.onShot?.(shots[shots.length - 1]!);
           progress(`shot ${shotId(axes)}${findings.length ? ` (${findings.length} finding(s))` : ""}`);
         } catch (e) {
           failures.push({

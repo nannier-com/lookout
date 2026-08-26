@@ -48,6 +48,11 @@ export interface WebCaptureOptions {
   headless: boolean;
   runId: string;
   onProgress?: (line: string) => void;
+  /**
+   * Called as each shot lands, not at the end of the run. Anything watching a
+   * capture live needs the record while the capture is still going.
+   */
+  onShot?: (shot: ShotRecord) => void;
 }
 
 export interface WebCaptureResult {
@@ -289,6 +294,7 @@ async function captureRoute(
           runId: ctx.runId,
           deterministicFindings: findings,
         });
+        ctx.onShot?.(ctx.shots[ctx.shots.length - 1]!);
         ctx.progress(
           `shot ${shotId(axes)}${findings.length ? `  (${findings.length} finding${findings.length === 1 ? "" : "s"})` : ""}`,
         );

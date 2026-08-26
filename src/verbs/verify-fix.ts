@@ -23,7 +23,8 @@ import { runCheck, DEFAULT_MAX_ATTEMPTS } from "./check.js";
 import { runContactSheet } from "./capture.js";
 import { sheetNote } from "../capture/sheet.js";
 import { LookoutError } from "../types.js";
-import { execFileAsync, nowIso, num, printJson, str, type Parsed } from "../util.js";
+import { execFileAsync, nowIso, num, printJson, runId as makeRunId, str, type Parsed } from "../util.js";
+import { emit, EventLog, setCurrentLog } from "../report/events.js";
 
 /** HEAD of the target repository, when it is a git checkout. */
 async function headSha(cwd: string): Promise<string | undefined> {
@@ -54,6 +55,9 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
     configPath: str(parsed.flags.config),
     url: str(parsed.flags.url),
   });
+  const elog = new EventLog(preResolved, makeRunId("verify-fix"));
+  elog.start(`lookout verify-fix ${clusterId}`, { cluster: clusterId });
+  setCurrentLog(elog);
   const before = await loadBacklog(preResolved);
   const cluster = findCluster(before, clusterId);
   if (!cluster) {
@@ -166,6 +170,12 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
     if (next) briefPathOut = await writeBrief(resolved, next, maxAttempts);
   }
 
+  emit(
+    "verdict",
+    `${clusterId}: ${verdict} (attempt ${attempt} of ${maxAttempts})`,
+    { cluster: clusterId, verdict, attempt, maxAttempts, judgeNote, brief: briefPathOut },
+    verdict === "passed" ? "info" : "error",
+  );
   const exit = verdict === "passed" ? 0 : verdict === "blocked" ? 3 : 1;
   const payload = {
     cluster: clusterId,
@@ -198,5 +208,7 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
     );
     if (sheet) console.log(`\n${sheetNote(sheet)}`);
   }
+  emit("run-end", `${clusterId}: ${verdict}`, { verdict });
+  setCurrentLog(null);
   return exit;
 }
