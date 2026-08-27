@@ -804,7 +804,6 @@ function paths(b){
   // issues. The evidence-store paths follow for anyone who wants the originals.
   if (b.dir) rows.push(b.dir);
   for (const s of b.shots) rows.push(s.absPath);
-  for (const s of b.recheck) rows.push(s.absPath);
   if (!rows.length) return "";
   return '<div class="evi"><h4>On disk</h4><div class="paths">'
     + rows.map(p => '<div>' + esc(p) + '</div>').join("") + '</div></div>';
@@ -891,7 +890,6 @@ function card(b){
     + defects(b)
     + acceptance(b)
     + strip("Where lookout saw it", b.shots)
-    + strip("What verify-fix saw afterwards", b.recheck)
     + judge + feed(b) + paths(b)
     + '</article>';
 }
@@ -1041,7 +1039,7 @@ async function tick(){
   // criterion without changing anything else is exactly the moment the card
   // has to repaint, and leaving them out left it showing the old marks.
   const sig = JSON.stringify([filter, issues.map(b => [b.id, b.status, b.attempt, b.verdict,
-    b.shots.length, b.recheck.length, b.lastSeenAt, (b.timeline || []).length,
+    b.shots.length, b.lastSeenAt, (b.timeline || []).length,
     (b.acceptance || []).map(c => c.id + c.verdict).join()])]);
   const feedTops = {};
   for (const f of document.querySelectorAll("[data-feed]")) feedTops[f.dataset.feed] = f.scrollTop;

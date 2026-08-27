@@ -10,7 +10,7 @@
  *
  * The durable answer was always sitting next to it. `backlog.json` is the
  * adjudicated record of every finding, clustering is deterministic, and each
- * cluster's attempts and fix sessions are kept in `fix/<id>.state.json`. So the
+ * cluster's attempts and fix sessions are kept in `issues/<id>/state.json`. So the
  * board is derived from those, and the event log is demoted to what it actually
  * is: an overlay saying what is happening *right now*, on top of a board that
  * exists whether or not a run is in flight.
@@ -104,8 +104,6 @@ export interface BoardEntry {
   defects: { attribute: string; severity: string; title: string; problem: string }[];
   /** The screenshots this issue was filed against. */
   shots: BoardShot[];
-  /** What the most recent `verify-fix` saw afterwards. */
-  recheck: BoardShot[];
   /** When lookout last saw this, or null when it cannot tell. */
   lastSeenAt: string | null;
   status: IssueStatus;
@@ -307,7 +305,6 @@ export async function buildBoard(
           problem: d.problem,
         })),
         shots: shotsOf(resolved, c),
-        recheck: [],
         lastSeenAt: seen,
         status: durableStatus(c, state),
         timeline: durableTimeline(state, seen),

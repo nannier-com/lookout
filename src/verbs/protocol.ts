@@ -71,7 +71,6 @@ export function protocolText(): string {
     "  issue.json      the record",
     "  ISSUE.md        what is wrong, where, and what lookout has ruled",
     "  shots/          the screenshots it was filed against",
-    "  recheck/        what the last verify-fix saw afterwards",
     "  state.json      every attempt, and how each one was ruled",
     "```",
     "",

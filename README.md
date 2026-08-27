@@ -295,7 +295,7 @@ dirty checkout, or while another heal holds the lock.
   ledger.json      committed if you want cross-machine judge caching
   issues/<id>/     committed: one folder per issue, named by its six-digit id
                      issue.json, ISSUE.md, state.json committed;
-                     shots/ and recheck/ gitignored with the evidence
+                     shots/ gitignored with the evidence
   skills/          committed: this project's layer over lookout's shipped skills
   evidence/        gitignored: screenshots + capture-report.json + judge-report.json
 ```

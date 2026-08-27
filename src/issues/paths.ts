@@ -18,10 +18,6 @@ export function issueShotsDir(resolved: ResolvedConfig, id: string): string {
   return join(issueDir(resolved, id), "shots");
 }
 
-export function issueRecheckDir(resolved: ResolvedConfig, id: string): string {
-  return join(issueDir(resolved, id), "recheck");
-}
-
 /** `web/app/root/rest--desktop-dark.png` -> `web-app-root-rest--desktop-dark.png`. */
 export function flatShotName(evidenceRelPath: string): string {
   return evidenceRelPath.split(/[\\/]/).join("-");
