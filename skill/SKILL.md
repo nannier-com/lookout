@@ -33,6 +33,13 @@ you at it and to carry the few facts that are specific to this machine.
 
 ## Machine-specific facts
 
+- A running `lookout ui` server keeps executing the dist it was started with;
+  rebuilding does not reach it. If the ui page looks stale while
+  `lookout protocol` prints current text, that is why. After `bun run build`,
+  restart any live ui server: `pgrep -fl "cli.js ui"` finds it, `lsof -a -p
+  <pid> -d cwd` names the project it was serving, then kill it and relaunch
+  `ui --port <port>` from that same cwd. Safe mid-`check`: the ui reads state
+  from disk, so a restart loses nothing.
 - Judging shells out to `claude -p` and needs the standalone CLI logged in.
   `lookout doctor` reports it; if it says "Not logged in", ask the user to run
   `claude` in a terminal once and complete /login.
