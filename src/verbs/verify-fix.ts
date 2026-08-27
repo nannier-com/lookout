@@ -40,6 +40,8 @@ import {
 import { loadReport } from "../capture/store.js";
 import { loadBacklog, mergeLatest, saveBacklog } from "./backlog.js";
 import { runCheck, DEFAULT_MAX_ATTEMPTS } from "./check.js";
+import { runContactSheet } from "./capture.js";
+import { sheetNote } from "../capture/sheet.js";
 import { LookoutError } from "../types.js";
 import { execFileAsync, nowIso, num, printJson, runId as makeRunId, str, type Parsed } from "../util.js";
 import { emit, EventLog, setCurrentLog } from "../report/events.js";
@@ -201,10 +203,17 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
     },
   });
 
-  // The session ruling on this should be able to see the state it is ruling
-  // on, so composite what was just re-captured.
+  // The session reading this verdict should be able to see the state it was
+  // reached from, so composite what was just re-captured, with the tiles that
+  // still carry findings marked.
   const freshByShot = new Map<string, number>();
   for (const f of outcome.findings) freshByShot.set(f.shotId, (freshByShot.get(f.shotId) ?? 0) + 1);
+  const sheet = await runContactSheet(
+    resolved,
+    [...shotsById.values()],
+    freshByShot,
+    `verify-${issueId}.png`,
+  );
 
   // 2. Fold the fresh evidence into the backlog, then read the answer off it.
   const merged = await mergeLatest(resolved, { judgeOutcome: outcome });
@@ -443,6 +452,7 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
             .join(", ")}); they are separate work`
         : ""),
     costUsd: (outcome.costUsd ?? 0) + acceptanceCost,
+    contactSheet: sheet?.path ?? null,
   };
 
   if (parsed.flags.json) {
@@ -470,6 +480,7 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
           (s.causedByThisFix ? ", on pixels this fix moved" : ""),
       );
     }
+    if (sheet) console.log(`\n${sheetNote(sheet)}`);
   }
   emit("run-end", `${issueId}: ${verdict}`, { verdict });
   setCurrentLog(null);

@@ -26,6 +26,7 @@ import {
 import { loadRubric } from "../judge/rubric.js";
 import { loadSkill } from "../skills/load.js";
 import { recordIncident } from "../skills/incidents.js";
+import { sheetNote } from "../capture/sheet.js";
 import {
   groupHash,
   judgeIdentity,
@@ -37,7 +38,7 @@ import {
 import { verifyFindings, type VerifiedFinding } from "../judge/verify.js";
 import { LookoutError, type ResolvedConfig, type Severity, type ShotRecord } from "../types.js";
 import { list, num, printJson, runId, str, type Parsed } from "../util.js";
-import { runCapture } from "./capture.js";
+import { runCapture, runContactSheet } from "./capture.js";
 import { resolveTargets } from "../targets.js";
 import { SEVERITIES } from "../judge/rubric.js";
 import { emit, EventLog, setCurrentLog } from "../report/events.js";
@@ -66,6 +67,13 @@ export interface CheckOutcome {
   deterministicErrors: number;
   costUsd: number;
   reportPath: string;
+  /**
+   * Labelled composite of everything judged, defect-carrying tiles marked. The
+   * calling session sees what lookout saw for the cost of one Read, instead of
+   * spending more context on a dozen full-resolution screenshots than on the
+   * findings themselves.
+   */
+  contactSheet?: string | null;
 }
 
 export interface RunCheckOptions {
@@ -523,6 +531,15 @@ export async function check(parsed: Parsed): Promise<number> {
     backlogNote = `backlog: ${merged.added} added, ${merged.reopened} reopened, ${merged.refreshed} refreshed`;
   }
 
+  // One image showing everything judged, with the tiles that carry findings
+  // marked. A session driving lookout should be able to see what lookout saw
+  // without spending more of its context on screenshots than on the findings.
+  const findingsByShot = new Map<string, number>();
+  for (const f of outcome.findings) {
+    findingsByShot.set(f.shotId, (findingsByShot.get(f.shotId) ?? 0) + 1);
+  }
+  const sheet = await runContactSheet(resolved, [...shotsById.values()], findingsByShot);
+  outcome.contactSheet = sheet?.path ?? null;
 
   if (parsed.flags.json) {
     printJson(outcome);
@@ -545,6 +562,7 @@ export async function check(parsed: Parsed): Promise<number> {
     }
     console.log(`\nreport: ${outcome.reportPath}`);
     if (backlogNote) console.log(backlogNote);
+    if (sheet) console.log(`\n${sheetNote(sheet)}`);
   }
   emit("run-end", `${outcome.findings.length} finding(s); ~$${outcome.costUsd}`, {
     findings: outcome.findings.length,
