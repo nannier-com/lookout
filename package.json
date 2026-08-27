@@ -36,7 +36,7 @@
   },
   "files": [
     "dist",
-    "rubric",
+    "skills",
     "CHANGELOG.md"
   ],
   "publishConfig": {

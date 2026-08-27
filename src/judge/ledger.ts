@@ -11,7 +11,7 @@
  * makes a scoped re-check trustworthy.
  *
  * A group is one target + platform + route + state, across every form factor
- * and scheme. Its key is `<groupHash>@r<version>@<model>`, where groupHash
+ * and scheme. Its key is `<groupHash>@v<version>@<model>`, where groupHash
  * covers every member's pixel hash, so any member changing re-judges the whole
  * group.
  *
@@ -41,9 +41,9 @@ export interface Ledger {
 }
 
 const NOTE =
-  "lookout judge cache. Key = <viewGroupHash>@r<rubricVersion>@<model>, where a view group is one " +
+  "lookout judge cache. Key = <viewGroupHash>@v<judgeSkillVersion>@<model>, where a view group is one " +
   "target+platform+route+state across every form factor and scheme, so comparative findings never " +
-  "cache apart. Delete entries (or bump the rubric version) to force fresh judging.";
+  "cache apart. Delete entries (or bump the visual-judge skill version) to force fresh judging.";
 
 export function ledgerPath(resolved: ResolvedConfig): string {
   return join(lookoutDir(resolved), "ledger.json");
@@ -61,8 +61,8 @@ export function groupHash(shots: ShotRecord[]): string {
   return sha256(new TextEncoder().encode(parts));
 }
 
-export function ledgerKey(hash: string, rubricVersion: number, model: string): string {
-  return `${hash}@r${rubricVersion}@${model}`;
+export function ledgerKey(hash: string, skillVersion: number, model: string): string {
+  return `${hash}@v${skillVersion}@${model}`;
 }
 
 export async function loadLedger(resolved: ResolvedConfig): Promise<Ledger> {
@@ -92,13 +92,13 @@ export async function saveLedger(resolved: ResolvedConfig, ledger: Ledger): Prom
 export function recordVerdicts(
   ledger: Ledger,
   runId: string,
-  rubricVersion: number,
+  skillVersion: number,
   model: string,
   judged: { shots: ShotRecord[]; findings: AiFinding[] }[],
 ): void {
   for (const { shots, findings } of judged) {
     if (shots.length === 0) continue;
-    ledger.entries[ledgerKey(groupHash(shots), rubricVersion, model)] = {
+    ledger.entries[ledgerKey(groupHash(shots), skillVersion, model)] = {
       verdict: findings.length === 0 ? "clean" : "findings",
       ...(findings.length > 0 ? { findings } : {}),
       shotIds: shots.map((s) => s.id).sort(),

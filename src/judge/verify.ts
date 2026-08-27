@@ -7,6 +7,7 @@
  * die under verification.
  */
 import type { ShotRecord } from "../types.js";
+import { renderSkill } from "../skills/load.js";
 import { extractJson, invokeClaude, type AiFinding } from "./engine.js";
 
 export interface VerifiedFinding extends AiFinding {
@@ -21,6 +22,7 @@ export interface VerifyResult {
 }
 
 export async function verifyFindings(
+  skillText: string,
   findings: AiFinding[],
   shotsById: Map<string, ShotRecord>,
   evidenceDir: string,
@@ -46,26 +48,7 @@ export async function verifyFindings(
     ].join("\n");
   });
 
-  const prompt = [
-    "You are lookout's adversarial verifier. Another judge filed the findings below",
-    "against these screenshots. Your mandate is to try to REFUTE each one: re-read",
-    "the screenshot with the Read tool and check whether the claimed defect is",
-    "actually visible as described. A finding is refuted when the evidence does not",
-    "show it, it misreads intended design (demo data, deliberate responsive",
-    "collapse, reduced-motion stills), or the claim exaggerates a sub-pixel or",
-    "rendering artifact. When the defect is plainly visible, confirm it and sharpen",
-    "the description if you can. When uncertain, lean refuted: a false defect is",
-    "worse than a missed nitpick.",
-    "",
-    "=== FINDINGS ===",
-    lines.join("\n"),
-    "=== END FINDINGS ===",
-    "",
-    "Reply with ONLY a fenced json block:",
-    "```json",
-    '{ "verdicts": [ { "index": 0, "verdict": "confirmed" | "refuted", "note": "<one line>" } ] }',
-    "```",
-  ].join("\n");
+  const prompt = renderSkill(skillText, { findings: lines.join("\n") });
 
   const res = await invokeClaude({ prompt, cwd: evidenceDir, model });
   let verdicts: { index: number; verdict: string; note?: string }[] = [];

@@ -1,8 +1,17 @@
 // The judge only compares against a hand-off if the manifest actually carries
-// it, so the prompt wiring is worth pinning.
+// it, so the prompt wiring is worth pinning. Composed from the shipped
+// visual-judge skill rather than a stand-in string: the instruction to read the
+// hand-off lives in that file now, and a test that passed its own text would
+// pass whatever the file said.
 import { describe, expect, test } from "bun:test";
 import { buildJudgePrompt } from "../src/judge/engine.js";
+import { loadRubric } from "../src/judge/rubric.js";
+import { tmpProject } from "./tmp-project.js";
 import type { ShotRecord } from "../src/types.js";
+
+const project = () => tmpProject("lookout-judge-prompt-");
+
+const rubric = await loadRubric(project());
 
 const base: Omit<ShotRecord, "id" | "route" | "routeName" | "path"> = {
   target: "app",
@@ -25,7 +34,7 @@ describe("buildJudgePrompt", () => {
     { ...base, id: "with", route: "/a", routeName: "/a", path: "a.png", design: "/mocks/a.png" },
     { ...base, id: "without", route: "/b", routeName: "/b", path: "b.png" },
   ];
-  const prompt = buildJudgePrompt("RUBRIC", "proj", shots, "/ev");
+  const prompt = buildJudgePrompt(rubric.text, "proj", shots, "/ev");
 
   test("lists a shot's design hand-off", () => {
     expect(prompt).toContain("design: /mocks/a.png");
@@ -38,5 +47,14 @@ describe("buildJudgePrompt", () => {
   test("adds no design line to a shot without one", () => {
     const withoutBlock = prompt.slice(prompt.indexOf("shotId: without"));
     expect(withoutBlock).not.toContain("design:");
+  });
+
+  test("carries the rubric the judge is asked to apply", () => {
+    expect(prompt).toContain("## Category vocabulary");
+    expect(prompt).toContain("## Output contract");
+  });
+
+  test("names the project it is judging", () => {
+    expect(prompt).toContain('the project "proj"');
   });
 });

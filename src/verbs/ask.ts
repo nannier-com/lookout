@@ -10,6 +10,7 @@
  */
 import { evidenceDir } from "../config.js";
 import { invokeClaude } from "../judge/engine.js";
+import { loadSkill, renderSkill } from "../skills/load.js";
 import { LookoutError } from "../types.js";
 import { printJson, str, type Parsed } from "../util.js";
 import { runCapture } from "./capture.js";
@@ -44,23 +45,13 @@ export async function ask(parsed: Parsed): Promise<number> {
     )
     .join("\n");
 
-  const prompt = [
-    `You are lookout's fact-checker for the project "${resolved.project}".`,
-    `Answer the question below using ONLY what the listed screenshots show.`,
-    `Read each screenshot with the Read tool before answering. Do not read other files.`,
-    ``,
-    `QUESTION: ${question}`,
-    ``,
-    `=== SHOTS (${shots.length}) ===`,
+  const skill = await loadSkill(resolved, "fact-check");
+  const prompt = renderSkill(skill.text, {
+    project: resolved.project,
+    question,
+    shotCount: shots.length,
     manifest,
-    `=== END SHOTS ===`,
-    ``,
-    `Answer format: a direct answer first (yes / no / a number / a description),`,
-    `then the evidence: which shotIds show it and what you see in them. If the`,
-    `evidence cannot answer the question (wrong route, missing state, needs`,
-    `interaction), say exactly that and name what capture would be needed.`,
-    `State your confidence (high / medium / low) on the last line.`,
-  ].join("\n");
+  });
 
   const model = str(parsed.flags.model) ?? "sonnet";
   const res = await invokeClaude({ prompt, cwd: evDir, model });

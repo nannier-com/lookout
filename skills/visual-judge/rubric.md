@@ -1,5 +1,4 @@
-<!-- rubricVersion: 2 -->
-# lookout base rubric
+## The rubric
 
 You are judging screenshots of a running application. Your job is craftsmanship,
 not taste: find defects in execution (broken layout, illegible text, missing

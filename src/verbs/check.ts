@@ -13,6 +13,7 @@ import { loadConfig, evidenceDir } from "../config.js";
 import { loadReport } from "../capture/store.js";
 import { batchShots, groupShots, judgeBatch, type AiFinding } from "../judge/engine.js";
 import { loadRubric } from "../judge/rubric.js";
+import { loadSkill } from "../skills/load.js";
 import { groupHash, ledgerKey, loadLedger, recordVerdicts, saveLedger } from "../judge/ledger.js";
 import { verifyFindings, type VerifiedFinding } from "../judge/verify.js";
 import { LookoutError, type ResolvedConfig, type Severity, type ShotRecord } from "../types.js";
@@ -98,8 +99,10 @@ export async function runCheck(
   if (shots.length === 0) throw new LookoutError("no shots match the given --targets/--routes");
   const shotsById = new Map(shots.map((s) => [s.id, s]));
 
-  // 3. Rubric + cache partition.
+  // 3. Skills + cache partition. Both AI passes are loaded once per run: a
+  // skill amended mid-run would judge two batches by two different rules.
   const rubric = await loadRubric(resolved);
+  const refute = await loadSkill(resolved, "refute-finding");
   const model = str(parsed.flags.model) ?? "sonnet";
   const ledger = await loadLedger(resolved);
   const toJudge: ShotRecord[] = [];
@@ -138,7 +141,7 @@ export async function runCheck(
   const concurrency = num(parsed.flags.concurrency) ?? 2;
   log(
     `judging ${toJudge.length} shot(s) in ${batches.length} batch(es) with model ${model} ` +
-      `(${cached} cached under rubric v${rubric.version})`,
+      `(${cached} cached under judge skill v${rubric.version})`,
   );
   emit("judge-start", `judging ${toJudge.length} shot(s) in ${batches.length} batch(es)`, {
     shots: toJudge.length,
@@ -178,7 +181,7 @@ export async function runCheck(
       if (parsed.flags["no-verify"] || res.findings.length === 0) {
         batchFindings = res.findings.map((f) => ({ ...f, verified: false }));
       } else {
-        const v = await verifyFindings(res.findings, shotsById, evDir, model);
+        const v = await verifyFindings(refute.text, res.findings, shotsById, evDir, model);
         batchFindings = v.confirmed;
         refuted.push(...v.refuted);
         costUsd += v.costUsd ?? 0;

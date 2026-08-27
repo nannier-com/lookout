@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { evidenceDir } from "../config.js";
 import { loadReport } from "../capture/store.js";
 import { verifyCriteria } from "../judge/criteria.js";
+import { loadSkill } from "../skills/load.js";
 import { LookoutError } from "../types.js";
 import { nowIso, printJson, str, type Parsed } from "../util.js";
 import { runCapture } from "./capture.js";
@@ -37,7 +38,15 @@ export async function verify(parsed: Parsed): Promise<number> {
 
   const evDir = evidenceDir(resolved);
   const model = str(parsed.flags.model) ?? "sonnet";
-  const result = await verifyCriteria(resolved.project, criteriaText, shots, evDir, model);
+  const skill = await loadSkill(resolved, "verify-acceptance");
+  const result = await verifyCriteria(
+    skill.text,
+    resolved.project,
+    criteriaText,
+    shots,
+    evDir,
+    model,
+  );
 
   const failed = result.criteria.filter((c) => c.verdict === "fail");
   const unverifiable = result.criteria.filter((c) => c.verdict === "not-verifiable");

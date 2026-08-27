@@ -181,10 +181,10 @@ const config: LookoutConfig = {
     },
   },
 
-  // Project judging rules, layered onto rubric/BASE.md in every judge prompt.
-  // The extension can carry its own `rubricVersion: N` header; the higher of
-  // base and extension versions keys the ledger cache, so bumping either
-  // forces fresh judging.
+  // Project judging rules, layered into the visual-judge skill in every judge
+  // prompt. The extension can carry its own `rubricVersion: N` header; the
+  // higher of skill and extension versions keys the ledger cache, so bumping
+  // either forces fresh judging.
   rubric: "./rubric.md",
 
   // One-line suppressions for things the base rubric would flag but this
@@ -205,13 +205,32 @@ const config: LookoutConfig = {
 export default config;
 ```
 
-### What the judge reads
+### Skills: where lookout's AI behaviour lives
 
-Every judge prompt is assembled from `rubric/BASE.md` (severity ladder, the
-closed category vocabulary, the judging procedure, the universal never-file
-list), then the project's `rubric` file, then its `neverFile` lines. Findings
-outside the category vocabulary are rejected at ingestion, so project
+Every AI capability is an instruction file, not a string in the binary. They
+ship in the standard Agent Skill layout, one directory each:
+
+```
+skills/
+  visual-judge/       SKILL.md + rubric.md: what counts as a defect, and how to file it
+  refute-finding/     SKILL.md: the adversarial pass that kills false findings
+  verify-acceptance/  SKILL.md: ruling on a ticket's criteria from evidence alone
+  fact-check/         SKILL.md: answering one question from screenshots
+```
+
+A skill carries the whole prompt shape, placeholders and all. lookout supplies
+only data: the shot manifest, the paths, the question. Each declares
+`{{amendments}}`, the slot where a project's own layer lands.
+
+Every judge prompt is therefore assembled from the `visual-judge` skill
+(severity ladder, the closed category vocabulary, the judging procedure, the
+universal never-file list), then this project's `.lookout/skills/visual-judge/`
+layer if it has one, then its `rubric` file, then its `neverFile` lines.
+Findings outside the category vocabulary are rejected at ingestion, so project
 extensions refine judgment; they cannot invent new taxonomies.
+
+The composed `version` of the judge skill keys the ledger, so amending a skill
+invalidates exactly the cached verdicts it could have changed.
 
 ### Where things land
 
@@ -221,6 +240,7 @@ extensions refine judgment; they cannot invent new taxonomies.
   backlog.json     committed: adjudicated findings (managed via `lookout backlog`)
   BACKLOG.md       committed: generated report (regen via `lookout backlog regen`)
   ledger.json      committed if you want cross-machine judge caching
+  skills/          committed: this project's layer over lookout's shipped skills
   evidence/        gitignored: screenshots + capture-report.json + judge-report.json
 ```
 

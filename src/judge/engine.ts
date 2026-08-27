@@ -9,6 +9,7 @@
  */
 import { execFile } from "node:child_process";
 import { LookoutError, type Severity, type ShotRecord } from "../types.js";
+import { renderSkill } from "../skills/load.js";
 import { CATEGORIES, SEVERITIES, type Category } from "./rubric.js";
 
 export interface JudgeInvocation {
@@ -116,8 +117,14 @@ export function extractJson(text: string): unknown {
   return JSON.parse(candidate.slice(start, end + 1));
 }
 
+/**
+ * The judge prompt: the visual-judge skill, filled with this batch's data.
+ *
+ * Everything the model is told to think lives in the skill file; everything
+ * here is fact about the evidence.
+ */
 export function buildJudgePrompt(
-  rubricText: string,
+  skillText: string,
   project: string,
   shots: ShotRecord[],
   evidenceDir: string,
@@ -129,37 +136,21 @@ export function buildJudgePrompt(
         (s.design ? `\n  design: ${s.design}` : ""),
     )
     .join("\n");
-  return [
-    `You are lookout's visual judge for the project "${project}".`,
-    `Read each screenshot listed below with the Read tool, then judge them ALL against the rubric.`,
-    `A shot with a \`design:\` line also has a design hand-off image: read that too and compare them`,
-    `one to one, per the hand-off section of the rubric.`,
-    `Read only these screenshots and design images. You cannot and must not edit anything.`,
-    ``,
-    `=== RUBRIC ===`,
-    rubricText,
-    `=== END RUBRIC ===`,
-    ``,
-    `=== SHOTS (${shots.length}) ===`,
-    manifest,
-    `=== END SHOTS ===`,
-    ``,
-    `Now reply with ONLY the fenced json block per the output contract.`,
-  ].join("\n");
+  return renderSkill(skillText, { project, shotCount: shots.length, manifest });
 }
 
 const RETRY_SUFFIX =
   "\n\nYour previous reply could not be parsed. Reply with NOTHING but the fenced ```json block.";
 
 export async function judgeBatch(
-  rubricText: string,
+  skillText: string,
   project: string,
   shots: ShotRecord[],
   evidenceDir: string,
   model: string,
 ): Promise<JudgeBatchResult> {
   const started = Date.now();
-  const prompt = buildJudgePrompt(rubricText, project, shots, evidenceDir);
+  const prompt = buildJudgePrompt(skillText, project, shots, evidenceDir);
 
   let text = "";
   let costUsd: number | undefined;

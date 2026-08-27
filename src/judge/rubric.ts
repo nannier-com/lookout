@@ -1,13 +1,18 @@
 /**
- * Rubric assembly: the base rubric shipped with lookout, plus the project's
- * extension file and never-file lines from config. rubricVersion (parsed from
- * the base header, bumped by the project extension's own header when higher)
- * keys the judge cache: bump it to force fresh eyes on everything.
+ * Rubric assembly: the visual-judge skill (which carries the base rubric and
+ * whatever the project's own layer has amended into it), plus the hand-written
+ * extension file and never-file lines from config. The composed version keys
+ * the judge cache: bump it to force fresh eyes on everything.
+ *
+ * The base rubric moved into `skills/visual-judge/rubric.md` when every AI
+ * capability became a skill. This module stays because the judge has config
+ * nothing else has (`config.rubric`, `config.neverFile`), and that belongs next
+ * to the judge rather than in the generic loader.
  */
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fillPlaceholders, loadSkill } from "../skills/load.js";
 import { LookoutError, type ResolvedConfig } from "../types.js";
 
 export interface Rubric {
@@ -43,11 +48,12 @@ function parseVersion(text: string, source: string): number {
 }
 
 export async function loadRubric(resolved: ResolvedConfig): Promise<Rubric> {
-  const basePath = fileURLToPath(new URL("../../rubric/BASE.md", import.meta.url));
-  const base = await readFile(basePath, "utf8");
-  let version = parseVersion(base, "rubric/BASE.md");
-  let text = base;
+  const skill = await loadSkill(resolved, "visual-judge");
+  let version = skill.version;
+  let extensions = "";
 
+  // Hand-written project rules come after anything lookout learned on its own:
+  // where the two disagree, the rule a person wrote is the one that stands.
   const { config, configPath } = resolved;
   if (config.rubric) {
     if (!configPath) {
@@ -60,19 +66,19 @@ export async function loadRubric(resolved: ResolvedConfig): Promise<Rubric> {
       throw new LookoutError(`project rubric not found: ${extPath}`);
     }
     const ext = await readFile(extPath, "utf8");
-    const extVersion = ext.match(/rubricVersion:\s*(\d+)/)
-      ? parseVersion(ext, extPath)
-      : 0;
+    const extVersion = ext.match(/rubricVersion:\s*(\d+)/) ? parseVersion(ext, extPath) : 0;
     version = Math.max(version, extVersion);
-    text += `\n\n# Project extension (${resolved.project})\n\n${ext}\n`;
+    extensions += `\n\n# Project extension (${resolved.project})\n\n${ext}\n`;
   }
 
   if (config.neverFile && config.neverFile.length > 0) {
-    text +=
+    extensions +=
       `\n\n## Additional never-file rules for ${resolved.project}\n\n` +
       config.neverFile.map((l) => `- ${l}`).join("\n") +
       "\n";
   }
 
-  return { text, version };
+  // The skill says where project rules belong; filling it here keeps them in
+  // the rubric rather than trailing the shot manifest.
+  return { text: fillPlaceholders(skill.text, { extensions }), version };
 }

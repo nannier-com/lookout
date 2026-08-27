@@ -4,9 +4,14 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { batchShots, extractJson, groupShots, judgeBatch, viewGroupId } from "../src/judge/engine.js";
 import { groupHash, ledgerKey } from "../src/judge/ledger.js";
+import { loadRubric } from "../src/judge/rubric.js";
+import { tmpProject } from "./tmp-project.js";
 import type { ShotRecord } from "../src/types.js";
 
 const MOCK = join(import.meta.dir, "mock-claude.ts");
+
+// The real composed prompt: the mock reads the manifest out of it.
+const rubric = await loadRubric(tmpProject("lookout-judge-"));
 
 function shot(id: string, over: Partial<ShotRecord> = {}): ShotRecord {
   const [platform, target, routeSlug, state, formFactor, scheme] = id.split("/");
@@ -98,7 +103,7 @@ describe("judgeBatch through the mock binary", () => {
     process.env.LOOKOUT_CLAUDE_BIN = MOCK;
     process.env.MOCK_MODE = "judge";
     const shots = [shot("web/app/x/rest/desktop/dark"), shot("web/app/x/rest/phone/dark")];
-    const res = await judgeBatch("RUBRIC", "proj", shots, "/tmp", "sonnet");
+    const res = await judgeBatch(rubric.text, "proj", shots, "/tmp", "sonnet");
     expect(res.findings.length).toBe(1);
     expect(res.findings[0]!.category).toBe("contrast");
     expect(res.rejected.length).toBe(1);
@@ -112,7 +117,7 @@ describe("judgeBatch through the mock binary", () => {
     process.env.LOOKOUT_CLAUDE_BIN = MOCK;
     process.env.MOCK_MODE = "prose";
     const shots = [shot("web/app/y/rest/desktop/dark")];
-    const res = await judgeBatch("RUBRIC", "proj", shots, "/tmp", "sonnet");
+    const res = await judgeBatch(rubric.text, "proj", shots, "/tmp", "sonnet");
     expect(res.findings.length).toBe(0);
     expect(res.cleanShotIds).toEqual(["web/app/y/rest/desktop/dark"]);
     delete process.env.LOOKOUT_CLAUDE_BIN;
@@ -120,8 +125,8 @@ describe("judgeBatch through the mock binary", () => {
 });
 
 describe("ledger", () => {
-  test("key includes hash, rubric version, and model", () => {
-    expect(ledgerKey("abc", 3, "sonnet")).toBe("abc@r3@sonnet");
+  test("key includes hash, judge skill version, and model", () => {
+    expect(ledgerKey("abc", 3, "sonnet")).toBe("abc@v3@sonnet");
   });
 
   test("group hash is order-independent", () => {
