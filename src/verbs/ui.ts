@@ -7,7 +7,7 @@
  * over the top only to say what is happening this second.
  *
  * Every card owns its evidence: the screenshots the defect was filed against,
- * a contact sheet showing them together, and every path in absolute form,
+ * the screenshots that prove them, and every path in absolute form,
  * because the point of the page is to hand an issue to somebody who then has to
  * go and open those files.
  *

@@ -23,15 +23,19 @@ export const WHAT_LOOKOUT_IS = [
   "says WHAT is wrong and, when asked, WHETHER it is still wrong.",
 ].join("\n");
 
+/**
+ * One rule per entry. They used to be one PHYSICAL LINE per entry, which the
+ * renderer then bulleted individually, so every wrapped rule came out as two
+ * bullets saying half a thing each.
+ */
 export const RULES = [
-  "Never claim a visual defect is fixed on your own say-so. `lookout verify-fix`",
-  "  is the only thing that closes a finding.",
+  "Never claim a visual defect is fixed on your own say-so. `lookout verify-fix`\n" +
+    "  is the only thing that closes a finding.",
   "Never let the session that made a change be the session that rules on it.",
-  "Never edit anything under `.lookout/`. The backlog and the issue folders",
-  "  are lookout's to write;",
-  "  adjudicate through `lookout backlog set`.",
-  "Never judge without looking. Every issue names the screenshots it was filed",
-  "  against, and a contact sheet that shows them all in one image.",
+  "Never edit anything under `.lookout/`. The backlog and the issue folders are\n" +
+    "  lookout's to write; adjudicate through `lookout backlog set`.",
+  "Never judge without looking. Every issue names the screenshots it was filed\n" +
+    "  against, and keeps a copy of them in its own folder.",
   "Localhost only, unless the user explicitly passes --allow-remote.",
 ];
 
@@ -70,6 +74,11 @@ export function protocolText(): string {
     "  recheck/        what the last verify-fix saw afterwards",
     "  state.json      every attempt, and how each one was ruled",
     "```",
+    "",
+    "Every issue also carries acceptance criteria: what would prove it fixed,",
+    "written to be decidable from a screenshot of the same view. They are in",
+    "the document you are handed, so you know what you will be graded against.",
+    "Only lookout ticks them, and only `verify-fix` does it.",
     "",
     "The backlog under `.lookout/` is the durable record and the issue folders",
     "are written from it. `lookout ui` is built from the backlog rather than",
