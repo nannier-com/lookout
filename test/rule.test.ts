@@ -4,7 +4,7 @@
 import { describe, expect, test } from "bun:test";
 import { ruleVerdict } from "../src/fix/rule.js";
 
-const base = { attempt: 1, maxAttempts: 2, changedShots: 3, stillOpen: 0 };
+const base = { attempt: 1, maxAttempts: 2, changedShots: 3, stillOpen: 0, unmetCriteria: 0 };
 
 describe("ruleVerdict", () => {
   test("a real fix passes", () => {
@@ -21,12 +21,23 @@ describe("ruleVerdict", () => {
     expect(ruleVerdict(base)).toBe("passed");
   });
 
+  test("an acceptance criterion the evidence disproves sends it back", () => {
+    expect(ruleVerdict({ ...base, unmetCriteria: 1 })).toBe("still-open");
+    expect(ruleVerdict({ ...base, attempt: 2, unmetCriteria: 1 })).toBe("blocked");
+  });
+
+  test("a criterion the pixels cannot decide does not block a pass", () => {
+    // not-verifiable never reaches this input: counting it would make an issue
+    // whose criterion is undecidable impossible to close.
+    expect(ruleVerdict({ ...base, unmetCriteria: 0 })).toBe("passed");
+  });
+
   test("nothing passes on unchanged pixels, however clean the judge came back", () => {
     // The judge is not deterministic. If no screenshot moved, an empty finding
     // list means it read the same image differently today, not that anything
     // was fixed. Passing here would let variance alone close real defects.
     expect(ruleVerdict({ ...base, changedShots: 0 })).toBe("still-open");
-    expect(ruleVerdict({ ...base, changedShots: 0, stillOpen: 0 })).toBe("still-open");
+    expect(ruleVerdict({ ...base, changedShots: 0, stillOpen: 0, unmetCriteria: 0 })).toBe("still-open");
   });
 
   test("unchanged pixels on the last attempt block rather than pass", () => {

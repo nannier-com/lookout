@@ -60,6 +60,7 @@ export interface IssueDocument {
   defects: { attribute: string; severity: string; title: string; problem: string }[];
   fingerprints: string[];
   shots: IssueShot[];
+  acceptance: IssueRecord["acceptance"];
   attemptsSpent: number;
   createdAt: string;
   causedBy?: IssueRecord["causedBy"];
@@ -149,13 +150,14 @@ export async function materializeIssue(
     defects: cluster.defects,
     fingerprints: cluster.fingerprints,
     shots,
+    acceptance: record.acceptance ?? [],
     attemptsSpent: cluster.attemptsSpent,
     createdAt: record.createdAt,
     ...(record.causedBy ? { causedBy: record.causedBy } : {}),
   };
   await writeAtomic(join(dir, "issue.json"), JSON.stringify(doc, null, 2));
 
-  const { markdown } = await renderIssueDocument(resolved, cluster);
+  const { markdown } = await renderIssueDocument(resolved, cluster, record);
   await writeAtomic(join(dir, "ISSUE.md"), markdown);
   return dir;
 }

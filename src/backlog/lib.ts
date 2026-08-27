@@ -21,6 +21,7 @@ import { CATEGORIES, type Category } from "../judge/rubric.js";
 import { routeSlug } from "../capture/store.js";
 import { clusterKeyOf } from "../fix/cluster.js";
 import { isIssueId } from "../issues/id.js";
+import type { AcceptanceCriterion } from "../issues/acceptance.js";
 
 export type FindingStatus = "open" | "fixed" | "by-design" | "blocked";
 export type Channel = "ai" | "deterministic" | "code";
@@ -53,6 +54,11 @@ export interface BacklogFinding {
   channel: Channel;
   confidence: "high" | "medium" | "low";
   verified: boolean;
+  /**
+   * What the judge said would prove this defect gone. Deterministic findings
+   * derive theirs instead, so this is empty for them.
+   */
+  acceptance?: string[];
   evidence: EvidenceRef[];
   firstSeen: string; // runId
   lastSeen: string; // runId
@@ -83,6 +89,12 @@ export interface IssueRecord {
    * not blame: the issue that caused it is not reopened or marked regressed.
    */
   causedBy?: { issue: string; commit: string | null; runId: string; at: string };
+  /**
+   * What would prove this issue fixed. Composed from its findings when the
+   * issue is reconciled, and ruled only by `verify-fix`: there is no path by
+   * which a person ticks one of these.
+   */
+  acceptance?: AcceptanceCriterion[];
 }
 
 export interface Backlog {
@@ -222,6 +234,7 @@ export function aiToFindings(
       channel: "ai",
       confidence: f.confidence,
       verified: !!f.verified,
+      acceptance: f.acceptance ?? [],
       evidence: [{ shotId: shot.id, path: shot.path, hash: shot.hash, runId: shot.runId }],
     });
   }
@@ -330,7 +343,8 @@ export interface CheckProblem {
     | "stale-md"
     | "drift-resolved"
     | "issue-missing"
-    | "issue-schema";
+    | "issue-schema"
+    | "acceptance-missing";
   fingerprint?: string;
   message: string;
 }
@@ -371,6 +385,15 @@ export function checkBacklog(
       problems.push({
         kind: "issue-schema",
         message: `two issues claim the root cause "${record.key}"`,
+      });
+    }
+    // An issue nobody can test is an issue nobody can close. Same standing as
+    // the mandatory reason on a by-design finding: the record has to say what
+    // would settle it.
+    if (!record.acceptance || record.acceptance.length === 0) {
+      problems.push({
+        kind: "acceptance-missing",
+        message: `issue ${record.id} has no acceptance criteria; run \`lookout backlog regen\``,
       });
     }
     keysWithIds.add(record.key);

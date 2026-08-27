@@ -23,6 +23,7 @@ import { evidenceDir } from "../config.js";
 import { issueDir } from "../issues/paths.js";
 import type { FixCluster } from "../fix/cluster.js";
 import { issuesOf } from "../issues/registry.js";
+import type { AcceptanceCriterion } from "../issues/acceptance.js";
 import { clusterLabel } from "../fix/brief.js";
 import { loadState, type ClusterState } from "../fix/state.js";
 import { loadBacklog } from "../verbs/backlog.js";
@@ -110,6 +111,11 @@ export interface BoardEntry {
   status: IssueStatus;
   /** Everything lookout has recorded about it, oldest first. */
   timeline: BoardStep[];
+  /**
+   * What would prove this issue fixed, and where each one stands. Only lookout
+   * writes these verdicts; the page renders them read-only.
+   */
+  acceptance: AcceptanceCriterion[];
   /** Attempts spent asking lookout to rule on a claimed fix. */
   attempt: number;
   verdict: string | null;
@@ -305,6 +311,7 @@ export async function buildBoard(
         lastSeenAt: seen,
         status: durableStatus(c, state),
         timeline: durableTimeline(state, seen),
+        acceptance: backlog.issues?.[c.id]?.acceptance ?? [],
         attempt: c.attemptsSpent,
         verdict: lastAttempt?.verdict ?? null,
         judgeNote: lastAttempt?.judgeNote ?? null,

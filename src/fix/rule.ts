@@ -7,7 +7,9 @@
  * deterministic. So every decision here turns on whether the evidence actually
  * moved, not on how the judge phrased itself today.
  *
- * It rules on ONE question: is this issue's own defect gone. A fix that clears
+ * It rules on ONE question: is this issue's own defect gone, which is asked two
+ * ways. The findings have to be absent from the fresh evidence, and the issue's
+ * acceptance criteria have to hold when something looks at them independently. A fix that clears
  * the defect and causes a different one somewhere else is not a failure of this
  * issue, and used to be recorded as one: the verdict came back `regressed`, the
  * findings stayed open, and every member burned an attempt, so two rounds of it
@@ -26,6 +28,12 @@ export interface RuleInput {
   changedShots: number;
   /** Findings still filed against this issue. */
   stillOpen: number;
+  /**
+   * Acceptance criteria ruled `unmet` on the fresh evidence. A criterion the
+   * pixels cannot decide is `not-verifiable` and is not counted here: it would
+   * otherwise make an issue permanently unclosable.
+   */
+  unmetCriteria: number;
 }
 
 export function ruleVerdict(i: RuleInput): Verdict {
@@ -38,6 +46,6 @@ export function ruleVerdict(i: RuleInput): Verdict {
   // an oracle must not have.
   if (i.changedShots === 0) return exhausted ? "blocked" : "still-open";
 
-  if (i.stillOpen === 0) return "passed";
+  if (i.stillOpen === 0 && i.unmetCriteria === 0) return "passed";
   return exhausted ? "blocked" : "still-open";
 }

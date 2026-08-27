@@ -607,6 +607,27 @@ animation:blink 1.1s step-end infinite}
 word-break:break-all;user-select:all}
 .paths div{padding:1px 0}
 
+/* --- acceptance criteria -------------------------------------------------
+   Deliberately NOT <input type="checkbox">. These are lookout's verdicts, and
+   a form control invites a viewer to change one and reads to assistive tech as
+   something they can. There is no endpoint behind them either: the server has
+   no route that writes issue state. */
+.accept{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px}
+.crit{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;line-height:1.45}
+.box{flex:0 0 auto;width:14px;height:14px;margin-top:1px;border-radius:4px;
+border:1.5px solid var(--line);display:flex;align-items:center;justify-content:center;
+font:9px/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--faint);background:var(--sunk)}
+.crit.met .box{border-color:var(--ok);color:var(--ok)}
+.crit.unmet .box{border-color:var(--crit);color:var(--crit)}
+.crit.met .ct{color:var(--dim)}
+.crit.unmet .ct{color:var(--ink)}
+.crit.pending .ct{color:var(--dim)}
+.crit.notverifiable .ct{color:var(--faint)}
+.ct{min-width:0;word-break:break-word}
+.cnote{display:block;font-size:11.5px;color:var(--faint);margin-top:2px}
+.sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+clip:rect(0 0 0 0);white-space:nowrap;border:0}
+
 /* --- a defect inside an issue ------------------------------------------ */
 .defect{border-left:2px solid var(--line);padding:2px 0 2px 10px;margin-bottom:9px}
 .defect:last-child{margin-bottom:0}
@@ -805,6 +826,31 @@ function defects(b){
     + '</h4>' + rows + '</div>';
 }
 
+// What would prove this issue fixed, and where each one stands.
+//
+// lookout writes these verdicts and nothing else does, so they are rendered as
+// marks rather than as checkboxes: there is nothing here for a viewer to
+// toggle, and no request they could send that would change one.
+function acceptance(b){
+  const list = b.acceptance || [];
+  if (!list.length) return "";
+  const state = v => v === "met" ? "met" : v === "unmet" ? "unmet"
+    : v === "not-verifiable" ? "notverifiable" : "pending";
+  const mark = v => v === "met" ? "\u2713" : v === "unmet" ? "\u2717"
+    : v === "not-verifiable" ? "\u2013" : "";
+  const said = v => v === "met" ? "Met." : v === "unmet" ? "Not met."
+    : v === "not-verifiable" ? "Not verifiable from the evidence." : "Not checked yet.";
+  const met = list.filter(c => c.verdict === "met").length;
+  const rows = list.map(c =>
+    '<li class="crit ' + state(c.verdict) + '">'
+    + '<span class="box" aria-hidden="true">' + mark(c.verdict) + '</span>'
+    + '<span class="ct"><span class="sr">' + said(c.verdict) + ' </span>' + esc(c.text)
+    + (c.note && c.verdict !== "met" ? '<span class="cnote">' + esc(c.note) + '</span>' : '')
+    + '</span></li>').join("");
+  return '<div class="evi"><h4>Acceptance <span class="n">' + met + ' of ' + list.length
+    + ' met</span></h4><ul class="accept" role="list">' + rows + '</ul></div>';
+}
+
 function whatLine(b){
   if (b.status === "verifying") return '<div class="what">lookout is re-judging this now.</div>';
   const n = b.attempt ? ' after ' + esc(b.attempt) + (b.attempt === 1 ? ' attempt' : ' attempts') : '';
@@ -843,6 +889,7 @@ function card(b){
     + '<div class="meta"><span class="chip sev ' + esc(b.severity) + '">' + esc(b.severity) + '</span>'
     + '<span class="chip">' + esc(b.category) + '</span>' + routes + attempt + '</div>'
     + defects(b)
+    + acceptance(b)
     + strip("Where lookout saw it", b.shots)
     + strip("What verify-fix saw afterwards", b.recheck)
     + judge + feed(b) + paths(b)
@@ -990,8 +1037,12 @@ async function tick(){
         ? allIssues.length + " on record"
         : issues.length + " of " + allIssues.length)
     : "";
+  // Acceptance verdicts are part of the signature: a verify-fix that ticks a
+  // criterion without changing anything else is exactly the moment the card
+  // has to repaint, and leaving them out left it showing the old marks.
   const sig = JSON.stringify([filter, issues.map(b => [b.id, b.status, b.attempt, b.verdict,
-    b.shots.length, b.recheck.length, b.lastSeenAt, (b.timeline || []).length])]);
+    b.shots.length, b.recheck.length, b.lastSeenAt, (b.timeline || []).length,
+    (b.acceptance || []).map(c => c.id + c.verdict).join()])]);
   const feedTops = {};
   for (const f of document.querySelectorAll("[data-feed]")) feedTops[f.dataset.feed] = f.scrollTop;
   const rebuilt = paint("board", sig, issues.length

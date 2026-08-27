@@ -19,6 +19,7 @@ import type { FixCluster } from "../fix/cluster.js";
 import { allRuleFiles } from "../fix/rules.js";
 import { clusterLabel } from "../fix/brief.js";
 import { have } from "../util.js";
+import type { IssueRecord } from "../backlog/lib.js";
 import type { ResolvedConfig } from "../types.js";
 
 /**
@@ -47,6 +48,7 @@ async function invocation(): Promise<string> {
 export async function renderIssueDocument(
   resolved: ResolvedConfig,
   cluster: FixCluster,
+  record?: Pick<IssueRecord, "acceptance" | "causedBy">,
 ): Promise<{ markdown: string; label: string }> {
   const evDir = evidenceDir(resolved);
   const label = clusterLabel(cluster);
@@ -103,6 +105,25 @@ export async function renderIssueDocument(
   }
   if (cluster.expected) l.push("**Expected**", "", cluster.expected, "");
   if (cluster.observed) l.push("**Observed**", "", cluster.observed, "");
+
+  // What this will be graded against, before the evidence and long before the
+  // instruction at the end: whoever fixes this should know what has to be true
+  // when they are done, not discover it from a failed verify-fix.
+  const criteria = record?.acceptance ?? [];
+  if (criteria.length > 0) {
+    const mark = (v: string) => (v === "met" ? "x" : v === "not-verifiable" ? "-" : " ");
+    l.push("## Acceptance criteria", "");
+    l.push(
+      "lookout rules on these itself, from fresh screenshots, when you ask it to",
+      "verify a fix. Nothing else ticks them, including you.",
+      "",
+    );
+    for (const c of criteria) {
+      l.push(`- [${mark(c.verdict)}] ${c.text}`);
+      if (c.verdict === "not-verifiable" && c.note) l.push(`      not verifiable: ${c.note}`);
+    }
+    l.push("");
+  }
 
   l.push("## Look at these first", "");
   const seen = new Set<string>();

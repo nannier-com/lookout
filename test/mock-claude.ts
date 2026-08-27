@@ -38,6 +38,7 @@ if (mode === "judge") {
               problem: "mock",
               expected: "mock",
               observed: "mock",
+              acceptance: ["Body text is legible against the card background."],
               confidence: "high",
             },
             {
@@ -49,6 +50,7 @@ if (mode === "judge") {
               problem: "mock",
               expected: "mock",
               observed: "mock",
+              acceptance: ["Body text is legible against the card background."],
               confidence: "high",
             },
           ]

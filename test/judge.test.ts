@@ -106,6 +106,10 @@ describe("judgeBatch through the mock binary", () => {
     const res = await judgeBatch(rubric.text, "proj", shots, "/tmp", "sonnet");
     expect(res.findings.length).toBe(1);
     expect(res.findings[0]!.category).toBe("contrast");
+    // Every finding says what would prove it gone; the issue is built from these.
+    expect(res.findings[0]!.acceptance).toEqual([
+      "Body text is legible against the card background.",
+    ]);
     expect(res.rejected.length).toBe(1);
     expect(res.rejected[0]!.reason).toContain("not-a-category");
     expect(res.cleanShotIds).toEqual(["web/app/x/rest/phone/dark"]);

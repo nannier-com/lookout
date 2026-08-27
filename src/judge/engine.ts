@@ -29,6 +29,8 @@ export interface AiFinding {
   expected: string;
   observed: string;
   confidence: "high" | "medium" | "low";
+  /** What would prove this defect gone, in the judge's own words. */
+  acceptance: string[];
 }
 
 export interface JudgeBatchResult {
@@ -212,6 +214,12 @@ export async function judgeBatch(
       )
         ? (r.confidence as "high" | "medium" | "low")
         : "medium",
+      // Capped and trimmed: this is a checklist somebody reads, and a judge
+      // that returns a paragraph per entry has written prose, not a criterion.
+      acceptance: (Array.isArray(r.acceptance) ? r.acceptance : [])
+        .filter((a): a is string => typeof a === "string" && a.trim().length > 0)
+        .slice(0, 6)
+        .map((a) => a.trim().slice(0, 300)),
     });
   }
   const cleanShotIds = (Array.isArray(obj.cleanShotIds) ? obj.cleanShotIds : [])

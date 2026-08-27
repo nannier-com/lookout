@@ -18,6 +18,17 @@ import { clusterKeyOf, clusterScope } from "../fix/cluster.js";
 import { findIssue } from "../issues/registry.js";
 import { spawnedIssues, stampCausedBy } from "../issues/spawned.js";
 import { loadState, saveState } from "../fix/state.js";
+import { acceptanceTally, blocksPass } from "../issues/acceptance.js";
+import {
+  asCriteriaText,
+  judgeableCriteria,
+  matchJudged,
+  ruleAcceptance,
+  type JudgedCriterion,
+} from "../issues/rule-acceptance.js";
+import { MAX_VERIFY_SHOTS, verifyCriteria } from "../judge/criteria.js";
+import { loadSkill } from "../skills/load.js";
+import { evidenceDir } from "../config.js";
 import { ruleVerdict, type Verdict } from "../fix/rule.js";
 import { aiToFindings, deterministicToFindings, setStatus } from "../backlog/lib.js";
 import { loadReport } from "../capture/store.js";
@@ -124,8 +135,74 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
     : [];
   const fresh = [...aiToFindings(outcome.findings, shotsById), ...freshDeterministic];
   const stillOpen = fresh.filter((f) => clusterKeyOf(f) === cluster.key);
+  const backlog = merged.backlog;
+  const runIdNow = outcome.runId;
 
-  // 3. Rule.
+  // 3. Rule this issue's acceptance criteria against the fresh evidence.
+  //
+  // Each source is ruled by the thing that can decide it: the deterministic
+  // checks rule their own, the pixel hashes rule the re-capture guard, and the
+  // judge-authored ones get an independent look at the new screenshots rather
+  // than being inferred from whether the original finding came back.
+  const record = backlog.issues?.[issueId];
+  const criteria = record?.acceptance ?? [];
+  const judgeable = judgeableCriteria(criteria);
+  let judged = new Map<string, JudgedCriterion>();
+  let acceptanceCost = 0;
+
+  if (judgeable.length > 0) {
+    // The issue's own views, capped: these criteria are about this defect, and
+    // the verifier needs the whole evidence set in one context.
+    const ownShotIds = new Set(
+      cluster.members.flatMap((m) => m.evidence.map((e) => e.shotId)),
+    );
+    const forCriteria = [...shotsById.values()]
+      .filter((sh) => ownShotIds.has(sh.id))
+      .slice(0, MAX_VERIFY_SHOTS);
+    const shotsForCriteria =
+      forCriteria.length > 0 ? forCriteria : [...shotsById.values()].slice(0, MAX_VERIFY_SHOTS);
+    try {
+      const skill = await loadSkill(resolved, "verify-acceptance");
+      const result = await verifyCriteria(
+        skill.text,
+        resolved.project,
+        asCriteriaText(judgeable),
+        shotsForCriteria,
+        evidenceDir(resolved),
+        str(parsed.flags.model) ?? "sonnet",
+      );
+      judged = matchJudged(judgeable, result.criteria);
+      acceptanceCost = result.costUsd ?? 0;
+    } catch (e) {
+      // A verifier that could not run leaves those criteria unruled rather than
+      // failing the issue: `stillOpen` is the primary gate, and an unreachable
+      // criterion is not evidence of anything.
+      emit("error", `acceptance criteria could not be ruled: ${(e as Error).message}`, {}, "error");
+    }
+  }
+
+  const freshFingerprints = new Set(freshDeterministic.map((f) => f.fingerprint));
+  const recapturedFingerprints = new Set(
+    criteria
+      .map((c) => c.from)
+      .filter((fp): fp is string => !!fp)
+      .filter((fp) =>
+        (backlog.findings[fp]?.evidence ?? []).some((e) => shotsById.has(e.shotId)),
+      ),
+  );
+  const ruledCriteria = ruleAcceptance({
+    criteria,
+    changedShots: changedShots.size,
+    totalShots: shotsById.size,
+    deterministic: { freshFingerprints, recapturedFingerprints },
+    judged,
+    ruledAt: nowIso(),
+    runId: runIdNow,
+  });
+  if (record) record.acceptance = ruledCriteria;
+  const unmet = blocksPass(ruledCriteria);
+
+  // 4. Rule.
   //
   // The load-bearing guard: nothing may PASS on unchanged pixels. If every
   // screenshot in the scope is byte-identical to the previous run, no change
@@ -139,6 +216,7 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
     maxAttempts,
     changedShots: changedShots.size,
     stillOpen: stillOpen.length,
+    unmetCriteria: unmet.length,
   });
 
   const judgeNote = nothingChanged
@@ -147,10 +225,10 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
       "applied somewhere the app does not use, or the app was not rebuilt."
     : stillOpen.length > 0
       ? stillOpen[0]!.observed
-      : "";
-
-  const backlog = merged.backlog;
-  const runIdNow = outcome.runId;
+      : unmet.length > 0
+        ? `${unmet.length} acceptance criteri${unmet.length === 1 ? "on" : "a"} still fail: ` +
+          unmet.map((c) => c.text).join("; ")
+        : "";
 
   // A defect this fix caused somewhere else is a NEW issue, with its own number
   // and its own evidence. It is not this one regressing, and charging it here
@@ -231,6 +309,13 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
       causedByThisFix: s.causedByThisFix,
     })),
     judgeNote: judgeNote || null,
+    acceptance: ruledCriteria.map((c) => ({
+      id: c.id,
+      text: c.text,
+      source: c.source,
+      verdict: c.verdict,
+      note: c.note ?? null,
+    })),
     commit: reportedCommit ?? null,
     next:
       (verdict === "passed"
@@ -243,7 +328,7 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
             .map((s) => s.issue.id)
             .join(", ")}); they are separate work`
         : ""),
-    costUsd: outcome.costUsd,
+    costUsd: (outcome.costUsd ?? 0) + acceptanceCost,
   };
 
   if (parsed.flags.json) {
@@ -254,6 +339,17 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
         (judgeNote ? `\n  judge: ${judgeNote}` : "") +
         `\n  ${payload.next}`,
     );
+    const tally = acceptanceTally(ruledCriteria);
+    if (tally.total > 0) {
+      console.log(`  acceptance: ${tally.met}/${tally.total} met` +
+        (tally.unmet ? `, ${tally.unmet} failing` : "") +
+        (tally.notVerifiable ? `, ${tally.notVerifiable} not verifiable` : "") +
+        (tally.pending ? `, ${tally.pending} not checked` : ""));
+      for (const c of ruledCriteria) {
+        const mark = c.verdict === "met" ? "x" : c.verdict === "unmet" ? " " : c.verdict === "not-verifiable" ? "-" : "?";
+        console.log(`    [${mark}] ${c.text}`);
+      }
+    }
     for (const s of spawned) {
       console.log(
         `  new issue ${s.issue.id}: ${s.issue.title} (${s.issue.severity})` +

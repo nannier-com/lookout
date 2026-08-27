@@ -10,7 +10,9 @@
  * transitions, and apart from `fix/cluster.ts` so clustering stays a pure
  * function of findings. Minting is the only operation here that writes.
  */
-import type { Backlog, IssueRecord } from "../backlog/lib.js";
+import type { Backlog, BacklogFinding, IssueRecord } from "../backlog/lib.js";
+import { composeAcceptance } from "./acceptance.js";
+import type { Severity } from "../types.js";
 import { clusterFindings, clusterKeyOf, type ClusterOptions, type FixCluster } from "../fix/cluster.js";
 import { mintIssueId } from "./id.js";
 
@@ -49,8 +51,13 @@ export function reconcileIssues(
   const known = new Set(Object.values(backlog.issues).map((r) => r.key));
   const minted: IssueRecord[] = [];
 
+  const membersByKey = new Map<string, BacklogFinding[]>();
   for (const finding of Object.values(backlog.findings)) {
     const key = clusterKeyOf(finding);
+    const members = membersByKey.get(key) ?? [];
+    members.push(finding);
+    membersByKey.set(key, members);
+
     if (known.has(key)) continue;
     const id = mintIssueId(taken, rng);
     const record: IssueRecord = { id, key, createdAt: now };
@@ -59,8 +66,23 @@ export function reconcileIssues(
     known.add(key);
     minted.push(record);
   }
+
+  // Every issue states what would prove it fixed, from the moment it is filed.
+  // Composition keeps whatever has already been ruled: the criteria are matched
+  // by an id derived from their own text, so a merge that adds a finding adds
+  // criteria without forgetting the verdicts on the ones already there.
+  for (const record of Object.values(backlog.issues)) {
+    const members = [...(membersByKey.get(record.key) ?? [])].sort(
+      (a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] ||
+        a.fingerprint.localeCompare(b.fingerprint),
+    );
+    record.acceptance = composeAcceptance(members, record.acceptance ?? []);
+  }
   return minted;
 }
+
+/** Worst first, then by fingerprint: the order criteria are read in. */
+const SEVERITY_RANK: Record<Severity, number> = { critical: 0, high: 1, medium: 2, low: 3 };
 
 /** Every status an issue can be in and still be worth looking at: all of them. */
 export const ALL_STATUSES = ["open", "blocked", "fixed", "by-design"] as const;

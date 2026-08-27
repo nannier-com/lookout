@@ -159,7 +159,8 @@ Reply with ONLY one fenced json block, no prose before or after:
       "problem": "<what is wrong, citing what you see>",
       "expected": "<what correct looks like, per this rubric or visual comparison>",
       "observed": "<what the shot shows>",
-      "confidence": "high | medium | low"
+      "confidence": "high | medium | low",
+      "acceptance": ["<what would prove this defect gone>"]
     }
   ],
   "cleanShotIds": ["<every shot you judged and found clean>"]
@@ -168,3 +169,18 @@ Reply with ONLY one fenced json block, no prose before or after:
 
 Every shot you were given must appear either in a finding or in cleanShotIds.
 An empty findings array is a valid and common result.
+
+## Acceptance criteria
+
+Every finding carries an `acceptance` array: the checks that would prove this
+defect gone, written so somebody re-photographing the same view can rule on
+each one from the pixels alone. Two or three is normal; one is fine when the
+defect is single-valued.
+
+- Atomic. One observable claim per entry, never a compound sentence.
+- Decidable from a screenshot of this view. "The nav surface is darker than the
+  page behind it" is decidable; "the theme provider is configured correctly" is
+  not, and belongs in `problem` instead.
+- Stated as the fixed state, not as the defect. "Body text is legible against
+  the card background at desktop width", not "the text is unreadable".
+- Name where it applies when the view matters: route, form factor, scheme.
