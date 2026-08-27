@@ -1,6 +1,6 @@
 // Judge machinery tests: JSON extraction, batching, vocabulary enforcement,
 // ledger keys, and a full engine round-trip through the mock claude binary.
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import {
   batchShots,
@@ -43,6 +43,16 @@ function shot(id: string, over: Partial<ShotRecord> = {}): ShotRecord {
     ...over,
   };
 }
+
+// The mock picks its mode from MOCK_MODE, and other suites rely on it being
+// unset so the mock can infer one from the prompt. Left behind, it makes an
+// unrelated file fail depending on the order the suites happen to run in.
+afterEach(() => {
+  delete process.env.LOOKOUT_CLAUDE_BIN;
+  delete process.env.MOCK_MODE;
+  delete process.env.MOCK_SKIP_LAST;
+  delete process.env.MOCK_JUDGE_CATEGORY;
+});
 
 describe("extractJson", () => {
   test("reads a fenced block, the last when several, and bare objects", () => {
