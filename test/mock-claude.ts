@@ -3,7 +3,9 @@
 // from argv, replies on stdout with {"result": "..."} JSON. Behavior is driven
 // by MOCK_MODE:
 //   judge   emit one deliberate finding against the first shotId in the
-//           prompt's manifest, everything else clean
+//           prompt's manifest, everything else clean. MOCK_JUDGE_CATEGORY
+//           chooses the category, which is what the regression gate matches on
+//   improve emit a skill amendment; MOCK_AMENDMENT overrides the body
 //   verify  confirm index 0, refute every other index
 //   prose   reply with prose + a trailing fenced json (parser must cope)
 //   ask     plain-text answer
@@ -16,13 +18,26 @@ if (mode === "auto") {
     ? "verify"
     : promptText.includes("acceptance-criteria verifier")
       ? "criteria"
-      : "judge";
+      : promptText.includes("improving one of lookout's skills")
+        ? "improve"
+        : "judge";
 }
 
 const shotIds = [...promptText.matchAll(/^- shotId: (.+)$/gm)].map((m) => m[1]!);
 
 let result = "";
-if (mode === "judge") {
+if (mode === "improve") {
+  result =
+    "```json\n" +
+    JSON.stringify({
+      skill: "visual-judge",
+      summary: "Stop filing the deliberate light-only surface as a scheme defect.",
+      amendment: process.env.MOCK_AMENDMENT ?? "- The marketing hero is deliberately light in both schemes.",
+      evidence: ["app.root.color-scheme.by-design"],
+      newSkill: null,
+    }) +
+    "\n```";
+} else if (mode === "judge") {
   const [first, ...rest] = shotIds;
   result =
     "```json\n" +
@@ -31,7 +46,7 @@ if (mode === "judge") {
         ? [
             {
               shotId: first,
-              category: "contrast",
+              category: process.env.MOCK_JUDGE_CATEGORY ?? "contrast",
               attribute: "body-text",
               severity: "high",
               title: "Mock finding for plumbing tests",

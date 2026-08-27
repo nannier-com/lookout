@@ -10,6 +10,7 @@
  *   verify    judge captured evidence against acceptance criteria from a ticket
  *   ask       answer a free-form question about the rendered app, with evidence
  *   backlog   adjudicate findings (merge / set / reopen / regen / check / stats)
+ *   skills    lookout's own instructions: list, freeze, replay, improve
  *   targets   list configured targets and probe reachability
  *   init      scaffold .lookout/config.ts in this repo
  *   status    what the run in flight is doing, from the event log
@@ -55,6 +56,10 @@ const VERBS: Record<string, { load: () => Promise<Verb>; summary: string }> = {
   backlog: {
     load: async () => (await import("./verbs/backlog.js")).backlog,
     summary: "adjudicate findings (merge/set/reopen/regen/check/stats)",
+  },
+  skills: {
+    load: async () => (await import("./verbs/skills.js")).skills,
+    summary: "what lookout knows how to judge, and how it learns (list/freeze/replay/improve)",
   },
   targets: {
     load: async () => (await import("./verbs/targets.js")).targets,

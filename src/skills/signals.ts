@@ -1,0 +1,129 @@
+/**
+ * What lookout has learned about its own judgement, from what is already on
+ * disk.
+ *
+ * Nothing here is new instrumentation. Every one of these signals is a record
+ * lookout already keeps for another reason, and each is a case where its
+ * instructions and its judgement came apart:
+ *
+ * - A refuted finding is one the judge filed and the adversarial verifier
+ *   killed. The verifier's note says why, and that note is a rule the judge
+ *   should have been following.
+ * - A rejected finding is one whose category or severity was not in the
+ *   vocabulary. That is the output contract failing to land.
+ * - A by-design adjudication is the strongest signal in the system: a person
+ *   read the finding, decided it was intended, and wrote down why. It is the
+ *   only one carrying human judgement, and `config.neverFile` exists precisely
+ *   because this used to be fed back by hand.
+ * - A blocked issue is a defect that survived every attempt, which usually
+ *   means the finding described it too vaguely to act on.
+ * - A criterion ruled not-verifiable is an acceptance criterion written so it
+ *   cannot be decided from a screenshot, which is a flaw in how it was authored.
+ */
+import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { evidenceDir } from "../config.js";
+import { loadBacklog } from "../verbs/backlog.js";
+import { issuesOf } from "../issues/registry.js";
+import type { ResolvedConfig } from "../types.js";
+
+export interface Signal {
+  /** Which skill this is evidence about. */
+  skill: string;
+  kind: "refuted" | "rejected" | "by-design" | "blocked" | "not-verifiable";
+  /** One line naming what happened. */
+  summary: string;
+  /** The prose that explains it: a verifier note, a human reason, a judge note. */
+  detail: string;
+  /** Where it came from, so an amendment can cite it. */
+  source: string;
+}
+
+interface JudgeReport {
+  runId?: string;
+  refuted?: { title: string; shotId: string; verifierNote: string }[];
+  rejected?: number;
+}
+
+export async function gatherSignals(resolved: ResolvedConfig): Promise<Signal[]> {
+  const signals: Signal[] = [];
+  const backlog = await loadBacklog(resolved);
+
+  const reportPath = join(evidenceDir(resolved), "judge-report.json");
+  if (existsSync(reportPath)) {
+    try {
+      const report = JSON.parse(await readFile(reportPath, "utf8")) as JudgeReport;
+      for (const r of report.refuted ?? []) {
+        signals.push({
+          skill: "visual-judge",
+          kind: "refuted",
+          summary: `filed and refuted: ${r.title}`,
+          detail: r.verifierNote,
+          source: `judge-report.json (${r.shotId})`,
+        });
+      }
+      if (report.rejected && report.rejected > 0) {
+        signals.push({
+          skill: "visual-judge",
+          kind: "rejected",
+          summary: `${report.rejected} finding(s) rejected at ingestion`,
+          detail:
+            "The category or severity was outside the closed vocabulary, so the finding was " +
+            "discarded. The output contract is not landing.",
+          source: `judge-report.json (run ${report.runId ?? "?"})`,
+        });
+      }
+    } catch {
+      // A report that cannot be parsed teaches nothing; it is not an error here.
+    }
+  }
+
+  for (const finding of Object.values(backlog.findings)) {
+    if (finding.status === "by-design" && finding.reason) {
+      signals.push({
+        skill: "visual-judge",
+        kind: "by-design",
+        summary: `adjudicated intentional: ${finding.title}`,
+        detail: finding.reason,
+        source: finding.fingerprint,
+      });
+    }
+  }
+
+  for (const issue of issuesOf(backlog)) {
+    if (issue.members.some((m) => m.status === "blocked")) {
+      const reason = issue.members.find((m) => m.status === "blocked")?.reason ?? "";
+      signals.push({
+        skill: "visual-judge",
+        kind: "blocked",
+        summary: `survived every attempt: ${issue.title}`,
+        detail: reason,
+        source: `issue ${issue.id}`,
+      });
+    }
+    for (const c of backlog.issues?.[issue.id]?.acceptance ?? []) {
+      if (c.verdict !== "not-verifiable") continue;
+      signals.push({
+        skill: c.source === "derived" ? "visual-judge" : "verify-acceptance",
+        kind: "not-verifiable",
+        summary: `criterion could not be decided from the evidence: ${c.text}`,
+        detail: c.note ?? "",
+        source: `issue ${issue.id}`,
+      });
+    }
+  }
+
+  return signals;
+}
+
+/** Signals grouped by the skill they are evidence about, richest group first. */
+export function bySkill(signals: Signal[]): Map<string, Signal[]> {
+  const out = new Map<string, Signal[]>();
+  for (const s of signals) {
+    const arr = out.get(s.skill) ?? [];
+    arr.push(s);
+    out.set(s.skill, arr);
+  }
+  return new Map([...out.entries()].sort((a, b) => b[1].length - a[1].length));
+}

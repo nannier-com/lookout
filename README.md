@@ -48,6 +48,7 @@ lookout targets               # resolve + probe the configured targets
 | `ask`     | answer a free-form question about the rendered app, grounded in fresh screenshots |
 | `backlog` | adjudicate findings: merge, set statuses (fixed / by-design / blocked, with mandatory reasons), `plan` to re-emit the dispatch plan for free, regenerate the report, `check` for staleness |
 | `targets` | list configured targets and probe reachability |
+| `skills`  | lookout's own instructions: `list`, `diff`, `freeze`, `replay`, `improve` |
 | `init`    | scaffold `.lookout/config.ts` |
 | `status`  | what the run in flight is doing, folded out of the event log; exit 1 while a run is going, so an agent can poll it |
 | `ui`      | a local page rendering that same log live, with thumbnails, findings and verdicts, for a person to watch |
@@ -231,6 +232,34 @@ extensions refine judgment; they cannot invent new taxonomies.
 
 The composed `version` of the judge skill keys the ledger, so amending a skill
 invalidates exactly the cached verdicts it could have changed.
+
+### Skills that improve themselves
+
+```bash
+lookout skills list               # what lookout knows how to judge, and what this project has amended
+lookout skills freeze             # freeze the settled verdicts into a regression set
+lookout skills improve            # learn from this project's runs, and keep it only if the set holds
+lookout skills replay             # judge the frozen set with the skills as they stand
+```
+
+`improve` reads signals lookout already records: findings the adversarial
+verifier refuted, findings a person adjudicated by-design and wrote a reason
+for, defects that survived every attempt, acceptance criteria that could not be
+decided from a screenshot, and replies that failed the output contract. It
+writes the amendment that would have prevented the most of them into this
+project's layer.
+
+It applies automatically, and what makes that safe is the gate. `.lookout/regression/`
+holds screenshots whose verdicts were settled when the pixels were fresh: what a
+person ruled intentional, and what the verifier confirmed. The candidate is
+replayed over them, and an amendment that re-files a suppressed finding or loses
+a confirmed one is rolled back, with the attempt and its violations written to
+`.lookout/skills/history.jsonl`. An amendment nothing can grade, because the set
+is empty or its pixels are not on this machine, is written to `PROPOSED.md`
+instead of being applied.
+
+The manifest is committed and the frozen pixels are not; `lookout skills freeze`
+rebuilds them from the evidence store.
 
 ### Where things land
 
