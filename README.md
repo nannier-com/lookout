@@ -49,6 +49,7 @@ lookout targets               # resolve + probe the configured targets
 | `backlog` | adjudicate findings: merge, set statuses (fixed / by-design / blocked, with mandatory reasons), `plan` to re-emit the dispatch plan for free, regenerate the report, `check` for staleness |
 | `targets` | list configured targets and probe reachability |
 | `skills`  | lookout's own instructions: `list`, `diff`, `freeze`, `replay`, `improve` |
+| `self-heal` | fix what lookout keeps getting wrong, in lookout's own source |
 | `init`    | scaffold `.lookout/config.ts` |
 | `status`  | what the run in flight is doing, folded out of the event log; exit 1 while a run is going, so an agent can poll it |
 | `ui`      | a local page rendering that same log live, with thumbnails, findings and verdicts, for a person to watch |
@@ -260,6 +261,29 @@ instead of being applied.
 
 The manifest is committed and the frozen pixels are not; `lookout skills freeze`
 rebuilds them from the evidence store.
+
+### Healing itself
+
+```bash
+lookout self-heal --project ~/code/some-app
+```
+
+Failures lookout hits are appended to `~/.lookout/incidents.jsonl`, pooled
+across every project on the machine and never truncated: crashes, operator
+errors, judge replies that could not be parsed, findings rejected at ingestion.
+`self-heal` groups them, fixes the cause of one group in lookout's own checkout,
+and is not believed about any of it.
+
+The subprocess may read and edit inside the checkout and may not run a single
+command. lookout runs `tsc --noEmit`, `eslint`, `bun test` and the build itself,
+plus a replay of that project's frozen regression set when `--project` names
+one. Any gate failing reverts everything, keeps the diff and the gate output
+under `~/.lookout/self-heal/<stamp>/`, and records the rollback as an incident.
+Every gate passing commits the change alone with a patch changeset, and does not
+push: a local commit is one `git revert` away.
+
+It refuses to run on an installed package (no source, no repository), over a
+dirty checkout, or while another heal holds the lock.
 
 ### Where things land
 

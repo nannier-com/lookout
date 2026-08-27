@@ -6,9 +6,13 @@
 //           prompt's manifest, everything else clean. MOCK_JUDGE_CATEGORY
 //           chooses the category, which is what the regression gate matches on
 //   improve emit a skill amendment; MOCK_AMENDMENT overrides the body
+//   heal    edit a file in cwd (MOCK_HEAL_FILE) and report the fix, so the
+//           gates and the revert path can be exercised end to end
 //   verify  confirm index 0, refute every other index
 //   prose   reply with prose + a trailing fenced json (parser must cope)
 //   ask     plain-text answer
+import { writeFileSync } from "node:fs";
+
 const argv = process.argv.slice(2);
 const p = argv.indexOf("-p");
 const promptText = p !== -1 ? argv[p + 1] ?? "" : "";
@@ -20,13 +24,29 @@ if (mode === "auto") {
       ? "criteria"
       : promptText.includes("improving one of lookout's skills")
         ? "improve"
-        : "judge";
+        : promptText.includes("editing lookout's own source")
+          ? "heal"
+          : "judge";
 }
 
 const shotIds = [...promptText.matchAll(/^- shotId: (.+)$/gm)].map((m) => m[1]!);
 
 let result = "";
-if (mode === "improve") {
+if (mode === "heal") {
+  const file = process.env.MOCK_HEAL_FILE;
+  if (file) writeFileSync(file, "// written by the mock healer\n");
+  result =
+    "```json\n" +
+    JSON.stringify({
+      incident: "judge reply was not parseable JSON after a retry",
+      summary: "Retry the judge once more before giving up on the reply.",
+      cause: "One retry is not enough when the model opens with prose.",
+      files: [file ?? ""],
+      test: "covered by the mock",
+      changed: true,
+    }) +
+    "\n```";
+} else if (mode === "improve") {
   result =
     "```json\n" +
     JSON.stringify({

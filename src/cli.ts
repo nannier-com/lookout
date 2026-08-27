@@ -16,11 +16,13 @@
  *   status    what the run in flight is doing, from the event log
  *   ui        a local page rendering that same log, live, for a person
  *   doctor    check prerequisites (claude CLI, chromium, sharp, simctl, adb)
+ *   self-heal fix what lookout keeps getting wrong, in lookout's own source
  *
  * Exit codes: 0 clean, 1 findings or failed criteria or failing checks,
  * 2 execution error. verify-fix adds 3 for an issue blocked after exhausting
  * its attempts.
  */
+import { recordIncident } from "./skills/incidents.js";
 import { LookoutError } from "./types.js";
 import { parseFlags, type Parsed } from "./util.js";
 
@@ -60,6 +62,10 @@ const VERBS: Record<string, { load: () => Promise<Verb>; summary: string }> = {
   skills: {
     load: async () => (await import("./verbs/skills.js")).skills,
     summary: "what lookout knows how to judge, and how it learns (list/freeze/replay/improve)",
+  },
+  "self-heal": {
+    load: async () => (await import("./verbs/self-heal.js")).selfHeal,
+    summary: "fix what lookout keeps getting wrong, in lookout's own source",
   },
   targets: {
     load: async () => (await import("./verbs/targets.js")).targets,
@@ -179,10 +185,30 @@ async function main(): Promise<number> {
 main()
   .then((code) => process.exit(code))
   .catch((err: unknown) => {
+    // Written down before it is printed. `events.jsonl` is truncated by the
+    // next capture, so without this the failure is gone by the time anybody
+    // could act on it, and `lookout self-heal` would have nothing to read.
+    const verb = process.argv[2];
     if (err instanceof LookoutError) {
+      recordIncident({
+        at: new Date().toISOString(),
+        kind: "operator-error",
+        verb,
+        message: err.message,
+        ...(err.hint ? { detail: err.hint } : {}),
+        project: process.cwd(),
+      });
       console.error(`lookout: ${err.message}`);
       if (err.hint) console.error(`  hint: ${err.hint}`);
     } else {
+      recordIncident({
+        at: new Date().toISOString(),
+        kind: "crash",
+        verb,
+        message: err instanceof Error ? err.message : String(err),
+        ...(err instanceof Error && err.stack ? { detail: err.stack.slice(0, 2000) } : {}),
+        project: process.cwd(),
+      });
       console.error("lookout: unexpected error");
       console.error(err);
     }

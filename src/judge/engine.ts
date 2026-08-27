@@ -10,6 +10,7 @@
 import { execFile } from "node:child_process";
 import { LookoutError, type Severity, type ShotRecord } from "../types.js";
 import { renderSkill } from "../skills/load.js";
+import { recordIncident } from "../skills/incidents.js";
 import { CATEGORIES, SEVERITIES, type Category } from "./rubric.js";
 
 export interface JudgeInvocation {
@@ -17,6 +18,13 @@ export interface JudgeInvocation {
   cwd: string;
   model: string;
   timeoutMs?: number;
+  /**
+   * What the subprocess may do. Read-only by default, which is what every
+   * judging path wants: an oracle that can edit is not an oracle. `self-heal`
+   * is the one caller that widens it, and it still withholds Bash, because
+   * lookout runs the gates itself rather than trusting the reply.
+   */
+  allowedTools?: string[];
 }
 
 export interface AiFinding {
@@ -59,7 +67,7 @@ export function invokeClaude(inv: JudgeInvocation): Promise<{ text: string; cost
     "--output-format",
     "json",
     "--allowedTools",
-    "Read",
+    (inv.allowedTools ?? ["Read"]).join(","),
     "--model",
     inv.model,
   ];
@@ -170,6 +178,14 @@ export async function judgeBatch(
       break;
     } catch {
       if (attempt === 1) {
+        recordIncident({
+          at: new Date().toISOString(),
+          kind: "judge-unparseable",
+          verb: "check",
+          message: "judge reply was not parseable JSON after a retry",
+          detail: text.slice(0, 1000),
+          project,
+        });
         throw new LookoutError(
           "judge reply was not parseable JSON after a retry",
           `reply head: ${text.slice(0, 200)}`,
@@ -225,6 +241,22 @@ export async function judgeBatch(
   const cleanShotIds = (Array.isArray(obj.cleanShotIds) ? obj.cleanShotIds : [])
     .map(String)
     .filter((id) => known.has(id));
+
+  // A rejected finding is work the judge did and lookout threw away, because
+  // the reply did not honour the contract it was given. That is a failure of
+  // the instructions, and it is only visible if it is written down.
+  if (rejected.length > 0) {
+    recordIncident({
+      at: new Date().toISOString(),
+      kind: "judge-rejected",
+      verb: "check",
+      message: `${rejected.length} finding(s) rejected at ingestion: ${rejected
+        .map((r) => r.reason)
+        .join("; ")
+        .slice(0, 300)}`,
+      project,
+    });
+  }
 
   return { findings, cleanShotIds, rejected, raw: text, costUsd, durationMs: Date.now() - started };
 }
