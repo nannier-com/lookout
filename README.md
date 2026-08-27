@@ -42,11 +42,11 @@ lookout targets               # resolve + probe the configured targets
 | verb      | what it does |
 | --------- | ------------ |
 | `capture` | screenshots + deterministic findings (console errors, overflow, axe), no AI |
-| `check`   | capture + AI judge against the base rubric plus the project rubric; findings merge into `.lookout/backlog.json`. `--auto` also writes one fix brief per root cause, ready to dispatch |
-| `verify-fix` | rule on a claimed fix: re-capture and re-judge one cluster, then pass it or hand it back with a fresh brief |
+| `check`   | capture + AI judge against the base rubric plus the project rubric; findings merge into `.lookout/backlog.json` |
+| `verify-fix` | rule on a claimed fix: re-capture and re-judge one issue's routes, then close it or leave it open with a note on what the judge still sees |
 | `verify`  | judge the app against acceptance criteria (`--criteria ticket.md` or inline text); per-criterion pass / fail / not-visually-verifiable with evidence |
 | `ask`     | answer a free-form question about the rendered app, grounded in fresh screenshots |
-| `backlog` | adjudicate findings: merge, set statuses (fixed / by-design / blocked, with mandatory reasons), `plan` to re-emit the dispatch plan for free, regenerate the report, `check` for staleness |
+| `backlog` | adjudicate findings: merge, set statuses (fixed / by-design / blocked, with mandatory reasons), regenerate the report, `check` for staleness |
 | `targets` | list configured targets and probe reachability |
 | `skills`  | lookout's own instructions: `list`, `diff`, `freeze`, `replay`, `improve` |
 | `self-heal` | fix what lookout keeps getting wrong, in lookout's own source |
@@ -57,7 +57,7 @@ lookout targets               # resolve + probe the configured targets
 | `doctor`  | verify prerequisites |
 
 Exit codes: `0` clean, `1` findings / failed criteria, `2` execution error, so
-agents and CI can gate on the result. `verify-fix` adds `3` for a cluster
+agents and CI can gate on the result. `verify-fix` adds `3` for an issue
 blocked after exhausting its attempts. Every verb takes `--json` for
 machine-readable output.
 
@@ -68,7 +68,7 @@ it exits. So lookout narrates to `.lookout/evidence/events.jsonl` as it goes,
 and two readers render it while the run is still going:
 
 ```bash
-lookout status          # for an agent: phase, shots, findings, dispatched work
+lookout status          # for an agent: phase, shots, findings, issues
 lookout ui              # for a person: the same log as a live local page
 ```
 
@@ -79,49 +79,34 @@ contact sheet, a view's dark and light captures side by side and defect-carrying
 tiles marked, so a session can see what lookout saw for the cost of one read.
 Full-resolution paths are printed beside it for close reading.
 
-## Auto mode
+## Issues
 
-lookout is run by agents rather than read by people, and auto mode is the
-handshake between the oracle and whatever is doing the fixing. lookout still
-edits nothing and spawns nothing.
-
-```bash
-lookout check --auto              # judge, then write the dispatch plan
-lookout backlog plan              # re-emit the plan from the backlog, judging nothing
-```
-
-`--auto` streams. Deterministic clusters are dispatched before judging even
-starts, because a rule cannot be contradicted by a judge, and each judged
-cluster is dispatched as soon as the routes it touches are done. A cluster that
-grows after it was dispatched is re-emitted as an amendment.
-
-It clusters open findings by root cause rather than by screenshot: one
-target + category + attribute, so a theme that never switches is one unit of
-work across every route it spoils rather than one per shot. Co-located
+Open findings group into issues by root cause rather than by screenshot: one
+target + category + attribute, so a theme that never switches is one issue
+across every route it spoils rather than one per shot. Co-located
 accessibility violations group by route instead, because an axe rule id names
 the rule that fired rather than the thing that is wrong, and one malformed
 widget trips several at once.
 
-Each cluster is an issue with a folder under `.lookout/issues/<id>/`, and
+Each issue gets a six-digit id and a folder under `.lookout/issues/<id>/`, and
 `Issue.md` in that folder is the self-contained document a fix session is
 handed: what is wrong and where, the screenshots (copied into `img/` and
 listed by absolute path), the acceptance criteria it will be graded against,
-and what lookout has ruled so far. The orchestrating session hands one issue
-to one subagent, so it carries issue ids and verdicts while the subagent
-carries the evidence.
+and what lookout has ruled so far. lookout writes the folders and rules on
+the outcomes; who fixes an issue, and how, is not lookout's call.
 
-When a session reports back, lookout rules on the claim:
+When a fix is claimed, lookout rules on the claim:
 
 ```bash
 lookout verify-fix --issue <id> --commit <sha> --note "<root cause>"
 ```
 
-That re-captures and re-judges only that cluster's routes. Exit `0` means the
+That re-captures and re-judges only that issue's routes. Exit `0` means the
 defect is gone and the backlog is adjudicated to `fixed` with the commit. Exit
-`1` means it is not, and a fresh brief has been written carrying what the judge
-sees now, for a new session. Exit `3` means the cluster exhausted
-`--max-attempts` (default 2) and is recorded as `blocked` with a reason. A fix
-session never grades its own work.
+`1` means it is not: the finding stays open, with a note on what the judge
+sees now. Exit `3` means the issue exhausted `--max-attempts` (default 2) and
+is recorded as `blocked` with a reason. A fix session never grades its own
+work.
 
 ## Safety defaults
 

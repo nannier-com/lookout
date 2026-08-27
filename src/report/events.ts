@@ -1,19 +1,18 @@
 /**
  * The run event log, and the board it folds into.
  *
- * A `check --auto` run takes minutes, and until it exits, both the user and the
+ * A `check` run takes minutes, and until it exits, both the user and the
  * agent that started it are blind: a subprocess's stdout arrives all at once at
  * the end. So lookout narrates to disk as it goes. Everything that happens
  * appends one JSON line to `.lookout/evidence/events.jsonl`, which `lookout
  * status` reads for a session and `lookout ui` renders for a person, both while
  * the run is still going.
  *
- * One log spans several processes. `check --auto` defines the board: it names
- * the clusters and truncates whatever the previous board left behind. Every run
- * that reports back on that board afterwards, `verify-fix` and `agent`, joins
- * the same file instead of starting a new one. That is what lets a card show a
- * cluster dispatched by one process, worked by a subagent in another, and ruled
- * on by a third.
+ * One log spans several processes. `check` and `capture` define the board:
+ * they truncate whatever the previous run left behind. A `verify-fix` ruling
+ * on those findings afterwards joins the same file instead of starting a new
+ * one. That is what lets an issue's card show a defect found by one run and
+ * ruled on by another.
  *
  * Writing is best-effort and synchronous-append: an unwritable log must never
  * take down a capture, and the appends are small enough that ordering under
@@ -100,8 +99,9 @@ export class EventLog {
 
   /**
    * Report against the board a previous run defined, keeping its narration.
-   * A `verify-fix` that truncated here would erase the dispatches it is ruling
-   * on, and the board would lose every cluster but the one in hand.
+   * A `verify-fix` that truncated here would erase the narration of the run it
+   * is ruling on, and the board's live overlay would lose every issue but the
+   * one in hand.
    */
   join(message: string, data?: Record<string, unknown>): void {
     try {
@@ -113,25 +113,6 @@ export class EventLog {
       return;
     }
     this.emit("run-start", message, data);
-  }
-
-  /**
-   * Append to an existing board without claiming to be a run.
-   *
-   * `lookout agent` reports on work somebody else is doing; it captures
-   * nothing, judges nothing, and takes no time. Opening a run for it made the
-   * board show a run in flight that never ended, and put "agent note
-   * app--render-failure--..." in the header where the phase goes. Its events
-   * name their own cluster, so they need no run around them.
-   */
-  attach(): void {
-    try {
-      mkdirSync(dirname(this.path), { recursive: true });
-      if (!existsSync(this.path)) writeFileSync(this.path, "");
-      else prune(this.path);
-    } catch {
-      this.enabled = false;
-    }
   }
 
   emit(kind: EventKind, message: string, data?: Record<string, unknown>, severity?: LookoutEvent["severity"]): void {

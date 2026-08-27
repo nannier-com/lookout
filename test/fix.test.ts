@@ -1,5 +1,5 @@
-// Auto-mode tests: root-cause clustering, brief rendering, and the dispatch
-// plan an orchestrating session reads.
+// Root-cause clustering: how open findings group into issues, and the scope
+// filters that narrow them.
 import { describe, expect, test } from "bun:test";
 import {
   clusterFindings,
@@ -113,7 +113,7 @@ describe("clusterFindings", () => {
     expect(clusters[1]!.severity).toBe("high");
   });
 
-  test("severity floor, status filter and attempt cap all narrow the dispatch", () => {
+  test("severity floor, status filter and attempt cap all narrow the clusters", () => {
     const set = [
       finding({ fingerprint: "a", severity: "low" }),
       finding({ fingerprint: "b", category: "spacing", attribute: "gap", severity: "high" }),

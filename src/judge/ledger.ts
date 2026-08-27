@@ -6,7 +6,7 @@
  * per-shot cache breaks that: after a fix changes only the light shot, the
  * dark partner would be served from cache and never enter the batch, so the
  * judge would be asked for a comparison with one side missing and would
- * silently stop filing it. The auto loop would then read that silence as
+ * silently stop filing it. A `verify-fix` would then read that silence as
  * "fixed". Grouping the cache the way the rubric groups the judgement is what
  * makes a scoped re-check trustworthy.
  *

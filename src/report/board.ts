@@ -362,9 +362,9 @@ export function severityTally(items: { severity: string }[]): {
 /**
  * Counts by state, for a caller that wants the headline without folding.
  *
- * `blocked` is counted on its own and never with `fixed`. It means lookout
- * exhausted a cluster's attempts and stopped dispatching it, so the defect is
- * still there and now needs a person. Filing it under a heading like "settled",
+ * `blocked` is counted on its own and never with `fixed`. It means an issue
+ * exhausted its `verify-fix` attempts, so the defect is still there and now
+ * needs a person. Filing it under a heading like "settled",
  * next to work that actually passed, reads as success and buries exactly the
  * work somebody needs to pick up.
  */

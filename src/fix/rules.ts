@@ -15,7 +15,7 @@ import { homedir } from "node:os";
 import { readdir, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-/** Rule files, across harnesses. Order is the order a brief lists them in. */
+/** Rule files, across harnesses. Order is the order Issue.md lists them in. */
 export const RULE_FILENAMES = [
   "CLAUDE.md",
   "AGENTS.md",

@@ -18,16 +18,16 @@ than in this file:
 lookout protocol
 ```
 
-Run that first. It prints what lookout is, the loop, the dispatch protocol for
-`check --auto`, the exit codes, and the rules. This file exists only to point
-you at it and to carry the few facts that are specific to this machine.
+Run that first. It prints what lookout is, the loop, the exit codes, and the
+rules. This file exists only to point you at it and to carry the few facts
+that are specific to this machine.
 
 ## When to reach for it
 
 - You changed UI and are about to say "done": run `lookout check` on the
   affected routes first. Tests verify code; lookout verifies pixels.
-- You want the defects fixed, not just found: `lookout check --auto`, then
-  follow the dispatch protocol it prints.
+- You want the defects fixed, not just found: `lookout check`, fix what it
+  filed, then have `lookout verify-fix` rule on each fix.
 - A ticket has acceptance criteria: `lookout verify --criteria <file|text>`.
 - You are unsure a visual assumption holds: `lookout ask "..."`.
 

@@ -7,7 +7,6 @@
  *   reopen <fp>      shorthand for --status open
  *   regen            rewrite .lookout/BACKLOG.md from backlog.json
  *   check            validate schema, reasons, markdown freshness, drift; exit 1 on problems
- *                    stands, judging nothing (resume a fix loop for free)
  *   stats            counts by status and severity
  */
 import { readFile, rename, writeFile } from "node:fs/promises";
@@ -191,6 +190,6 @@ export async function backlog(parsed: Parsed): Promise<number> {
 
   throw new LookoutError(
     `unknown backlog subcommand "${sub}"`,
-    "expected merge | set | reopen | plan | regen | check | stats",
+    "expected merge | set | reopen | regen | check | stats",
   );
 }

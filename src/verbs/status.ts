@@ -1,10 +1,10 @@
 /**
  * `lookout status`: what the run in flight is doing, right now.
  *
- * A session that starts `lookout check --auto` in the background sees nothing
- * until the process exits. Polling this costs one cheap read and answers the
- * only question that matters mid-run: how far along, what has been found, and
- * what is ready to dispatch.
+ * A session that starts `lookout check` in the background sees nothing until
+ * the process exits. Polling this costs one cheap read and answers the only
+ * question that matters mid-run: how far along, what has been found, and
+ * where each issue stands.
  */
 import { loadConfig } from "../config.js";
 import { readEvents, summarise, type LookoutEvent } from "../report/events.js";

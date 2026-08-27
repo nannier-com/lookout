@@ -7,11 +7,11 @@
  * re-judges a whole view rather than the single shot whose pixels moved, so a
  * comparative finding cannot vanish just because its partner was cached.
  *
- * Exit codes are the orchestrating session's branch:
+ * Exit codes are the calling session's branch:
  *   0  passed     the defect is gone, the backlog is adjudicated, move on
- *   1  not fixed  a fresh brief is written; dispatch a NEW session on it
+ *   1  not fixed  the finding stays open, with a note on what the judge sees now
  *   2  error      lookout could not run
- *   3  blocked    attempts exhausted; stop dispatching and report it
+ *   3  blocked    attempts exhausted; it needs a person
  */
 import { loadConfig } from "../config.js";
 import { clusterKeyOf, clusterScope } from "../fix/cluster.js";
@@ -60,9 +60,8 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
     url: str(parsed.flags.url),
   });
   const elog = new EventLog(preResolved, makeRunId("verify-fix"));
-  // Join, never start: this run rules on one cluster of a board another run
-  // dispatched, and truncating here would erase every other cluster's dispatch
-  // along with whichever fix sessions are still working them.
+  // Join, never start: this run rules on one issue of a board another run
+  // defined, and truncating here would erase every other issue's narration.
   elog.join(`lookout verify-fix ${issueId}`, { issue: issueId, verb: "verify-fix" });
   setCurrentLog(elog);
   const before = await loadBacklog(preResolved);
@@ -70,7 +69,7 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
   // ruling it blocked is this verb's job.
   const cluster = findIssue(before, issueId, { statuses: ["open"] });
   if (!cluster) {
-    // Nothing open under this id: either it was never dispatched, or an
+    // Nothing open under this id: either the id matches nothing, or an
     // earlier pass already closed it. Both mean there is no work left here.
     if (parsed.flags.json) {
       printJson({ issue: issueId, verdict: "passed", reason: "no open findings under this issue" });
@@ -263,8 +262,9 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
       }
     }
   } else {
-    // Another round: spend the attempt, then rewrite the brief with what the
-    // judge sees NOW rather than what it saw when the cluster was first filed.
+    // Another round: spend the attempt. The judge note recorded with it
+    // carries what the judge sees NOW rather than what it saw when the issue
+    // was first filed.
     for (const fp of cluster.fingerprints) {
       const f = backlog.findings[fp];
       if (f) f.fixAttempts += 1;
@@ -272,7 +272,7 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
   }
   await saveBacklog(resolved, backlog);
 
-  // 4. Record the attempt, and write the next brief when there is one.
+  // 5. Record the attempt.
   const state = await loadState(resolved, issueId);
   state.attempts.push({
     n: attempt,
