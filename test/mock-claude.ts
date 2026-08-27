@@ -90,7 +90,9 @@ if (mode === "heal") {
             },
           ]
         : [],
-      cleanShotIds: rest,
+      // MOCK_SKIP_LAST drops a shot from both lists, which is a judge quietly
+      // failing to rule on it: the case the output contract exists to catch.
+      cleanShotIds: process.env.MOCK_SKIP_LAST ? rest.slice(0, -1) : rest,
     }) +
     "\n```";
 } else if (mode === "verify") {

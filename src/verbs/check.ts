@@ -1,8 +1,13 @@
 /**
  * `lookout check`: capture (unless --no-capture) then judge the evidence with
  * the local Claude Code CLI against the base rubric plus the project
- * extension. Ledger-cached per shot hash, adversarially verified for
- * critical/high, written to .lookout/evidence/judge-report.json.
+ * extension. Ledger-cached per VIEW GROUP (the comment below says why a per-shot
+ * cache was wrong), adversarially verified for critical/high, written to
+ * .lookout/evidence/judge-report.json.
+ *
+ * A batch that fails does not fail the run: it is recorded, left out of the
+ * cache so it is judged again next time, and the rest of the run stands. Only a
+ * run where every batch failed is an error, because that one judged nothing.
  *
  * Exit 1 when any confirmed AI finding or error-severity deterministic
  * finding stands; 0 when clean.
@@ -14,6 +19,7 @@ import { loadReport } from "../capture/store.js";
 import { batchShots, groupShots, judgeBatch, type AiFinding } from "../judge/engine.js";
 import { loadRubric } from "../judge/rubric.js";
 import { loadSkill } from "../skills/load.js";
+import { recordIncident } from "../skills/incidents.js";
 import {
   groupHash,
   judgeIdentity,
@@ -33,9 +39,6 @@ import { emit, EventLog, setCurrentLog } from "../report/events.js";
 /** Attempts a cluster gets before `verify-fix` blocks it. */
 export const DEFAULT_MAX_ATTEMPTS = 2;
 
-/** Shots per judge call: one view group, so findings stream per view. */
-export const DEFAULT_BATCH_SIZE = 6;
-
 export interface CheckOutcome {
   runId: string;
   model: string;
@@ -46,6 +49,14 @@ export interface CheckOutcome {
   findings: (VerifiedFinding & { cached?: boolean })[];
   refuted: { title: string; shotId: string; verifierNote: string }[];
   rejected: number;
+  /**
+   * Shots this run could not vouch for: a batch that failed, or a reply that
+   * left them out of both findings and cleanShotIds. They are not cached, and
+   * they are not clean; they were not judged.
+   */
+  unjudged: number;
+  /** Batches whose judge call failed. The run continued without them. */
+  failedBatches: { shots: number; message: string }[];
   deterministicErrors: number;
   costUsd: number;
   reportPath: string;
@@ -154,7 +165,7 @@ export async function runCheck(
   // larger batch buys nothing the judge can use and holds every finding in it
   // hostage until the whole batch returns, which on full-page screenshots ran
   // to several silent minutes.
-  const batches = batchShots(toJudge, num(parsed.flags["batch-size"]) ?? DEFAULT_BATCH_SIZE);
+  const batches = batchShots(toJudge);
   const concurrency = num(parsed.flags.concurrency) ?? 2;
   log(
     `judging ${toJudge.length} shot(s) in ${batches.length} batch(es) with model ${model} ` +
@@ -170,6 +181,9 @@ export async function runCheck(
 
   const confirmed: VerifiedFinding[] = [];
   const refuted: (AiFinding & { verifierNote: string })[] = [];
+  /** Shots no verdict can be claimed for: the batch failed, or the reply skipped them. */
+  const uncacheable = new Set<string>();
+  const failedBatches: { shots: number; message: string }[] = [];
   let rejectedCount = 0;
   let costUsd = 0;
   let batchIndex = 0;
@@ -187,9 +201,38 @@ export async function runCheck(
       const i = batchIndex++;
       if (i >= batches.length) return;
       const batch = batches[i]!;
-      const res = await judgeBatch(rubric.text, resolved.project, batch, evDir, model);
+
+      // One batch failing is not the run failing. Without this, a single
+      // timeout or unparseable reply rejected the worker, took Promise.all with
+      // it, and threw away every batch already judged before the ledger was
+      // ever written: on a long run that is minutes of judging and real money
+      // discarded because the last call went wrong. A failed batch is recorded,
+      // left out of the cache so it is judged again next time, and the run
+      // carries on.
+      let res: Awaited<ReturnType<typeof judgeBatch>>;
+      try {
+        res = await judgeBatch(rubric.text, resolved.project, batch, evDir, model);
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        for (const s of batch) uncacheable.add(s.id);
+        failedBatches.push({ shots: batch.length, message });
+        recordIncident({
+          at: new Date().toISOString(),
+          kind: "crash",
+          verb: "check",
+          message: `judge batch failed: ${message}`,
+          project: resolved.project,
+        });
+        log(`  batch ${i + 1}/${batches.length}: FAILED (${message})`);
+        emit("error", `batch ${i + 1}/${batches.length} failed: ${message}`, {}, "error");
+        continue;
+      }
       rejectedCount += res.rejected.length;
       costUsd += res.costUsd ?? 0;
+      // A shot the reply accounted for in neither list has no verdict. Caching
+      // the group as clean would make silence look like a clean bill of health,
+      // durably; leaving it out means it is judged again next run.
+      for (const id of res.unaccounted) uncacheable.add(id);
 
       // 5. Verify this batch now rather than at the end. A finding the caller
       // can act on immediately is worth more than a tidy single verify pass,
@@ -198,10 +241,21 @@ export async function runCheck(
       if (parsed.flags["no-verify"] || res.findings.length === 0) {
         batchFindings = res.findings.map((f) => ({ ...f, verified: false }));
       } else {
-        const v = await verifyFindings(refute.text, res.findings, shotsById, evDir, model);
-        batchFindings = v.confirmed;
-        refuted.push(...v.refuted);
-        costUsd += v.costUsd ?? 0;
+        try {
+          const v = await verifyFindings(refute.text, res.findings, shotsById, evDir, model);
+          batchFindings = v.confirmed;
+          refuted.push(...v.refuted);
+          costUsd += v.costUsd ?? 0;
+        } catch (e) {
+          // The refuter failing is not grounds for dropping what the judge
+          // found. The findings stand unverified, and the group is left out of
+          // the cache so a later run can still refute them.
+          batchFindings = res.findings.map((f) => ({ ...f, verified: false }));
+          for (const s of batch) uncacheable.add(s.id);
+          const message = e instanceof Error ? e.message : String(e);
+          log(`  batch ${i + 1}/${batches.length}: verifier failed (${message}); findings unverified`);
+          emit("error", `verifier failed on batch ${i + 1}: ${message}`, {}, "error");
+        }
       }
       confirmed.push(...batchFindings);
 
@@ -256,13 +310,35 @@ export async function runCheck(
   if (refuted.length > 0) log(`verifier refuted ${refuted.length} finding(s)`);
 
   // 6. Ledger: judged shots record their post-verification findings.
+  //
+  // Only groups lookout can actually vouch for. A group whose batch failed, or
+  // whose reply left a member in neither findings nor cleanShotIds, has no
+  // verdict, and writing "clean" for it would turn silence into a durable clean
+  // bill of health. Left out, it is simply judged again next run.
   const checkRunId = runId("check");
-  const judgedGroups = [...groupShots(toJudge).values()].map((members) => {
-    const ids = new Set(members.map((s) => s.id));
-    return { shots: members, findings: confirmed.filter((f) => ids.has(f.shotId)) };
-  });
+  const judgedGroups = [...groupShots(toJudge).values()]
+    .filter((members) => !members.some((s) => uncacheable.has(s.id)))
+    .map((members) => {
+      const ids = new Set(members.map((s) => s.id));
+      return { shots: members, findings: confirmed.filter((f) => ids.has(f.shotId)) };
+    });
   recordVerdicts(ledger, checkRunId, identity, judgedGroups);
   await saveLedger(resolved, ledger);
+
+  if (failedBatches.length > 0) {
+    log(
+      `${failedBatches.length} batch(es) failed and were not cached; ` +
+        "the shots they cover are judged again next run",
+    );
+  }
+  // Every batch failing is a run that judged nothing, which must not read as a
+  // clean result. One failing among several is reported and survived.
+  if (failedBatches.length > 0 && failedBatches.length === batches.length) {
+    throw new LookoutError(
+      `every judge batch failed (${batches.length})`,
+      failedBatches[0]!.message,
+    );
+  }
 
   const allFindings = [...confirmed, ...cachedFindings];
   const severityRank = { critical: 0, high: 1, medium: 2, low: 3 } as const;
@@ -283,6 +359,8 @@ export async function runCheck(
     findings: allFindings,
     refuted: refuted.map((r) => ({ title: r.title, shotId: r.shotId, verifierNote: r.verifierNote })),
     rejected: rejectedCount,
+    unjudged: uncacheable.size,
+    failedBatches,
     deterministicErrors,
     costUsd: Number(costUsd.toFixed(4)),
     reportPath,
@@ -413,8 +491,11 @@ export async function check(parsed: Parsed): Promise<number> {
     printJson(outcome);
   } else {
     console.log(
-      `\n${outcome.shotsConsidered} shot(s): ${outcome.judged} judged, ${outcome.cached} cached; ` +
-        `${outcome.findings.length} finding(s), ${outcome.refuted.length} refuted; ` +
+      `\n${outcome.shotsConsidered} shot(s): ${outcome.judged} judged, ${outcome.cached} cached` +
+        // Said out loud, because a shot nobody ruled on is not a clean shot and
+        // the difference is invisible in a finding count.
+        (outcome.unjudged > 0 ? `, ${outcome.unjudged} NOT judged` : "") +
+        `; ${outcome.findings.length} finding(s), ${outcome.refuted.length} refuted; ` +
         `${outcome.deterministicErrors} deterministic error(s); ~$${outcome.costUsd}`,
     );
     for (const f of outcome.findings) {

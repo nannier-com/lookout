@@ -68,29 +68,28 @@ describe("view groups", () => {
 });
 
 describe("batchShots", () => {
-  test("packs small groups and never straddles a view across batches", () => {
+  test("one call per view, so the prompt unit and the cache unit are the same", () => {
+    // Packing several views into one call quietly broke the cache. The rubric
+    // asks for one finding per distinct defect on the most representative shot,
+    // so a defect shared by two views in one batch was filed against one of
+    // them and put the other's shots in cleanShotIds, recording that view
+    // clean. A later scoped re-check then served "clean" from cache while the
+    // defect was still on screen.
     const shots = ["a", "b", "c"].flatMap((r) =>
       ["desktop", "phone"].map((ff) => shot(`web/app/${r}/rest/${ff}/dark`)),
     );
-    const batches = batchShots(shots, 6);
-    for (const b of batches) expect(b.length).toBeLessThanOrEqual(6);
-    expect(batches[0]!.length).toBe(6);
+    const batches = batchShots(shots);
+    expect(batches).toHaveLength(3);
+    for (const b of batches) expect(new Set(b.map(viewGroupId)).size).toBe(1);
     expect(batches.flat().length).toBe(shots.length);
-    // No view id appears in two batches.
-    const seen = new Map<string, number>();
-    batches.forEach((b, i) => {
-      for (const id of new Set(b.map(viewGroupId))) {
-        expect(seen.has(id) ? seen.get(id) : i).toBe(i);
-        seen.set(id, i);
-      }
-    });
   });
 
-  test("an oversized view ships alone and whole rather than being split", () => {
+  test("a view is never split, however many shots it has", () => {
+    // Both sides of a comparison have to reach the judge in one context.
     const big = Array.from({ length: 9 }, (_, i) =>
       shot(`web/app/big/rest/desktop/dark`, { id: `web/app/big/rest/ff${i}/dark` }),
     );
-    const batches = batchShots([shot("web/app/small/rest/desktop/dark"), ...big], 6);
+    const batches = batchShots([shot("web/app/small/rest/desktop/dark"), ...big]);
     const bigBatch = batches.find((b) => b.length === 9);
     expect(bigBatch).toBeDefined();
     expect(new Set(bigBatch!.map(viewGroupId)).size).toBe(1);
@@ -114,6 +113,34 @@ describe("judgeBatch through the mock binary", () => {
     expect(res.rejected[0]!.reason).toContain("not-a-category");
     expect(res.cleanShotIds).toEqual(["web/app/x/rest/phone/dark"]);
     expect(res.costUsd).toBeCloseTo(0.0123);
+    delete process.env.LOOKOUT_CLAUDE_BIN;
+  });
+
+  test("a shot the reply ruled on in neither list is reported, not assumed clean", async () => {
+    // The contract says every shot appears in findings or cleanShotIds, exactly
+    // so a judge that skipped one can be caught. Nothing read the result, so a
+    // skipped shot was indistinguishable from a clean one and its whole view
+    // was cached as clean, durably.
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    process.env.MOCK_MODE = "judge";
+    process.env.MOCK_SKIP_LAST = "1";
+    const shots = [
+      shot("web/app/x/rest/desktop/dark"),
+      shot("web/app/x/rest/phone/dark"),
+      shot("web/app/x/rest/tablet/dark"),
+    ];
+    const res = await judgeBatch(rubric.text, "proj", shots, "/tmp", "sonnet");
+    expect(res.unaccounted).toEqual(["web/app/x/rest/tablet/dark"]);
+    delete process.env.MOCK_SKIP_LAST;
+    delete process.env.LOOKOUT_CLAUDE_BIN;
+  });
+
+  test("a reply that accounts for every shot leaves nothing unaccounted", async () => {
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    process.env.MOCK_MODE = "judge";
+    const shots = [shot("web/app/x/rest/desktop/dark"), shot("web/app/x/rest/phone/dark")];
+    const res = await judgeBatch(rubric.text, "proj", shots, "/tmp", "sonnet");
+    expect(res.unaccounted).toEqual([]);
     delete process.env.LOOKOUT_CLAUDE_BIN;
   });
 

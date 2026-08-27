@@ -44,6 +44,16 @@ export interface AiFinding {
 export interface JudgeBatchResult {
   findings: AiFinding[];
   cleanShotIds: string[];
+  /**
+   * Shots the reply accounted for in neither `findings` nor `cleanShotIds`.
+   *
+   * The output contract requires every shot to appear in one of them, precisely
+   * so a judge that quietly skipped one can be detected. Nothing read this, so a
+   * skipped shot was indistinguishable from a clean one and was cached as clean,
+   * durably. These are the shots lookout has no verdict for, and saying so is
+   * the difference between "clean" and "not looked at".
+   */
+  unaccounted: string[];
   rejected: { reason: string; raw: unknown }[];
   raw: string;
   costUsd?: number;
@@ -242,6 +252,23 @@ export async function judgeBatch(
     .map(String)
     .filter((id) => known.has(id));
 
+  // The contract's own check: every shot was to appear in one list or the other.
+  // A shot in neither is one the judge did not rule on, and treating that as
+  // clean is the false negative this whole pipeline exists to avoid.
+  const accountedFor = new Set([...findings.map((f) => f.shotId), ...cleanShotIds]);
+  const unaccounted = shots.map((s) => s.id).filter((id) => !accountedFor.has(id));
+  if (unaccounted.length > 0) {
+    recordIncident({
+      at: new Date().toISOString(),
+      kind: "judge-rejected",
+      verb: "check",
+      message:
+        `${unaccounted.length} shot(s) appeared in neither findings nor cleanShotIds: ` +
+        unaccounted.join(", ").slice(0, 300),
+      project,
+    });
+  }
+
   // A rejected finding is work the judge did and lookout threw away, because
   // the reply did not honour the contract it was given. That is a failure of
   // the instructions, and it is only visible if it is written down.
@@ -258,7 +285,15 @@ export async function judgeBatch(
     });
   }
 
-  return { findings, cleanShotIds, rejected, raw: text, costUsd, durationMs: Date.now() - started };
+  return {
+    findings,
+    cleanShotIds,
+    unaccounted,
+    rejected,
+    raw: text,
+    costUsd,
+    durationMs: Date.now() - started,
+  };
 }
 
 function kebab(s: string): string {
@@ -290,29 +325,21 @@ export function groupShots(shots: ShotRecord[]): Map<string, ShotRecord[]> {
 }
 
 /**
- * Pack shots into judge batches with the VIEW GROUP as the atomic unit. The
- * rubric compares a view's schemes and form factors against each other, so a
- * group must never straddle two batches: an oversized group ships alone and
- * whole rather than being split.
+ * One judge call per VIEW GROUP: the same unit the rubric compares within, and
+ * the same unit the ledger caches.
+ *
+ * This used to pack several small groups into one call to save subprocesses,
+ * which quietly broke the cache. The rubric asks for one finding per distinct
+ * defect, filed on the most representative shot, with the other affected shots
+ * named in the prose. When two groups shared a batch and shared a defect, the
+ * judge filed it against one of them and the contract then put the other
+ * group's shots in `cleanShotIds`, so that view was recorded clean and a later
+ * scoped re-check served "clean" from cache while the defect stood. Keeping the
+ * prompt unit and the ledger unit identical is what makes a cached verdict mean
+ * anything.
+ *
+ * A group is never split either: a comparison needs both sides in one context.
  */
-export function batchShots(shots: ShotRecord[], maxPerBatch = 10): ShotRecord[][] {
-  const batches: ShotRecord[][] = [];
-  let current: ShotRecord[] = [];
-  const flush = (): void => {
-    if (current.length > 0) {
-      batches.push(current);
-      current = [];
-    }
-  };
-  for (const group of groupShots(shots).values()) {
-    if (group.length >= maxPerBatch) {
-      flush();
-      batches.push(group);
-      continue;
-    }
-    if (current.length + group.length > maxPerBatch) flush();
-    current.push(...group);
-  }
-  flush();
-  return batches;
+export function batchShots(shots: ShotRecord[]): ShotRecord[][] {
+  return [...groupShots(shots).values()];
 }
