@@ -255,9 +255,13 @@ lookout never edits code. The loop it is built for:
 2. Fix the code in that repo, per that repo's own conventions.
 3. `lookout check --targets x --routes /y` to re-capture and re-judge just
    the affected scope; unchanged pixels stay ledger-cached.
-4. `lookout backlog set <fingerprint> --status fixed --commit <sha>`; use
+4. `lookout verify-fix --issue <id> --commit <sha> --note "<root cause>"` is
+   the only thing that closes a finding. It rules on that issue alone: a fix
+   that clears the defect and causes another one passes, and the new defect is
+   filed as its own numbered issue with a note saying which fix surfaced it.
+5. `lookout backlog set <fingerprint> --status fixed --commit <sha>`; use
    `--status by-design --reason "..."` for intended behavior (suppressed in
    every later merge) and `--status blocked --reason "..."` after repeated
    failed attempts.
-5. `lookout backlog check` as the gate: schema, mandatory reasons, markdown
-   freshness, and drift detection all fail loud.
+6. `lookout backlog check` as the gate: schema, mandatory reasons, missing
+   issue ids, markdown freshness, and drift detection all fail loud.

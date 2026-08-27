@@ -125,7 +125,7 @@ describe("the board survives a truncated log", () => {
     expect(tally(board)).toEqual({ open: 1, verifying: 0, blocked: 1, done: 0, archived: 0 });
   });
 
-  test("a verdict recorded against a cluster survives too", async () => {
+  test("a verdict recorded against an issue survives too", async () => {
     const r = project();
     writeBacklog(r, [finding({ fixAttempts: 1 })]);
     const id = await idOf(r);
@@ -135,16 +135,37 @@ describe("the board survives a truncated log", () => {
         {
           n: 1,
           dispatchedAt: "2026-01-01T09:00:00.000Z",
-          verdict: "regressed",
-          judgeNote: "the fix introduced 2 new findings",
+          verdict: "still-open",
+          judgeNote: "the heading is still obscured",
         },
       ],
     });
     const b = (await buildBoard(r))[0]!;
-    expect(b.status).toBe("regressed");
-    expect(b.verdict).toBe("regressed");
-    expect(b.judgeNote).toContain("2 new findings");
+    expect(b.status).toBe("still-open");
+    expect(b.verdict).toBe("still-open");
+    expect(b.judgeNote).toContain("still obscured");
     expect(b.attempt).toBe(1);
+  });
+
+  test("what a fix surfaced elsewhere is recorded as history, not as a verdict", async () => {
+    const r = project();
+    writeBacklog(r, [finding()]);
+    const id = await idOf(r);
+    writeState(r, {
+      id,
+      attempts: [
+        {
+          n: 1,
+          dispatchedAt: "2026-01-01T09:00:00.000Z",
+          verdict: "passed",
+          spawned: ["418203"],
+        },
+      ],
+    });
+    const b = (await buildBoard(r))[0]!;
+    // The issue is not blamed for it: no regression, no attempt charged.
+    expect(b.timeline.some((s) => s.text === "fixing this surfaced issue 418203")).toBe(true);
+    expect(b.status).not.toBe("still-open");
   });
 
   test("an issue whose evidence is gone says so instead of inventing a date", async () => {

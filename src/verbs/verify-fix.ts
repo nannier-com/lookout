@@ -16,6 +16,7 @@
 import { loadConfig } from "../config.js";
 import { clusterKeyOf, clusterScope } from "../fix/cluster.js";
 import { findIssue } from "../issues/registry.js";
+import { spawnedIssues, stampCausedBy } from "../issues/spawned.js";
 import { loadState, saveState } from "../fix/state.js";
 import { ruleVerdict, type Verdict } from "../fix/rule.js";
 import { aiToFindings, deterministicToFindings, setStatus } from "../backlog/lib.js";
@@ -124,19 +125,6 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
   const fresh = [...aiToFindings(outcome.findings, shotsById), ...freshDeterministic];
   const stillOpen = fresh.filter((f) => clusterKeyOf(f) === cluster.key);
 
-  // A regression is a NEW defect the fix caused. A finding on a screenshot whose
-  // pixels did not move cannot have been caused by anything: it is the judge
-  // reading the same image differently today. Blaming those on the fix session
-  // burns an attempt and eventually blocks a cluster over defects it never
-  // touched, which is exactly what this check exists to prevent.
-  const regressions = fresh.filter(
-    (f) =>
-      clusterKeyOf(f) !== cluster.key &&
-      (f.severity === "critical" || f.severity === "high") &&
-      !before.findings[f.fingerprint] &&
-      f.evidence.some((e) => changedShots.has(e.shotId)),
-  );
-
   // 3. Rule.
   //
   // The load-bearing guard: nothing may PASS on unchanged pixels. If every
@@ -151,21 +139,34 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
     maxAttempts,
     changedShots: changedShots.size,
     stillOpen: stillOpen.length,
-    regressions: regressions.length,
   });
 
   const judgeNote = nothingChanged
     ? `nothing changed: all ${shotsById.size} screenshot(s) in this scope are byte-identical to the ` +
       "previous run, so no edit reached the rendered output. Either the fix was not applied, it was " +
       "applied somewhere the app does not use, or the app was not rebuilt."
-    : regressions.length > 0
-      ? `the fix introduced ${regressions.length} new finding(s): ${regressions.map((r) => r.title).join("; ")}`
-      : stillOpen.length > 0
-        ? stillOpen[0]!.observed
-        : "";
+    : stillOpen.length > 0
+      ? stillOpen[0]!.observed
+      : "";
 
   const backlog = merged.backlog;
   const runIdNow = outcome.runId;
+
+  // A defect this fix caused somewhere else is a NEW issue, with its own number
+  // and its own evidence. It is not this one regressing, and charging it here
+  // is what used to block issues whose defect had actually been fixed.
+  //
+  // The merge already filed it; what is added here is where it came from. A
+  // finding on a screenshot whose pixels did not move cannot have been caused
+  // by anything, so those are filed like any other finding and left unstamped:
+  // that is the judge reading the same image differently today.
+  const spawned = spawnedIssues(before, backlog, changedShots, cluster.id);
+  const caused = stampCausedBy(backlog, spawned, {
+    issue: cluster.id,
+    commit: reportedCommit ?? null,
+    runId: runIdNow,
+    at: nowIso(),
+  });
 
   if (verdict === "passed") {
     for (const fp of cluster.fingerprints) {
@@ -203,6 +204,7 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
       : {}),
     verdict,
     ...(judgeNote ? { judgeNote } : {}),
+    ...(caused.length > 0 ? { spawned: caused } : {}),
   });
   await saveState(resolved, state);
 
@@ -220,15 +222,27 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
     maxAttempts,
     stillOpen: stillOpen.map((f) => f.title),
     changedShots: changedShots.size,
-    regressions: regressions.map((f) => f.title),
+    // New issues this run filed. Separate work, with their own numbers; this
+    // issue's verdict does not turn on them.
+    spawned: spawned.map((s) => ({
+      issue: s.issue.id,
+      title: s.issue.title,
+      severity: s.issue.severity,
+      causedByThisFix: s.causedByThisFix,
+    })),
     judgeNote: judgeNote || null,
     commit: reportedCommit ?? null,
     next:
-      verdict === "passed"
+      (verdict === "passed"
         ? "confirmed and adjudicated; the finding is closed"
         : verdict === "blocked"
           ? "attempts exhausted; this one needs a person"
-          : "the defect is still there; the finding stays open",
+          : "the defect is still there; the finding stays open") +
+      (spawned.length > 0
+        ? `. ${spawned.length} new issue(s) were filed in this run (${spawned
+            .map((s) => s.issue.id)
+            .join(", ")}); they are separate work`
+        : ""),
     costUsd: outcome.costUsd,
   };
 
@@ -240,6 +254,12 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
         (judgeNote ? `\n  judge: ${judgeNote}` : "") +
         `\n  ${payload.next}`,
     );
+    for (const s of spawned) {
+      console.log(
+        `  new issue ${s.issue.id}: ${s.issue.title} (${s.issue.severity})` +
+          (s.causedByThisFix ? ", on pixels this fix moved" : ""),
+      );
+    }
   }
   emit("run-end", `${issueId}: ${verdict}`, { verdict });
   setCurrentLog(null);

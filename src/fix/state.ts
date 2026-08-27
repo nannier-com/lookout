@@ -29,6 +29,11 @@ export interface AttemptRecord {
   verdict?: Verdict;
   /** What the judge still saw when this attempt was ruled on. */
   judgeNote?: string;
+  /**
+   * Issues this attempt surfaced elsewhere, by id. History, not blame: this
+   * issue is not reopened, regressed or charged an attempt for them.
+   */
+  spawned?: string[];
 }
 
 export interface ClusterState {

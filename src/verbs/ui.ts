@@ -540,7 +540,7 @@ border-radius:12px;padding:13px 15px 14px;box-shadow:var(--shadow);display:flex;
 flex-direction:column;gap:9px}
 .card.verifying{border-left-color:var(--ver)}
 .card.open{border-left-color:var(--high)}
-.card.still-open,.card.regressed,.card.blocked{border-left-color:var(--crit)}
+.card.still-open,.card.blocked{border-left-color:var(--crit)}
 .card.done{border-left-color:var(--ok);opacity:.75}
 .card.archived{opacity:.65}
 .top{display:flex;align-items:center;gap:9px}
@@ -548,7 +548,7 @@ flex-direction:column;gap:9px}
 padding:3px 8px;border-radius:99px;border:1px solid var(--line);color:var(--dim);white-space:nowrap}
 .verifying .pill{color:var(--ver);border-color:var(--ver)}
 .open .pill{color:var(--high);border-color:var(--high)}
-.still-open .pill,.regressed .pill,.blocked .pill{color:var(--crit);border-color:var(--crit)}
+.still-open .pill,.blocked .pill{color:var(--crit);border-color:var(--crit)}
 .done .pill{color:var(--ok);border-color:var(--ok)}
 .verifying .pill::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;
 background:var(--ver);margin-right:6px;vertical-align:middle;animation:pulse2 1.4s infinite}
@@ -810,9 +810,6 @@ function whatLine(b){
   const n = b.attempt ? ' after ' + esc(b.attempt) + (b.attempt === 1 ? ' attempt' : ' attempts') : '';
   if (b.status === "still-open") {
     return '<div class="what">A fix was reported, but lookout still sees the defect' + n + '.</div>';
-  }
-  if (b.status === "regressed") {
-    return '<div class="what">A fix here introduced new defects' + n + '.</div>';
   }
   if (b.status === "blocked") {
     return '<div class="what">lookout ran out of attempts' + n + '. This one needs a person.</div>';

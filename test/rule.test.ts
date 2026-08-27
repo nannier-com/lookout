@@ -4,7 +4,7 @@
 import { describe, expect, test } from "bun:test";
 import { ruleVerdict } from "../src/fix/rule.js";
 
-const base = { attempt: 1, maxAttempts: 2, changedShots: 3, stillOpen: 0, regressions: 0 };
+const base = { attempt: 1, maxAttempts: 2, changedShots: 3, stillOpen: 0 };
 
 describe("ruleVerdict", () => {
   test("a real fix passes", () => {
@@ -15,8 +15,10 @@ describe("ruleVerdict", () => {
     expect(ruleVerdict({ ...base, stillOpen: 2 })).toBe("still-open");
   });
 
-  test("a new critical defect on changed pixels is a regression", () => {
-    expect(ruleVerdict({ ...base, regressions: 1 })).toBe("regressed");
+  test("a defect the fix caused elsewhere is not this issue's failure", () => {
+    // It becomes its own issue, with its own number. Charging it here blocked
+    // issues whose defect had actually been fixed.
+    expect(ruleVerdict(base)).toBe("passed");
   });
 
   test("nothing passes on unchanged pixels, however clean the judge came back", () => {
@@ -24,7 +26,7 @@ describe("ruleVerdict", () => {
     // list means it read the same image differently today, not that anything
     // was fixed. Passing here would let variance alone close real defects.
     expect(ruleVerdict({ ...base, changedShots: 0 })).toBe("still-open");
-    expect(ruleVerdict({ ...base, changedShots: 0, stillOpen: 0, regressions: 0 })).toBe("still-open");
+    expect(ruleVerdict({ ...base, changedShots: 0, stillOpen: 0 })).toBe("still-open");
   });
 
   test("unchanged pixels on the last attempt block rather than pass", () => {
@@ -33,7 +35,6 @@ describe("ruleVerdict", () => {
 
   test("the last attempt blocks instead of bouncing back", () => {
     expect(ruleVerdict({ ...base, attempt: 2, stillOpen: 1 })).toBe("blocked");
-    expect(ruleVerdict({ ...base, attempt: 2, regressions: 1 })).toBe("blocked");
   });
 
   test("a genuine fix on the last attempt still passes", () => {

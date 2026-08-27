@@ -39,7 +39,6 @@ export type IssueStatus =
   | "open"
   | "verifying"
   | "still-open"
-  | "regressed"
   | "blocked"
   /** lookout confirmed the defect is gone. */
   | "done"
@@ -53,12 +52,11 @@ export type IssueStatus =
  */
 export const ORDER_BY_ATTENTION: Record<IssueStatus, number> = {
   verifying: 0,
-  regressed: 1,
-  "still-open": 2,
-  open: 3,
-  blocked: 4,
-  done: 5,
-  archived: 6,
+  "still-open": 1,
+  open: 2,
+  blocked: 3,
+  done: 4,
+  archived: 5,
 };
 
 /**
@@ -159,9 +157,7 @@ function durableStatus(c: FixCluster, state: ClusterState): IssueStatus {
     return "archived";
   }
   const lastAttempt = state.attempts[state.attempts.length - 1];
-  if (lastAttempt?.verdict === "still-open" || lastAttempt?.verdict === "regressed") {
-    return lastAttempt.verdict;
-  }
+  if (lastAttempt?.verdict === "still-open") return "still-open";
   if (lastAttempt?.verdict === "blocked") return "blocked";
   return "open";
 }
@@ -183,6 +179,18 @@ function durableTimeline(state: ClusterState, foundAt: string | null): BoardStep
           "a fix was reported" +
           (a.reported.commit ? ` at ${a.reported.commit}` : "") +
           (a.reported.note ? `: ${a.reported.note}` : ""),
+      });
+    }
+    // What the fix surfaced elsewhere, said plainly and without blame: these
+    // are their own issues, and this one is not answerable for them.
+    if (a.spawned && a.spawned.length > 0) {
+      steps.push({
+        at: a.dispatchedAt,
+        kind: "found",
+        text:
+          a.spawned.length === 1
+            ? `fixing this surfaced issue ${a.spawned[0]}`
+            : `fixing this surfaced issues ${a.spawned.join(", ")}`,
       });
     }
     if (!a.verdict) continue;
