@@ -12,12 +12,22 @@
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
-import { fillPlaceholders, loadSkill } from "../skills/load.js";
+import { fillPlaceholders, loadSkill, shippedSkillDir } from "../skills/load.js";
 import { LookoutError, type ResolvedConfig } from "../types.js";
 
 export interface Rubric {
   text: string;
   version: number;
+  /**
+   * The design hand-off instructions, held back rather than baked in.
+   *
+   * They are a quarter of the rubric and they apply only to a shot carrying a
+   * `design:` reference, so every project without hand-offs was paying that much
+   * of every judge prompt for the most nuanced passage in the document. The
+   * prompt builder fills the `{{handoff}}` slot with this only when the batch
+   * actually has one.
+   */
+  handoff: string;
 }
 
 export const CATEGORIES = [
@@ -33,6 +43,11 @@ export const CATEGORIES = [
   "responsive",
   "anatomy",
   "consistency",
+  // The holistic band: the view as a whole reading as unfinished, rather than
+  // any one element being wrong. Added rather than replacing anything, because
+  // a category name is part of every fingerprint and cluster key in every
+  // project's backlog, and renaming one would orphan the findings under it.
+  "composition",
   "a11y",
   "content",
   "design-parity",
@@ -78,7 +93,12 @@ export async function loadRubric(resolved: ResolvedConfig): Promise<Rubric> {
       "\n";
   }
 
+  const handoffPath = join(shippedSkillDir("visual-judge"), "handoff.md");
+  const handoff = existsSync(handoffPath) ? await readFile(handoffPath, "utf8") : "";
+
   // The skill says where project rules belong; filling it here keeps them in
-  // the rubric rather than trailing the shot manifest.
-  return { text: fillPlaceholders(skill.text, { extensions }), version };
+  // the rubric rather than trailing the shot manifest. `{{handoff}}` is left
+  // for the prompt builder, which is the only thing that knows whether this
+  // batch has a design reference to compare against.
+  return { text: fillPlaceholders(skill.text, { extensions }), version, handoff };
 }

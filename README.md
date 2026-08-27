@@ -201,6 +201,8 @@ ship in the standard Agent Skill layout, one directory each:
 ```
 skills/
   visual-judge/       SKILL.md + rubric.md: what counts as a defect, and how to file it
+                      handoff.md: comparing against a design hand-off, carried
+                      only when a shot in the batch has one
   refute-finding/     SKILL.md: the adversarial pass that kills false findings
   verify-acceptance/  SKILL.md: ruling on a ticket's criteria from evidence alone
   fact-check/         SKILL.md: answering one question from screenshots
@@ -222,6 +224,34 @@ instructions together, so amending a skill, a project rubric or a `neverFile`
 line invalidates exactly the cached verdicts it could have changed, and nothing
 else. That covers the refuting skill too, because what the ledger stores is what
 survived it.
+
+### What the judge rules on
+
+The rubric sorts everything it could say into three bands, because the useful
+question is not "is this good" but "is this mine to call".
+
+**Execution defects** are filed without argument: broken, illegible,
+overlapping, clipped, unrendered.
+
+**Design quality** is filed too, on one condition: the finding must name the
+principle it breaks and what that costs the person using the screen. "The card's
+title, metadata and body are all one size and weight, so the eye has no entry
+point" is a finding; "the card looks bad" is not. This is the band a model is
+actually strongest in, because it is a judgment about the whole rather than a
+measurement, and the citation requirement is what keeps it falsifiable enough to
+verify and to write acceptance criteria for.
+
+**Product and brand decisions** are left alone: which blue, which typeface, how
+round the corners, how dense the information, the voice of the copy. lookout
+rules on what a decision does in context (a brand colour that leaves text
+unreadable is a contrast defect) and never on the decision.
+
+Two things follow from this that are worth knowing. The judge is told it cannot
+measure, because it is reading an image: it files a geometry finding only when
+the deviation is visible without looking for it, and never quotes a pixel value
+it did not read off the screen. And it is told not to rule on anything a still
+image cannot show, such as focus order, which is what the deterministic axe pass
+and the console checks are for.
 
 ### Skills that improve themselves
 

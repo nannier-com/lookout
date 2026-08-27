@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { skills } from "../src/verbs/skills.js";
 import { claimsByShot, evaluateReplay, usableCases, type RegressionSet } from "../src/skills/regression.js";
 import { gatherSignals } from "../src/skills/signals.js";
-import { projectSkillPath } from "../src/skills/load.js";
+import { projectSkillPath, shippedSkillDir } from "../src/skills/load.js";
 import { emptyBacklog, type Backlog, type BacklogFinding } from "../src/backlog/lib.js";
 import { reconcileIssues } from "../src/issues/registry.js";
 import type { AiFinding } from "../src/judge/engine.js";
@@ -219,7 +219,15 @@ describe("improving a skill, automatically", () => {
     expect(await run(r, "improve")).toBe(0);
 
     const layer = readFileSync(projectSkillPath(r, "visual-judge"), "utf8");
-    expect(layer).toContain("version: 4"); // shipped visual-judge is v3
+    // Derived, not pinned: the point is that the layer sits one above whatever
+    // lookout ships, so the composed version rises and the ledger re-judges.
+    // A literal here failed every time the shipped rubric legitimately changed.
+    const shipped = Number(
+      /version:\s*(\d+)/.exec(
+        readFileSync(join(shippedSkillDir("visual-judge"), "SKILL.md"), "utf8"),
+      )![1],
+    );
+    expect(layer).toContain(`version: ${shipped + 1}`);
     expect(layer).toContain("The marketing hero is deliberately light in both schemes.");
     expect(layer).toMatch(/## \d{4}-\d{2}-\d{2}: /); // dated heading, so history reads
     const history = readFileSync(join(r.projectDir, ".lookout", "skills", "history.jsonl"), "utf8");

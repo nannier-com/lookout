@@ -2,7 +2,14 @@
 // ledger keys, and a full engine round-trip through the mock claude binary.
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { batchShots, extractJson, groupShots, judgeBatch, viewGroupId } from "../src/judge/engine.js";
+import {
+  batchShots,
+  buildJudgePrompt,
+  extractJson,
+  groupShots,
+  judgeBatch,
+  viewGroupId,
+} from "../src/judge/engine.js";
 import { groupHash, judgeIdentity, ledgerKey } from "../src/judge/ledger.js";
 import { loadRubric } from "../src/judge/rubric.js";
 import { tmpProject } from "./tmp-project.js";
@@ -64,6 +71,51 @@ describe("view groups", () => {
       shot("web/app/home/rest/desktop/dark"),
     ]);
     expect(groups.size).toBe(3);
+  });
+});
+
+describe("the design hand-off section is carried only when it applies", () => {
+  test("a batch with no design reference does not carry the hand-off rules", () => {
+    // They are a quarter of the rubric and the most nuanced passage in it, so
+    // every project without hand-offs was paying that much of every prompt for
+    // instructions that could never fire.
+    expect(rubric.handoff.length).toBeGreaterThan(0);
+    const prompt = buildJudgePrompt(
+      rubric.text,
+      "proj",
+      [shot("web/app/x/rest/desktop/dark")],
+      "/tmp",
+      rubric.handoff,
+    );
+    expect(prompt).not.toContain("Comparing against a design hand-off");
+    // and no placeholder is left showing where it would have gone
+    expect(prompt).not.toContain("{{");
+  });
+
+  test("a batch with a design reference carries them", () => {
+    const prompt = buildJudgePrompt(
+      rubric.text,
+      "proj",
+      [shot("web/app/x/rest/desktop/dark", { design: "/designs/x.png" })],
+      "/tmp",
+      rubric.handoff,
+    );
+    expect(prompt).toContain("Comparing against a design hand-off");
+    expect(prompt).toContain("design: /designs/x.png");
+  });
+
+  test("one design reference in a batch is enough to carry them", () => {
+    const prompt = buildJudgePrompt(
+      rubric.text,
+      "proj",
+      [
+        shot("web/app/x/rest/desktop/dark"),
+        shot("web/app/x/rest/phone/dark", { design: "/designs/x.png" }),
+      ],
+      "/tmp",
+      rubric.handoff,
+    );
+    expect(prompt).toContain("Comparing against a design hand-off");
   });
 });
 
@@ -132,6 +184,25 @@ describe("judgeBatch through the mock binary", () => {
     const res = await judgeBatch(rubric.text, "proj", shots, "/tmp", "sonnet");
     expect(res.unaccounted).toEqual(["web/app/x/rest/tablet/dark"]);
     delete process.env.MOCK_SKIP_LAST;
+    delete process.env.LOOKOUT_CLAUDE_BIN;
+  });
+
+  test("composition, the holistic band, survives ingestion", async () => {
+    // Added rather than substituted: a category name is part of every
+    // fingerprint and cluster key in every backlog, so renaming one would
+    // orphan the findings filed under it.
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    process.env.MOCK_MODE = "judge";
+    process.env.MOCK_JUDGE_CATEGORY = "composition";
+    const res = await judgeBatch(
+      rubric.text,
+      "proj",
+      [shot("web/app/x/rest/desktop/dark")],
+      "/tmp",
+      "sonnet",
+    );
+    expect(res.findings.map((f) => f.category)).toEqual(["composition"]);
+    delete process.env.MOCK_JUDGE_CATEGORY;
     delete process.env.LOOKOUT_CLAUDE_BIN;
   });
 

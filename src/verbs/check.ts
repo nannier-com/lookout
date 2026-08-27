@@ -211,7 +211,7 @@ export async function runCheck(
       // carries on.
       let res: Awaited<ReturnType<typeof judgeBatch>>;
       try {
-        res = await judgeBatch(rubric.text, resolved.project, batch, evDir, model);
+        res = await judgeBatch(rubric.text, resolved.project, batch, evDir, model, rubric.handoff);
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
         for (const s of batch) uncacheable.add(s.id);

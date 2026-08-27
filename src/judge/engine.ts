@@ -148,6 +148,7 @@ export function buildJudgePrompt(
   project: string,
   shots: ShotRecord[],
   evidenceDir: string,
+  handoffText = "",
 ): string {
   const manifest = shots
     .map(
@@ -156,7 +157,12 @@ export function buildJudgePrompt(
         (s.design ? `\n  design: ${s.design}` : ""),
     )
     .join("\n");
-  return renderSkill(skillText, { project, shotCount: shots.length, manifest });
+  // Instructions for comparing against a design hand-off are a quarter of the
+  // rubric and mean nothing without one, so a batch with no `design:` reference
+  // does not carry them. Always FILLED, though: renderSkill refuses a prompt
+  // with a placeholder left in it, which is what keeps that guarantee honest.
+  const handoff = shots.some((s) => s.design) ? handoffText : "";
+  return renderSkill(skillText, { project, shotCount: shots.length, manifest, handoff });
 }
 
 const RETRY_SUFFIX =
@@ -168,9 +174,10 @@ export async function judgeBatch(
   shots: ShotRecord[],
   evidenceDir: string,
   model: string,
+  handoffText = "",
 ): Promise<JudgeBatchResult> {
   const started = Date.now();
-  const prompt = buildJudgePrompt(skillText, project, shots, evidenceDir);
+  const prompt = buildJudgePrompt(skillText, project, shots, evidenceDir, handoffText);
 
   let text = "";
   let costUsd: number | undefined;
