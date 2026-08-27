@@ -11,9 +11,10 @@
  * makes a scoped re-check trustworthy.
  *
  * A group is one target + platform + route + state, across every form factor
- * and scheme. Its key is `<groupHash>@v<version>@<model>`, where groupHash
- * covers every member's pixel hash, so any member changing re-judges the whole
- * group.
+ * and scheme. Its key is `<groupHash>@v<version>@<promptHash>@<model>`, where
+ * groupHash covers every member's pixel hash, so any member changing re-judges
+ * the whole group, and promptHash covers the instructions, so amending them
+ * re-judges everything they could have changed.
  *
  * Lives in .lookout/ledger.json (committed by projects that want cheap re-runs
  * across machines; harmless if ignored).
@@ -24,11 +25,17 @@ import { dirname, join } from "node:path";
 import type { ResolvedConfig, ShotRecord } from "../types.js";
 import { lookoutDir } from "../config.js";
 import { nowIso, sha256 } from "../util.js";
-import type { AiFinding } from "./engine.js";
+import type { VerifiedFinding } from "./verify.js";
 
 export interface LedgerEntry {
   verdict: "clean" | "findings";
-  findings?: AiFinding[];
+  /**
+   * Post-verification findings, whole. `verified` is stored rather than assumed:
+   * a `--no-verify` run records findings the refuter never saw, and medium and
+   * low findings are never refuted at all, so a cache hit that stamped them
+   * verified would report a check that did not happen.
+   */
+  findings?: VerifiedFinding[];
   /** Member shot ids, so a stale entry is readable when debugging. */
   shotIds: string[];
   judgedAt: string;
@@ -41,9 +48,11 @@ export interface Ledger {
 }
 
 const NOTE =
-  "lookout judge cache. Key = <viewGroupHash>@v<judgeSkillVersion>@<model>, where a view group is one " +
-  "target+platform+route+state across every form factor and scheme, so comparative findings never " +
-  "cache apart. Delete entries (or bump the visual-judge skill version) to force fresh judging.";
+  "lookout judge cache. Key = <viewGroupHash>@v<judgeSkillVersion>@<promptHash>@<model>, where a view " +
+  "group is one target+platform+route+state across every form factor and scheme, so comparative " +
+  "findings never cache apart, and promptHash covers the judging and refuting instructions as they " +
+  "were composed for that run. Editing a rubric, a neverFile line or either skill re-judges whatever " +
+  "it could have changed; nothing has to be bumped by hand.";
 
 export function ledgerPath(resolved: ResolvedConfig): string {
   return join(lookoutDir(resolved), "ledger.json");
@@ -61,8 +70,46 @@ export function groupHash(shots: ShotRecord[]): string {
   return sha256(new TextEncoder().encode(parts));
 }
 
-export function ledgerKey(hash: string, skillVersion: number, model: string): string {
-  return `${hash}@v${skillVersion}@${model}`;
+/**
+ * Everything except the pixels that can decide a verdict.
+ *
+ * The key used to carry the judge skill's version alone, which left three ways
+ * for a cached verdict to outlive the rules that produced it. A project rubric
+ * edited without bumping past the shipped skill's version changed the prompt and
+ * not the key. `config.neverFile` never touched a version at all. And the
+ * refuting skill's version was never in the key even though what the ledger
+ * stores IS that skill's output, so amending the refuter left every stale
+ * verdict standing.
+ *
+ * `promptHash` closes all three by covering the composed instruction text
+ * itself. The version stays in the key because somebody reading ledger.json
+ * should be able to see it without recomputing anything.
+ */
+export interface JudgeIdentity {
+  version: number;
+  /** Short sha256 over every instruction text that can change a verdict. */
+  promptHash: string;
+  model: string;
+}
+
+export function judgeIdentity(opts: {
+  version: number;
+  rubricText: string;
+  refuteText: string;
+  model: string;
+}): JudgeIdentity {
+  // NUL-separated: a prompt is markdown and never holds one, so no two texts
+  // can slide across the boundary and hash the same as a different pair.
+  const joined = `${opts.rubricText}\u0000${opts.refuteText}`;
+  return {
+    version: opts.version,
+    promptHash: sha256(new TextEncoder().encode(joined)).slice(0, 12),
+    model: opts.model,
+  };
+}
+
+export function ledgerKey(hash: string, id: JudgeIdentity): string {
+  return `${hash}@v${id.version}@${id.promptHash}@${id.model}`;
 }
 
 export async function loadLedger(resolved: ResolvedConfig): Promise<Ledger> {
@@ -92,13 +139,12 @@ export async function saveLedger(resolved: ResolvedConfig, ledger: Ledger): Prom
 export function recordVerdicts(
   ledger: Ledger,
   runId: string,
-  skillVersion: number,
-  model: string,
-  judged: { shots: ShotRecord[]; findings: AiFinding[] }[],
+  id: JudgeIdentity,
+  judged: { shots: ShotRecord[]; findings: VerifiedFinding[] }[],
 ): void {
   for (const { shots, findings } of judged) {
     if (shots.length === 0) continue;
-    ledger.entries[ledgerKey(groupHash(shots), skillVersion, model)] = {
+    ledger.entries[ledgerKey(groupHash(shots), id)] = {
       verdict: findings.length === 0 ? "clean" : "findings",
       ...(findings.length > 0 ? { findings } : {}),
       shotIds: shots.map((s) => s.id).sort(),

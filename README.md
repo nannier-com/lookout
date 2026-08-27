@@ -169,9 +169,10 @@ const config: LookoutConfig = {
   },
 
   // Project judging rules, layered into the visual-judge skill in every judge
-  // prompt. The extension can carry its own `rubricVersion: N` header; the
-  // higher of skill and extension versions keys the ledger cache, so bumping
-  // either forces fresh judging.
+  // prompt. Editing this file re-judges whatever it could have changed: the
+  // ledger is keyed on the composed prompt itself, so nothing has to be bumped
+  // by hand. An optional `rubricVersion: N` header is still read, and shows up
+  // in the key for anyone reading ledger.json.
   rubric: "./rubric.md",
 
   // One-line suppressions for things the base rubric would flag but this
@@ -216,8 +217,11 @@ layer if it has one, then its `rubric` file, then its `neverFile` lines.
 Findings outside the category vocabulary are rejected at ingestion, so project
 extensions refine judgment; they cannot invent new taxonomies.
 
-The composed `version` of the judge skill keys the ledger, so amending a skill
-invalidates exactly the cached verdicts it could have changed.
+The ledger is keyed on the composed prompt itself, judging and refuting
+instructions together, so amending a skill, a project rubric or a `neverFile`
+line invalidates exactly the cached verdicts it could have changed, and nothing
+else. That covers the refuting skill too, because what the ledger stores is what
+survived it.
 
 ### Skills that improve themselves
 

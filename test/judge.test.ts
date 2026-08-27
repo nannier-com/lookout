@@ -3,7 +3,7 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { batchShots, extractJson, groupShots, judgeBatch, viewGroupId } from "../src/judge/engine.js";
-import { groupHash, ledgerKey } from "../src/judge/ledger.js";
+import { groupHash, judgeIdentity, ledgerKey } from "../src/judge/ledger.js";
 import { loadRubric } from "../src/judge/rubric.js";
 import { tmpProject } from "./tmp-project.js";
 import type { ShotRecord } from "../src/types.js";
@@ -129,8 +129,36 @@ describe("judgeBatch through the mock binary", () => {
 });
 
 describe("ledger", () => {
-  test("key includes hash, judge skill version, and model", () => {
-    expect(ledgerKey("abc", 3, "sonnet")).toBe("abc@v3@sonnet");
+  const identity = (over: Partial<Parameters<typeof judgeIdentity>[0]> = {}) =>
+    judgeIdentity({ version: 3, rubricText: "R", refuteText: "F", model: "sonnet", ...over });
+
+  test("key includes hash, judge skill version, prompt hash, and model", () => {
+    const id = identity();
+    expect(ledgerKey("abc", id)).toBe(`abc@v3@${id.promptHash}@sonnet`);
+  });
+
+  test("editing the rubric invalidates the verdicts it could have changed", () => {
+    // The hole this closes: the key carried the skill VERSION, so a project
+    // rubric edited without bumping past the shipped version, and every
+    // neverFile change (which touches no version at all), left cached verdicts
+    // standing that were formed under different rules.
+    expect(identity({ rubricText: "R2" }).promptHash).not.toBe(identity().promptHash);
+  });
+
+  test("amending the refuting skill invalidates them too", () => {
+    // The ledger stores POST-refutation findings, so the refuter's instructions
+    // are an input to every entry. Its version was never in the key.
+    expect(identity({ refuteText: "F2" }).promptHash).not.toBe(identity().promptHash);
+  });
+
+  test("the two texts cannot be transposed into the same hash", () => {
+    expect(identity({ rubricText: "AB", refuteText: "C" }).promptHash).not.toBe(
+      identity({ rubricText: "A", refuteText: "BC" }).promptHash,
+    );
+  });
+
+  test("the same instructions give the same key, so the cache still hits", () => {
+    expect(identity().promptHash).toBe(identity().promptHash);
   });
 
   test("group hash is order-independent", () => {

@@ -14,7 +14,14 @@ import { loadReport } from "../capture/store.js";
 import { batchShots, groupShots, judgeBatch, type AiFinding } from "../judge/engine.js";
 import { loadRubric } from "../judge/rubric.js";
 import { loadSkill } from "../skills/load.js";
-import { groupHash, ledgerKey, loadLedger, recordVerdicts, saveLedger } from "../judge/ledger.js";
+import {
+  groupHash,
+  judgeIdentity,
+  ledgerKey,
+  loadLedger,
+  recordVerdicts,
+  saveLedger,
+} from "../judge/ledger.js";
 import { verifyFindings, type VerifiedFinding } from "../judge/verify.js";
 import { LookoutError, type ResolvedConfig, type Severity, type ShotRecord } from "../types.js";
 import { list, num, printJson, runId, str, type Parsed } from "../util.js";
@@ -113,12 +120,22 @@ export async function runCheck(
   // it compares against. Per-shot caching made a scoped re-check report a
   // dark/light or responsive finding as gone when only its partner had changed,
   // which is exactly the false "fixed" the auto loop must never see.
+  const identity = judgeIdentity({
+    version: rubric.version,
+    rubricText: rubric.text,
+    refuteText: refute.text,
+    model,
+  });
   for (const group of groupShots(shots).values()) {
-    const entry = ledger.entries[ledgerKey(groupHash(group), rubric.version, model)];
+    const entry = ledger.entries[ledgerKey(groupHash(group), identity)];
     if (entry && !group.some((s) => s.animated)) {
       cached += group.length;
       for (const f of entry.findings ?? []) {
-        cachedFindings.push({ ...f, verified: true, cached: true });
+        // `verified` is read back, not asserted. A --no-verify run records
+        // findings the refuter never saw, and medium and low findings are never
+        // refuted at all, so stamping true here reported a check that had not
+        // happened, in the one field that says how much to trust the finding.
+        cachedFindings.push({ ...f, verified: f.verified ?? false, cached: true });
       }
     } else {
       toJudge.push(...group);
@@ -244,7 +261,7 @@ export async function runCheck(
     const ids = new Set(members.map((s) => s.id));
     return { shots: members, findings: confirmed.filter((f) => ids.has(f.shotId)) };
   });
-  recordVerdicts(ledger, checkRunId, rubric.version, model, judgedGroups);
+  recordVerdicts(ledger, checkRunId, identity, judgedGroups);
   await saveLedger(resolved, ledger);
 
   const allFindings = [...confirmed, ...cachedFindings];
