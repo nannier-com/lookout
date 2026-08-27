@@ -15,6 +15,8 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig, lookoutDir } from "../config.js";
 import { loadReport } from "../capture/store.js";
+import { reconcileIssues } from "../issues/registry.js";
+import { materializeIssues } from "../issues/store.js";
 import {
   aiToFindings,
   checkBacklog,
@@ -38,18 +40,34 @@ export function markdownPath(resolved: ResolvedConfig): string {
   return join(lookoutDir(resolved), "BACKLOG.md");
 }
 
+/**
+ * The backlog, with every root cause holding an id.
+ *
+ * Reconciling on load repairs a backlog written before ids existed, and writes
+ * the repair straight back: an id drawn at random and then forgotten would come
+ * back different next time, and the folder named after the first one would be
+ * orphaned. Minting happens here and in save, and nowhere else.
+ */
 export async function loadBacklog(resolved: ResolvedConfig): Promise<Backlog> {
   const p = backlogPath(resolved);
   if (!existsSync(p)) return emptyBacklog(resolved.project, nowIso());
-  return JSON.parse(await readFile(p, "utf8")) as Backlog;
+  const backlog = JSON.parse(await readFile(p, "utf8")) as Backlog;
+  const minted = reconcileIssues(backlog, nowIso());
+  if (minted.length > 0) await saveBacklog(resolved, backlog);
+  return backlog;
 }
 
 export async function saveBacklog(resolved: ResolvedConfig, backlog: Backlog): Promise<void> {
+  reconcileIssues(backlog, nowIso());
   const p = backlogPath(resolved);
   const tmp = `${p}.tmp`;
   await writeFile(tmp, JSON.stringify(backlog, null, 2));
   await rename(tmp, p);
   await writeFile(markdownPath(resolved), renderMarkdown(backlog));
+  // The folders are a projection of what was just written, so they are written
+  // with it. A save that left them behind would leave `.lookout/issues/` saying
+  // something the backlog no longer does.
+  await materializeIssues(resolved, backlog);
 }
 
 /** Merge the latest evidence + judge results; shared with `lookout check`. */

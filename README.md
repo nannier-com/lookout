@@ -111,7 +111,7 @@ cluster ids and verdicts while the subagent carries the evidence.
 When a session reports back, lookout rules on the claim:
 
 ```bash
-lookout verify-fix --cluster <id> --commit <sha> --note "<root cause>"
+lookout verify-fix --issue <id> --commit <sha> --note "<root cause>"
 ```
 
 That re-captures and re-judges only that cluster's routes. Exit `0` means the
@@ -240,6 +240,9 @@ invalidates exactly the cached verdicts it could have changed.
   backlog.json     committed: adjudicated findings (managed via `lookout backlog`)
   BACKLOG.md       committed: generated report (regen via `lookout backlog regen`)
   ledger.json      committed if you want cross-machine judge caching
+  issues/<id>/     committed: one folder per issue, named by its six-digit id
+                     issue.json, ISSUE.md, state.json committed;
+                     shots/ and recheck/ gitignored with the evidence
   skills/          committed: this project's layer over lookout's shipped skills
   evidence/        gitignored: screenshots + capture-report.json + judge-report.json
 ```

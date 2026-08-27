@@ -19,6 +19,8 @@ import type {
 import type { AiFinding } from "../judge/engine.js";
 import { CATEGORIES, type Category } from "../judge/rubric.js";
 import { routeSlug } from "../capture/store.js";
+import { clusterKeyOf } from "../fix/cluster.js";
+import { isIssueId } from "../issues/id.js";
 
 export type FindingStatus = "open" | "fixed" | "by-design" | "blocked";
 export type Channel = "ai" | "deterministic" | "code";
@@ -58,19 +60,48 @@ export interface BacklogFinding {
   fixedIn: { commit: string | null; runId: string } | null;
 }
 
+/**
+ * One issue: a root cause, its six-digit id, and where that id came from.
+ *
+ * The id is random, so unlike the `key` it cannot be recomputed. This registry
+ * is the only place it exists, which is why it lives in backlog.json (committed)
+ * rather than under evidence/ (gitignored): one `git clean` there would re-roll
+ * every id and orphan every issue folder on disk.
+ *
+ * Nothing is ever pruned. An issue that was fixed years ago keeps its number,
+ * so a commit message or a conversation that names it still resolves.
+ */
+export interface IssueRecord {
+  /** Six digits. The handle for `verify-fix --issue` and the folder name. */
+  id: string;
+  /** The deterministic cluster key this id was minted for. */
+  key: string;
+  createdAt: string;
+  /**
+   * Set when this issue was first seen in the run that verified a fix for
+   * another one, on a screenshot whose pixels that fix had moved. Provenance,
+   * not blame: the issue that caused it is not reopened or marked regressed.
+   */
+  causedBy?: { issue: string; commit: string | null; runId: string; at: string };
+}
+
 export interface Backlog {
   note: string;
   project: string;
   updatedAt: string;
   findings: Record<string, BacklogFinding>;
+  /** Issue ids by id. Assigned once, never reused, never pruned. */
+  issues: Record<string, IssueRecord>;
 }
 
 export const BACKLOG_NOTE =
   "lookout findings backlog. Every finding carries a status; by-design and blocked require prose reasons. " +
+  "Findings group into issues, each with a six-digit id minted once and never reused; the id names the " +
+  "issue's folder under .lookout/issues/. " +
   "Managed by `lookout backlog` (merge/set/reopen/regen/check); edit through the CLI, not by hand.";
 
 export function emptyBacklog(project: string, now: string): Backlog {
-  return { note: BACKLOG_NOTE, project, updatedAt: now, findings: {} };
+  return { note: BACKLOG_NOTE, project, updatedAt: now, findings: {}, issues: {} };
 }
 
 // ---------------------------------------------------------------------------
@@ -292,7 +323,14 @@ export function setStatus(
 // ---------------------------------------------------------------------------
 
 export interface CheckProblem {
-  kind: "schema" | "reason-missing" | "unknown-category" | "stale-md" | "drift-resolved";
+  kind:
+    | "schema"
+    | "reason-missing"
+    | "unknown-category"
+    | "stale-md"
+    | "drift-resolved"
+    | "issue-missing"
+    | "issue-schema";
   fingerprint?: string;
   message: string;
 }
@@ -314,6 +352,37 @@ export function checkBacklog(
     }
     if (!["open", "fixed", "by-design", "blocked"].includes(f.status)) {
       problems.push({ kind: "schema", fingerprint: fp, message: `unknown status "${f.status}"` });
+    }
+  }
+
+  // Every root cause holds an id, and every id is well formed and holds the
+  // key it was minted for. A finding whose issue is missing has a folder
+  // nobody can find and an id nobody can type.
+  const issues = backlog.issues ?? {};
+  const keysWithIds = new Set<string>();
+  for (const [id, record] of Object.entries(issues)) {
+    if (id !== record.id) {
+      problems.push({ kind: "issue-schema", message: `issue key "${id}" != id "${record.id}"` });
+    }
+    if (!isIssueId(record.id)) {
+      problems.push({ kind: "issue-schema", message: `issue id "${record.id}" is not six digits` });
+    }
+    if (keysWithIds.has(record.key)) {
+      problems.push({
+        kind: "issue-schema",
+        message: `two issues claim the root cause "${record.key}"`,
+      });
+    }
+    keysWithIds.add(record.key);
+  }
+  for (const [fp, f] of Object.entries(backlog.findings)) {
+    const key = clusterKeyOf(f);
+    if (!keysWithIds.has(key)) {
+      problems.push({
+        kind: "issue-missing",
+        fingerprint: fp,
+        message: `no issue id for root cause "${key}"; run \`lookout backlog regen\``,
+      });
     }
   }
 
@@ -369,6 +438,13 @@ export function stats(backlog: Backlog): {
 
 export function renderMarkdown(backlog: Backlog): string {
   const s = stats(backlog);
+  // The number people actually use, on the report people actually read. It is
+  // also the folder holding this finding's screenshots and its history.
+  const idFor = (f: BacklogFinding): string => {
+    const key = clusterKeyOf(f);
+    const record = Object.values(backlog.issues ?? {}).find((r) => r.key === key);
+    return record?.id ?? "";
+  };
   const all = Object.values(backlog.findings);
   const sorted = (list: BacklogFinding[]) =>
     [...list].sort(
@@ -377,14 +453,15 @@ export function renderMarkdown(backlog: Backlog): string {
         a.fingerprint.localeCompare(b.fingerprint),
     );
   const row = (f: BacklogFinding) =>
-    `| \`${f.fingerprint}\` | ${f.severity} | ${f.channel}${f.verified ? " (verified)" : ""} | ${f.title.replace(/\|/g, "\\|")} | ${f.evidence[f.evidence.length - 1]?.path ?? ""} |`;
+    `| ${idFor(f)} | \`${f.fingerprint}\` | ${f.severity} | ${f.channel}${f.verified ? " (verified)" : ""} | ${f.title.replace(/\|/g, "\\|")} | ${f.evidence[f.evidence.length - 1]?.path ?? ""} |`;
 
   const lines: string[] = [
     "<!-- Generated by `lookout backlog regen`. Do not edit by hand. -->",
     "",
     `# lookout backlog: ${backlog.project}`,
     "",
-    `Updated ${backlog.updatedAt}. ${s.total} finding(s): ${s.byStatus.open} open, ${s.byStatus.fixed} fixed, ${s.byStatus["by-design"]} by design, ${s.byStatus.blocked} blocked.`,
+    `Updated ${backlog.updatedAt}. ${s.total} finding(s) in ${Object.keys(backlog.issues ?? {}).length} issue(s): ` +
+      `${s.byStatus.open} open, ${s.byStatus.fixed} fixed, ${s.byStatus["by-design"]} by design, ${s.byStatus.blocked} blocked.`,
     `Open by severity: ${s.bySeverityOpen.critical} critical, ${s.bySeverityOpen.high} high, ${s.bySeverityOpen.medium} medium, ${s.bySeverityOpen.low} low.`,
     "",
   ];
@@ -396,13 +473,13 @@ export function renderMarkdown(backlog: Backlog): string {
       return;
     }
     lines.push(
-      "| fingerprint | severity | channel | title | evidence |",
-      "| --- | --- | --- | --- | --- |",
+      "| issue | fingerprint | severity | channel | title | evidence |",
+      "| --- | --- | --- | --- | --- | --- |",
     );
     for (const f of sorted(list)) {
       lines.push(row(f));
       if (withReason && f.reason) {
-        lines.push(`| | | | reason: ${f.reason.replace(/\|/g, "\\|")} | |`);
+        lines.push(`| | | | | reason: ${f.reason.replace(/\|/g, "\\|")} | |`);
       }
     }
     lines.push("");

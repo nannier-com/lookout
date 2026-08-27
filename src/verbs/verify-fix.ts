@@ -1,5 +1,5 @@
 /**
- * `lookout verify-fix --cluster <id>`: the oracle's ruling on a claimed fix.
+ * `lookout verify-fix --issue <id>`: the oracle's ruling on a claimed fix.
  *
  * A fix session never grades its own work. It edits, commits, and reports; this
  * verb re-captures the cluster's own routes, re-judges them, and decides. The
@@ -14,10 +14,11 @@
  *   3  blocked    attempts exhausted; stop dispatching and report it
  */
 import { loadConfig } from "../config.js";
-import { clusterFindings, clusterIdOf, clusterScope, type FixCluster } from "../fix/cluster.js";
+import { clusterKeyOf, clusterScope } from "../fix/cluster.js";
+import { findIssue } from "../issues/registry.js";
 import { loadState, saveState } from "../fix/state.js";
 import { ruleVerdict, type Verdict } from "../fix/rule.js";
-import { aiToFindings, deterministicToFindings, setStatus, type Backlog } from "../backlog/lib.js";
+import { aiToFindings, deterministicToFindings, setStatus } from "../backlog/lib.js";
 import { loadReport } from "../capture/store.js";
 import { loadBacklog, mergeLatest, saveBacklog } from "./backlog.js";
 import { runCheck, DEFAULT_MAX_ATTEMPTS } from "./check.js";
@@ -35,18 +36,10 @@ async function headSha(cwd: string): Promise<string | undefined> {
   }
 }
 
-function findCluster(backlog: Backlog, id: string): FixCluster | undefined {
-  // No attempt cap here: a cluster at its cap must still be findable, because
-  // ruling it blocked is this verb's job.
-  return clusterFindings(Object.values(backlog.findings), { statuses: ["open"] }).find(
-    (c) => c.id === id,
-  );
-}
-
 export async function verifyFix(parsed: Parsed): Promise<number> {
-  const clusterId = str(parsed.flags.cluster) ?? parsed.positionals[0];
-  if (!clusterId) {
-    throw new LookoutError("verify-fix needs --cluster <id>", "ids come from `lookout status` or the UI");
+  const issueId = str(parsed.flags.issue) ?? parsed.positionals[0];
+  if (!issueId) {
+    throw new LookoutError("verify-fix needs --issue <id>", "ids come from `lookout status` or the UI");
   }
   const maxAttempts = num(parsed.flags["max-attempts"]) ?? DEFAULT_MAX_ATTEMPTS;
 
@@ -58,17 +51,19 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
   // Join, never start: this run rules on one cluster of a board another run
   // dispatched, and truncating here would erase every other cluster's dispatch
   // along with whichever fix sessions are still working them.
-  elog.join(`lookout verify-fix ${clusterId}`, { cluster: clusterId, verb: "verify-fix" });
+  elog.join(`lookout verify-fix ${issueId}`, { issue: issueId, verb: "verify-fix" });
   setCurrentLog(elog);
   const before = await loadBacklog(preResolved);
-  const cluster = findCluster(before, clusterId);
+  // No attempt cap here: an issue at its cap must still be findable, because
+  // ruling it blocked is this verb's job.
+  const cluster = findIssue(before, issueId, { statuses: ["open"] });
   if (!cluster) {
     // Nothing open under this id: either it was never dispatched, or an
     // earlier pass already closed it. Both mean there is no work left here.
     if (parsed.flags.json) {
-      printJson({ cluster: clusterId, verdict: "passed", reason: "no open findings under this cluster" });
+      printJson({ issue: issueId, verdict: "passed", reason: "no open findings under this issue" });
     } else {
-      console.log(`${clusterId}: passed (no open findings under this cluster)`);
+      console.log(`${issueId}: passed (no open findings under this issue)`);
     }
     return 0;
   }
@@ -127,7 +122,7 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
       })
     : [];
   const fresh = [...aiToFindings(outcome.findings, shotsById), ...freshDeterministic];
-  const stillOpen = fresh.filter((f) => clusterIdOf(f) === clusterId);
+  const stillOpen = fresh.filter((f) => clusterKeyOf(f) === cluster.key);
 
   // A regression is a NEW defect the fix caused. A finding on a screenshot whose
   // pixels did not move cannot have been caused by anything: it is the judge
@@ -136,7 +131,7 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
   // touched, which is exactly what this check exists to prevent.
   const regressions = fresh.filter(
     (f) =>
-      clusterIdOf(f) !== clusterId &&
+      clusterKeyOf(f) !== cluster.key &&
       (f.severity === "critical" || f.severity === "high") &&
       !before.findings[f.fingerprint] &&
       f.evidence.some((e) => changedShots.has(e.shotId)),
@@ -199,7 +194,7 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
   await saveBacklog(resolved, backlog);
 
   // 4. Record the attempt, and write the next brief when there is one.
-  const state = await loadState(resolved, clusterId);
+  const state = await loadState(resolved, issueId);
   state.attempts.push({
     n: attempt,
     dispatchedAt: nowIso(),
@@ -213,13 +208,13 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
 
   emit(
     "verdict",
-    `${clusterId}: ${verdict} (attempt ${attempt} of ${maxAttempts})`,
-    { cluster: clusterId, verdict, attempt, maxAttempts, judgeNote },
+    `${issueId}: ${verdict} (attempt ${attempt} of ${maxAttempts})`,
+    { issue: issueId, verdict, attempt, maxAttempts, judgeNote },
     verdict === "passed" ? "info" : "error",
   );
   const exit = verdict === "passed" ? 0 : verdict === "blocked" ? 3 : 1;
   const payload = {
-    cluster: clusterId,
+    issue: issueId,
     verdict,
     attempt,
     maxAttempts,
@@ -241,12 +236,12 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
     printJson(payload);
   } else {
     console.log(
-      `\n${clusterId}: ${verdict} (attempt ${attempt} of ${maxAttempts})` +
+      `\n${issueId}: ${verdict} (attempt ${attempt} of ${maxAttempts})` +
         (judgeNote ? `\n  judge: ${judgeNote}` : "") +
         `\n  ${payload.next}`,
     );
   }
-  emit("run-end", `${clusterId}: ${verdict}`, { verdict });
+  emit("run-end", `${issueId}: ${verdict}`, { verdict });
   setCurrentLog(null);
   return exit;
 }

@@ -7,20 +7,28 @@
  * sessions race each other to the same edit.
  *
  * A cluster is one target + category + attribute. That is the unit of work a
- * fix session is given, and the unit `verify-fix` rules on. Its id is derived
- * from the key alone, so it stays the same across attempts and runs for as long
- * as the defect exists.
+ * fix session is given, and the unit `verify-fix` rules on. Its KEY is derived
+ * from those axes alone, so a defect re-found next week clusters onto the same
+ * key it had today.
+ *
+ * Its ID is six random digits, minted once against that key and kept in the
+ * backlog registry. The key is the identity lookout computes; the id is the
+ * name people use. Keeping both means a re-found defect still merges (the key
+ * decides that) while the number on the folder, the handoff and the commit
+ * message never moves.
  */
 import type { BacklogFinding, FindingStatus } from "../backlog/lib.js";
 import { routeSlug } from "../capture/store.js";
-import type { Severity } from "../types.js";
+import { LookoutError, type Severity } from "../types.js";
 import type { Category } from "../judge/rubric.js";
 
 const SEVERITY_RANK: Record<Severity, number> = { critical: 0, high: 1, medium: 2, low: 3 };
 
 export interface FixCluster {
-  /** Stable handle: the `--cluster` argument and the brief's filename. */
+  /** Six digits: the `--issue` argument, the folder name, what people say. */
   id: string;
+  /** Derived identity: target + category + attribute. What dedupe turns on. */
+  key: string;
   target: string;
   category: Category;
   attribute: string;
@@ -55,7 +63,7 @@ export function slug(s: string): string {
     .slice(0, 60);
 }
 
-export function clusterIdOf(
+export function clusterKeyOf(
   f: Pick<BacklogFinding, "target" | "category" | "attribute" | "channel" | "route">,
 ): string {
   // Deterministic accessibility findings are keyed by axe rule id, which names
@@ -79,6 +87,13 @@ export interface ClusterOptions {
   maxAttempts?: number;
   /** Restrict to these targets. */
   targets?: string[];
+  /**
+   * Issue id by cluster key. Every key present in the backlog has one: the
+   * registry is reconciled whenever the backlog is loaded or saved. A missing
+   * one is a bug in that reconciliation, not a state to render around, so it
+   * throws rather than producing a nameless issue.
+   */
+  issueIds?: Record<string, string>;
 }
 
 /**
@@ -98,14 +113,21 @@ export function clusterFindings(
     if (!statuses.includes(f.status)) continue;
     if (SEVERITY_RANK[f.severity] > cap) continue;
     if (opts.targets && !opts.targets.includes(f.target)) continue;
-    const id = clusterIdOf(f);
-    const arr = byId.get(id) ?? [];
+    const key = clusterKeyOf(f);
+    const arr = byId.get(key) ?? [];
     arr.push(f);
-    byId.set(id, arr);
+    byId.set(key, arr);
   }
 
   const clusters: FixCluster[] = [];
-  for (const [id, members] of byId) {
+  for (const [key, members] of byId) {
+    const id = opts.issueIds?.[key];
+    if (id === undefined) {
+      throw new LookoutError(
+        `issue key "${key}" has no id`,
+        "the backlog's issue registry is out of step; run `lookout backlog regen`",
+      );
+    }
     const sorted = [...members].sort(
       (a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity],
     );
@@ -125,6 +147,7 @@ export function clusterFindings(
     const routes = [...new Set(members.map((m) => m.route))].sort();
     clusters.push({
       id,
+      key,
       target: worst.target,
       category: worst.category,
       attribute: worst.attribute,
@@ -154,7 +177,7 @@ export function clusterFindings(
     (a, b) =>
       SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] ||
       b.shotCount - a.shotCount ||
-      a.id.localeCompare(b.id),
+      a.key.localeCompare(b.key),
   );
 }
 

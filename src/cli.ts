@@ -17,7 +17,7 @@
  *   doctor    check prerequisites (claude CLI, chromium, sharp, simctl, adb)
  *
  * Exit codes: 0 clean, 1 findings or failed criteria or failing checks,
- * 2 execution error. verify-fix adds 3 for a cluster blocked after exhausting
+ * 2 execution error. verify-fix adds 3 for an issue blocked after exhausting
  * its attempts.
  */
 import { LookoutError } from "./types.js";
@@ -90,7 +90,7 @@ function help(): void {
       "\n  lookout targets --url http://localhost:8081" +
       "\n  lookout capture --targets docs --routes /components/button" +
       "\n  lookout check" +
-      "\n  lookout verify-fix --cluster app--contrast--body-text --commit <sha>" +
+      "\n  lookout verify-fix --issue 418203 --commit <sha>" +
       '\n  lookout verify --criteria ticket.md --targets app' +
       '\n  lookout ask "does the sidebar collapse below 640px?" --targets app' +
       "\n\nlookout is run by agents, of any make. Run `lookout protocol` for the" +

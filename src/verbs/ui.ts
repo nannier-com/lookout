@@ -66,7 +66,7 @@ function diskKey(resolved: ResolvedConfig): string {
   for (const p of [
     join(lookoutRoot(resolved), "backlog.json"),
     join(evidenceDir(resolved), "events.jsonl"),
-    join(evidenceDir(resolved), "fix"),
+    join(lookoutRoot(resolved), "issues"),
   ]) {
     try {
       const st = statSync(p);
@@ -553,6 +553,9 @@ padding:3px 8px;border-radius:99px;border:1px solid var(--line);color:var(--dim)
 .verifying .pill::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;
 background:var(--ver);margin-right:6px;vertical-align:middle;animation:pulse2 1.4s infinite}
 @keyframes pulse2{50%{opacity:.2}}
+.issueid{font:11.5px/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dim);
+background:var(--sunk);border:1px solid var(--line);border-radius:6px;padding:3px 7px;
+font-variant-numeric:tabular-nums;letter-spacing:.04em}
 .tick{margin-left:auto;font:12px/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--faint);
 font-variant-numeric:tabular-nums;white-space:nowrap}
 .title{font-size:14.5px;font-weight:640;margin:0;line-height:1.35;word-break:break-word}
@@ -775,10 +778,14 @@ function feed(b){
 // somebody who then has to open these files.
 function paths(b){
   const rows = [];
+  // The folder first: it holds the issue's document, its record, its
+  // screenshots and its attempt history, which is the whole point of numbering
+  // issues. The evidence-store paths follow for anyone who wants the originals.
+  if (b.dir) rows.push(b.dir);
   for (const s of b.shots) rows.push(s.absPath);
   for (const s of b.recheck) rows.push(s.absPath);
   if (!rows.length) return "";
-  return '<div class="evi"><h4>Evidence on disk</h4><div class="paths">'
+  return '<div class="evi"><h4>On disk</h4><div class="paths">'
     + rows.map(p => '<div>' + esc(p) + '</div>').join("") + '</div></div>';
 }
 
@@ -823,7 +830,9 @@ function card(b){
     : '<span class="tick faint">no evidence on disk</span>';
   const judge = b.judgeNote ? '<div class="note"><b>judge:</b> ' + esc(b.judgeNote) + '</div>' : "";
   return '<article class="card ' + esc(b.status) + '">'
-    + '<div class="top"><span class="pill">' + esc(b.status) + '</span>' + seen + '</div>'
+    + '<div class="top"><span class="pill">' + esc(b.status) + '</span>'
+    + '<span class="issueid" title="issue id: verify-fix --issue ' + esc(b.id) + '">'
+    + esc(b.id) + '</span>' + seen + '</div>'
     + '<div class="meta"><button type="button" class="launch" data-launch="' + esc(b.id) + '"'
     + ' aria-label="Open in ' + esc(toolLabel()) + '"'
     + ' title="Open this issue in ' + esc(toolLabel()) + '">'

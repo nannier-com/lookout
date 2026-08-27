@@ -355,8 +355,8 @@ export function summarise(events: LookoutEvent[]): RunStatus {
           seenFirstRun = true;
           s.startedAt = e.at;
           s.phase = "starting";
-        } else if (typeof e.data?.cluster === "string" && e.data.verb === "verify-fix") {
-          s.phase = `re-judging ${e.data.cluster}`;
+        } else if (typeof e.data?.issue === "string" && e.data.verb === "verify-fix") {
+          s.phase = `re-judging ${e.data.issue}`;
         }
         s.running = true;
         s.endedAt = null;

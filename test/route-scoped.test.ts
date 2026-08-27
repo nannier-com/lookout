@@ -15,7 +15,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadBacklog, mergeLatest } from "../src/verbs/backlog.js";
-import { clusterFindings } from "../src/fix/cluster.js";
+import { issuesOf } from "../src/issues/registry.js";
 import type { ResolvedConfig } from "../src/types.js";
 
 function project(): ResolvedConfig {
@@ -95,7 +95,7 @@ describe("a route's issues are all filed", () => {
     // All three, not the worst one. lookout captured and judged this route
     // already; dropping two of its findings would report it as healthier than
     // it found it, and make somebody pay to judge the same views again.
-    expect(clusterFindings(Object.values(b.findings))).toHaveLength(3);
+    expect(issuesOf(b)).toHaveLength(3);
   });
 
   test("what the checks found and what the judge found both stand", async () => {
@@ -114,7 +114,7 @@ describe("a route's issues are all filed", () => {
       judgeOutcome: { runId: "r1", findings: [aiFinding()] } as never,
     });
     const b = await loadBacklog(r);
-    const cats = clusterFindings(Object.values(b.findings))
+    const cats = issuesOf(b)
       .map((c) => c.category)
       .sort();
     expect(cats).toEqual(["a11y", "color-scheme"]);
@@ -130,7 +130,7 @@ describe("a route's issues are all filed", () => {
       } as never,
     });
     const b = await loadBacklog(r);
-    const clusters = clusterFindings(Object.values(b.findings));
+    const clusters = issuesOf(b);
     expect(clusters).toHaveLength(1);
     expect(clusters[0]!.members).toHaveLength(2);
   });

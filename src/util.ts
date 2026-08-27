@@ -149,3 +149,13 @@ export async function probe(url: string, timeoutMs = 15_000): Promise<number | n
     clearTimeout(t);
   }
 }
+
+/** Is a binary actually on PATH? */
+export async function have(bin: string): Promise<boolean> {
+  try {
+    await execFileAsync("command", ["-v", bin], { shell: true } as never);
+    return true;
+  } catch {
+    return false;
+  }
+}

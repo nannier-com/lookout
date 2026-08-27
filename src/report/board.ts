@@ -20,7 +20,9 @@
 import { statSync } from "node:fs";
 import { join } from "node:path";
 import { evidenceDir } from "../config.js";
-import { clusterFindings, type FixCluster } from "../fix/cluster.js";
+import { issueDir } from "../issues/paths.js";
+import type { FixCluster } from "../fix/cluster.js";
+import { issuesOf } from "../issues/registry.js";
 import { clusterLabel } from "../fix/brief.js";
 import { loadState, type ClusterState } from "../fix/state.js";
 import { loadBacklog } from "../verbs/backlog.js";
@@ -84,7 +86,12 @@ export interface BoardStep {
 }
 
 export interface BoardEntry {
+  /** Six digits. What the card shows, and what `--issue` takes. */
   id: string;
+  /** The derived key behind it, for anyone debugging why two things grouped. */
+  key: string;
+  /** The issue's folder, absolute: everything about it is in there. */
+  dir: string;
   label: string;
   routes: string[];
   severity: string;
@@ -225,7 +232,7 @@ function liveVerify(events: LookoutEvent[]): { cluster: string | null; steps: Bo
   let steps: BoardStep[] = [];
   for (const e of events) {
     if (e.kind === "run-start" && e.data?.verb === "verify-fix") {
-      cluster = typeof e.data.cluster === "string" ? e.data.cluster : null;
+      cluster = typeof e.data.issue === "string" ? e.data.issue : null;
       runId = e.runId;
       steps = [{ at: e.at, kind: "verify", text: "lookout started re-judging this" }];
       continue;
@@ -262,11 +269,9 @@ export async function buildBoard(
   events?: LookoutEvent[],
 ): Promise<BoardEntry[]> {
   const backlog = await loadBacklog(resolved);
-  // No attempt cap: a cluster that exhausted its attempts is blocked, and
+  // No attempt cap: an issue that exhausted its attempts is blocked, and
   // blocked work is exactly what somebody looking at this needs to see.
-  const clusters = clusterFindings(Object.values(backlog.findings), {
-    statuses: ["open", "blocked", "fixed", "by-design"],
-  });
+  const clusters = issuesOf(backlog);
 
   const durable = await Promise.all(
     clusters.map(async (c): Promise<BoardEntry> => {
@@ -275,6 +280,8 @@ export async function buildBoard(
       const lastAttempt = state.attempts[state.attempts.length - 1];
       return {
         id: c.id,
+        key: c.key,
+        dir: issueDir(resolved, c.id),
         label: clusterLabel(c),
         routes: c.routes,
         severity: c.severity,

@@ -1,7 +1,13 @@
 // Auto-mode tests: root-cause clustering, brief rendering, and the dispatch
 // plan an orchestrating session reads.
 import { describe, expect, test } from "bun:test";
-import { clusterFindings, clusterIdOf, clusterScope, slug } from "../src/fix/cluster.js";
+import {
+  clusterFindings,
+  clusterKeyOf,
+  clusterScope,
+  slug,
+  type ClusterOptions,
+} from "../src/fix/cluster.js";
 import { deterministicToFindings, type BacklogFinding } from "../src/backlog/lib.js";
 import type { CaptureReport, ShotRecord } from "../src/types.js";
 
@@ -47,14 +53,30 @@ function finding(over: Partial<BacklogFinding> = {}): BacklogFinding {
   } as BacklogFinding;
 }
 
-describe("cluster ids", () => {
+/**
+ * clusterFindings does not mint ids: it is handed them, because a random id has
+ * to be drawn once and remembered, not recomputed on every call. These tests
+ * are about grouping, so they hand it a synthetic map. The ids are deliberately
+ * unlike the keys, so a test that confuses the two fails.
+ */
+function cluster(findings: BacklogFinding[], opts: ClusterOptions = {}) {
+  const issueIds: Record<string, string> = {};
+  let n = 100000;
+  for (const f of findings) {
+    const key = clusterKeyOf(f);
+    if (!(key in issueIds)) issueIds[key] = String(++n);
+  }
+  return clusterFindings(findings, { ...opts, issueIds });
+}
+
+describe("cluster keys", () => {
   test("slug is filename and argv safe", () => {
     expect(slug("Color Scheme/Not Switching!")).toBe("color-scheme-not-switching");
   });
 
-  test("id derives from target, category and attribute alone, so it is stable", () => {
-    const a = clusterIdOf(finding({ route: "/login" }));
-    const b = clusterIdOf(finding({ route: "/settings" }));
+  test("the key derives from target, category and attribute alone, so it is stable", () => {
+    const a = clusterKeyOf(finding({ route: "/login" }));
+    const b = clusterKeyOf(finding({ route: "/settings" }));
     expect(a).toBe(b);
     expect(a).toBe("app--color-scheme--theme-not-switching");
   });
@@ -65,7 +87,7 @@ describe("clusterFindings", () => {
     const findings = ["/login", "/settings", "/home"].flatMap((route) =>
       ["desktop", "phone"].map((ff) => finding({ route, formFactor: ff as BacklogFinding["formFactor"] })),
     );
-    const clusters = clusterFindings(findings);
+    const clusters = cluster(findings);
     expect(clusters.length).toBe(1);
     expect(clusters[0]!.shotCount).toBe(6);
     expect(clusters[0]!.routes).toEqual(["/home", "/login", "/settings"]);
@@ -73,7 +95,7 @@ describe("clusterFindings", () => {
   });
 
   test("different attributes stay separate units of work", () => {
-    const clusters = clusterFindings([
+    const clusters = cluster([
       finding(),
       finding({ fingerprint: "x", category: "spacing", attribute: "button-gap", severity: "medium" }),
     ]);
@@ -81,7 +103,7 @@ describe("clusterFindings", () => {
   });
 
   test("worst severity first, then broadest blast radius", () => {
-    const clusters = clusterFindings([
+    const clusters = cluster([
       finding({ fingerprint: "a", category: "spacing", attribute: "gap", severity: "high" }),
       finding({ fingerprint: "b", severity: "critical" }),
       finding({ fingerprint: "c", route: "/two", severity: "critical" }),
@@ -98,7 +120,7 @@ describe("clusterFindings", () => {
       finding({ fingerprint: "c", category: "contrast", attribute: "body", severity: "high", status: "by-design" }),
       finding({ fingerprint: "d", category: "a11y", attribute: "target", severity: "high", fixAttempts: 2 }),
     ];
-    const clusters = clusterFindings(set, { minSeverity: "high", maxAttempts: 2 });
+    const clusters = cluster(set, { minSeverity: "high", maxAttempts: 2 });
     expect(clusters.map((c) => c.attribute)).toEqual(["gap"]);
   });
 });
@@ -119,14 +141,16 @@ describe("co-located accessibility violations", () => {
   }
 
   test("rules firing on one route group into a single unit of work", () => {
-    const clusters = clusterFindings([
+    const clusters = cluster([
       axe("aria-required-children"),
       axe("aria-required-parent"),
       axe("nested-interactive"),
       axe("button-name"),
     ]);
     expect(clusters.length).toBe(1);
-    expect(clusters[0]!.id).toBe("app--identities--a11y");
+    expect(clusters[0]!.key).toBe("app--identities--a11y");
+    // The id is a name, not the identity: six digits, minted elsewhere.
+    expect(clusters[0]!.id).not.toBe(clusters[0]!.key);
     expect(clusters[0]!.defects.length).toBe(4);
     // Four rules, one screenshot: the brief must not list it four times.
     expect(clusters[0]!.shotCount).toBe(1);
@@ -135,24 +159,23 @@ describe("co-located accessibility violations", () => {
   });
 
   test("different routes stay separate, since they are different components", () => {
-    const clusters = clusterFindings([axe("document-title", "/dashboard"), axe("button-name", "/identities")]);
+    const clusters = cluster([axe("document-title", "/dashboard"), axe("button-name", "/identities")]);
     expect(clusters.length).toBe(2);
   });
 
   test("a judged a11y finding still clusters by its described attribute", () => {
     const judged = finding({ category: "a11y", attribute: "touch-target-size", channel: "ai" });
-    expect(clusterIdOf(judged)).toBe("app--a11y--touch-target-size");
+    expect(clusterKeyOf(judged)).toBe("app--a11y--touch-target-size");
   });
 
 });
 
-describe("cluster ids are channel-stable", () => {
-  // The regression: `verify-fix` compares a cluster against freshly captured
+describe("cluster keys are channel-stable", () => {
+  // The regression: `verify-fix` compares an issue against freshly captured
   // findings. A rule violation comes back through the deterministic channel,
   // not the judge, so if a re-captured axe finding did not land on the same
-  // cluster id it came from, every accessibility cluster would pass while
-  // still firing.
-  test("a re-captured axe violation lands on the cluster it came from", () => {
+  // key it came from, every accessibility issue would pass while still firing.
+  test("a re-captured axe violation lands on the issue it came from", () => {
     const shot = {
       id: "web/app/identities/rest/desktop/dark",
       target: "app",
@@ -183,7 +206,7 @@ describe("cluster ids are channel-stable", () => {
     const [refound] = deterministicToFindings({ shots: [shot] } as unknown as CaptureReport);
     expect(refound).toBeDefined();
     expect(refound!.channel).toBe("deterministic");
-    expect(clusterIdOf(refound!)).toBe("app--identities--a11y");
+    expect(clusterKeyOf(refound!)).toBe("app--identities--a11y");
   });
 });
 

@@ -13,12 +13,14 @@ import { join } from "node:path";
 import { buildBoard, severityTally, tally } from "../src/report/board.js";
 import { EventLog } from "../src/report/events.js";
 import type { BacklogFinding } from "../src/backlog/lib.js";
-import type { ClusterState } from "../src/fix/state.js";
+import { statePath, type ClusterState } from "../src/fix/state.js";
+import { issueByKey } from "../src/issues/registry.js";
+import { loadBacklog } from "../src/verbs/backlog.js";
 import type { ResolvedConfig } from "../src/types.js";
 
 function project(): ResolvedConfig {
   const dir = mkdtempSync(join(tmpdir(), "lookout-durable-"));
-  mkdirSync(join(dir, ".lookout", "evidence", "fix"), { recursive: true });
+  mkdirSync(join(dir, ".lookout", "evidence"), { recursive: true });
   return {
     config: {} as ResolvedConfig["config"],
     configPath: join(dir, ".lookout/config.ts"),
@@ -81,10 +83,21 @@ function writeBacklog(r: ResolvedConfig, findings: BacklogFinding[]): void {
 }
 
 function writeState(r: ResolvedConfig, state: ClusterState): void {
-  writeFileSync(
-    join(r.projectDir, ".lookout", "evidence", "fix", `${state.id}.state.json`),
-    JSON.stringify(state),
-  );
+  const p = statePath(r, state.id);
+  mkdirSync(join(p, ".."), { recursive: true });
+  writeFileSync(p, JSON.stringify(state));
+}
+
+/**
+ * The id lookout minted for a root cause. Random by design, so a test that
+ * needs it has to ask rather than name it; loading the backlog is what mints
+ * it, exactly as any verb would.
+ */
+async function idOf(r: ResolvedConfig, key = "app--a11y--contrast"): Promise<string> {
+  const backlog = await loadBacklog(r);
+  const record = issueByKey(backlog, key);
+  if (!record) throw new Error(`no issue for key ${key}`);
+  return record.id;
 }
 
 describe("the board survives a truncated log", () => {
@@ -115,7 +128,7 @@ describe("the board survives a truncated log", () => {
   test("a verdict recorded against a cluster survives too", async () => {
     const r = project();
     writeBacklog(r, [finding({ fixAttempts: 1 })]);
-    const id = "app--a11y--contrast";
+    const id = await idOf(r);
     writeState(r, {
       id,
       attempts: [
@@ -159,12 +172,12 @@ describe("the log only marks what is in flight", () => {
   test("a re-judge in flight is the one status only the log knows", async () => {
     const r = project();
     writeBacklog(r, [finding()]);
-    const id = "app--a11y--contrast";
+    const id = await idOf(r);
     const log = new EventLog(r, "check-1");
     log.start("lookout check");
     log.emit("run-end", "done");
     const verify = new EventLog(r, "verify-1");
-    verify.join("lookout verify-fix", { cluster: id, verb: "verify-fix" });
+    verify.join("lookout verify-fix", { issue: id, verb: "verify-fix" });
 
     const b = (await buildBoard(r))[0]!;
     expect(b.status).toBe("verifying");
@@ -179,10 +192,7 @@ describe("the log only marks what is in flight", () => {
     log.start("lookout check");
     log.emit("run-end", "done");
     const verify = new EventLog(r, "verify-1");
-    verify.join("lookout verify-fix", {
-      cluster: "app--a11y--contrast",
-      verb: "verify-fix",
-    });
+    verify.join("lookout verify-fix", { issue: await idOf(r), verb: "verify-fix" });
     // The backlog says blocked, and it wins over anything in flight.
     expect((await buildBoard(r))[0]!.status).toBe("blocked");
   });

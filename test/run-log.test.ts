@@ -55,7 +55,7 @@ describe("the headline describes the run that captured the evidence", () => {
     const events = checkRun();
     events.push(
       ev("verify-1", "run-start", "lookout verify-fix", {
-        cluster: "app--a11y--contrast",
+        issue: "418203",
         verb: "verify-fix",
       }),
       ev("verify-1", "shot", "app/dash desktop dark", shot("/dash", "desktop", "dark")),
@@ -65,18 +65,18 @@ describe("the headline describes the run that captured the evidence", () => {
     // Two in the check, two more in the re-check: it stays 2, not 4.
     expect(s.shots).toBe(2);
     expect(s.findings.high).toBe(1);
-    expect(s.phase).toBe("re-judging app--a11y--contrast");
+    expect(s.phase).toBe("re-judging 418203");
   });
 
   test("a re-judge names its issue rather than echoing its raw run message", () => {
     const events = checkRun();
     events.push(
-      ev("verify-1", "run-start", "lookout verify-fix app--a11y--contrast", {
-        cluster: "app--a11y--contrast",
+      ev("verify-1", "run-start", "lookout verify-fix 418203", {
+        issue: "418203",
         verb: "verify-fix",
       }),
     );
-    expect(summarise(events).phase).toBe("re-judging app--a11y--contrast");
+    expect(summarise(events).phase).toBe("re-judging 418203");
   });
 });
 
@@ -96,7 +96,7 @@ describe("a run that was killed is not reported as live", () => {
     const events = checkRun().filter((e) => e.kind !== "run-end");
     events.push(
       ev("verify-1", "run-start", "lookout verify-fix", {
-        cluster: "app--a11y--contrast",
+        issue: "418203",
         verb: "verify-fix",
       }),
       ev("verify-1", "phase", "judging"),
@@ -135,8 +135,8 @@ describe("one log, several processes", () => {
     check.emit("run-end", "done");
 
     const verify = new EventLog(resolved, "verify-1");
-    verify.join("lookout verify-fix a", { cluster: "a", verb: "verify-fix" });
-    verify.emit("verdict", "a: passed", { cluster: "a", verdict: "passed", attempt: 1 });
+    verify.join("lookout verify-fix a", { issue: "418203", verb: "verify-fix" });
+    verify.emit("verdict", "a: passed", { issue: "418203", verdict: "passed", attempt: 1 });
 
     const events = readEvents(resolved);
     expect(events.filter((e) => e.kind === "finding")).toHaveLength(1);
@@ -172,7 +172,7 @@ describe("one log, several processes", () => {
     writeFileSync(path, readFileSync(path, "utf8") + noise.join("\n") + "\n");
 
     new EventLog(resolved, "verify-1").join("lookout verify-fix a", {
-      cluster: "a",
+      issue: "418203",
       verb: "verify-fix",
     });
 

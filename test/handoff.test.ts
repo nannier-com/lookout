@@ -9,14 +9,18 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { renderHandoff, TOOLS, toolsAvailable } from "../src/report/handoff.js";
+import { launchHandoff, TOOLS, toolsAvailable } from "../src/report/handoff.js";
+import { renderIssueDocument } from "../src/issues/document.js";
+import { issuesOf } from "../src/issues/registry.js";
+import { issueDir } from "../src/issues/paths.js";
+import { loadBacklog } from "../src/verbs/backlog.js";
 import { allRuleFiles, globalRuleFiles } from "../src/fix/rules.js";
 import type { BacklogFinding } from "../src/backlog/lib.js";
 import type { ResolvedConfig } from "../src/types.js";
 
 function project(): ResolvedConfig {
   const dir = mkdtempSync(join(tmpdir(), "lookout-handoff-"));
-  mkdirSync(join(dir, ".lookout", "evidence", "fix"), { recursive: true });
+  mkdirSync(join(dir, ".lookout", "evidence"), { recursive: true });
   return {
     config: {} as ResolvedConfig["config"],
     configPath: join(dir, ".lookout/config.ts"),
@@ -77,10 +81,23 @@ function withBacklog(findings: BacklogFinding[]): ResolvedConfig {
   return r;
 }
 
+/**
+ * The document for the one issue in this backlog. Ids are minted on load, so
+ * the test asks which one it got rather than naming it: that is the whole point
+ * of a random id.
+ */
+async function issueDoc(r: ResolvedConfig): Promise<{ markdown: string; id: string }> {
+  const backlog = await loadBacklog(r);
+  const cluster = issuesOf(backlog)[0];
+  if (!cluster) throw new Error("no issue in this backlog");
+  const { markdown } = await renderIssueDocument(r, cluster);
+  return { markdown, id: cluster.id };
+}
+
 describe("a handoff stands on its own", () => {
   test("every path in it is absolute, because somebody has to open them", async () => {
     const r = withBacklog([finding()]);
-    const { markdown } = await renderHandoff(r, "app--layout-overflow--header-icon-overlap");
+    const { markdown } = await issueDoc(r);
     const paths = markdown.match(/^\s*-?\s*(\/[^\s,]+\.png)/gm) ?? [];
     expect(paths.length).toBeGreaterThan(0);
     for (const p of paths) expect(p.trim().replace(/^-\s*/, "").startsWith("/")).toBe(true);
@@ -92,7 +109,7 @@ describe("a handoff stands on its own", () => {
 
   test("it carries the judge's own words, not a summary of them", async () => {
     const r = withBacklog([finding()]);
-    const { markdown } = await renderHandoff(r, "app--layout-overflow--header-icon-overlap");
+    const { markdown } = await issueDoc(r);
     expect(markdown).toContain("A dark circular badge sits on top of the 'R' in 'Recent activity'.");
     expect(markdown).toContain("The heading should be legible and unobstructed.");
     expect(markdown).toContain("Two circular icons overlap the section header.");
@@ -101,7 +118,7 @@ describe("a handoff stands on its own", () => {
 
   test("it prescribes nothing except not trusting your own say-so", async () => {
     const r = withBacklog([finding()]);
-    const { markdown } = await renderHandoff(r, "app--layout-overflow--header-icon-overlap");
+    const { markdown, id } = await issueDoc(r);
     // The whole point of the re-scoping: lookout hands over a document, it does
     // not hand out orders. No subagents, no protocol, no dispatch.
     for (const word of ["subagent", "spawn", "dispatch", "brief", "protocol"]) {
@@ -112,12 +129,10 @@ describe("a handoff stands on its own", () => {
     // that actually runs: "lookout" is not on PATH in a source checkout, and a
     // handoff telling an agent to run a command that does not exist is worse
     // than one that says nothing.
-    expect(markdown).toContain(
-      "verify-fix --cluster app--layout-overflow--header-icon-overlap --commit <sha>",
-    );
+    expect(markdown).toContain(`verify-fix --issue ${id} --commit <sha>`);
     const cmd = markdown
       .split("\n")
-      .find((l) => l.includes("verify-fix --cluster"))!;
+      .find((l: string) => l.includes("verify-fix --issue"))!;
     expect(cmd.startsWith("lookout ") || cmd.includes("cli.js")).toBe(true);
   });
 
@@ -141,7 +156,7 @@ describe("a handoff stands on its own", () => {
         ],
       }),
     ]);
-    const { markdown } = await renderHandoff(r, "app--layout-overflow--header-icon-overlap");
+    const { markdown } = await issueDoc(r);
     expect(markdown).toContain("Header icons collide with the activity row");
     // Both captures are named, so whoever opens this sees the whole defect.
     expect(markdown).toContain("rest--phone-dark.png");
@@ -151,7 +166,15 @@ describe("a handoff stands on its own", () => {
 
   test("an id nobody filed is an error, not an empty document", async () => {
     const r = withBacklog([finding()]);
-    await expect(renderHandoff(r, "app--nope--nope")).rejects.toThrow("no issue with id");
+    await expect(launchHandoff(r, "404040", "codex")).rejects.toThrow("no issue with id");
+  });
+
+  test("the document names the folder that holds everything about the issue", async () => {
+    const r = withBacklog([finding()]);
+    const { markdown, id } = await issueDoc(r);
+    expect(id).toMatch(/^[1-9][0-9]{5}$/);
+    expect(markdown).toContain(`issue:      ${id}`);
+    expect(markdown).toContain(`folder:     ${issueDir(r, id)}`);
   });
 });
 
@@ -233,7 +256,7 @@ describe("a handoff names the rules that govern the work", () => {
   test("the handoff lists them by absolute path, before the defect", async () => {
     const r = withBacklog([finding()]);
     writeFileSync(join(r.projectDir, "CLAUDE.md"), "# project rules\n");
-    const { markdown } = await renderHandoff(r, "app--layout-overflow--header-icon-overlap");
+    const { markdown } = await issueDoc(r);
     expect(markdown).toContain("## Read these first");
     expect(markdown).toContain(join(r.projectDir, "CLAUDE.md"));
     // Before the evidence, because an agent that edits first has already done
