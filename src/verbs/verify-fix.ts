@@ -15,7 +15,7 @@
  */
 import { loadConfig } from "../config.js";
 import { clusterKeyOf, clusterScope } from "../fix/cluster.js";
-import { findIssue } from "../issues/registry.js";
+import { findIssue, issueById } from "../issues/registry.js";
 import { spawnedIssues, stampCausedBy } from "../issues/spawned.js";
 import { loadState, saveState } from "../fix/state.js";
 import { acceptanceTally, blocksPass } from "../issues/acceptance.js";
@@ -30,7 +30,13 @@ import { MAX_VERIFY_SHOTS, verifyCriteria } from "../judge/criteria.js";
 import { loadSkill } from "../skills/load.js";
 import { evidenceDir } from "../config.js";
 import { ruleVerdict, type Verdict } from "../fix/rule.js";
-import { aiToFindings, deterministicToFindings, setStatus } from "../backlog/lib.js";
+import {
+  aiToFindings,
+  deterministicToFindings,
+  setStatus,
+  type Backlog,
+  type BacklogFinding,
+} from "../backlog/lib.js";
 import { loadReport } from "../capture/store.js";
 import { loadBacklog, mergeLatest, saveBacklog } from "./backlog.js";
 import { runCheck, DEFAULT_MAX_ATTEMPTS } from "./check.js";
@@ -46,6 +52,102 @@ async function headSha(cwd: string): Promise<string | undefined> {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * The answer when nothing is open under this id.
+ *
+ * These cases used to share one: "passed", exit 0. That made the verb an
+ * orchestrating session gates on lie in the two places it must not. An id
+ * lookout has never heard of, a typo or one carried over from another project,
+ * read as a fix confirmed, so the session moved on from work nothing had
+ * verified. And an issue already ruled blocked reported success rather than the
+ * exit 3 that exists to stop it being dispatched again.
+ */
+export function noOpenWork(backlog: Backlog, issueId: string, json = false): number {
+  const record = issueById(backlog, issueId);
+  if (!record) {
+    throw new LookoutError(
+      `no issue "${issueId}" in this backlog`,
+      "ids come from `lookout status`, `lookout ui`, or the folders under .lookout/issues/",
+    );
+  }
+
+  const members = Object.values(backlog.findings).filter((f) => clusterKeyOf(f) === record.key);
+  if (members.length === 0) {
+    throw new LookoutError(
+      `issue ${issueId} has no findings`,
+      "its id outlived the findings it was minted for; run `lookout backlog check`",
+    );
+  }
+
+  const blocked = members.filter((m) => m.status === "blocked");
+  if (blocked.length > 0) {
+    const reason = blocked.find((m) => m.reason)?.reason ?? "attempts were exhausted";
+    const next = "this one needs a person; stop dispatching it";
+    if (json) {
+      printJson({ issue: issueId, verdict: "blocked", reason, next });
+    } else {
+      console.log(`${issueId}: blocked\n  ${reason}\n  ${next}`);
+    }
+    return 3;
+  }
+
+  // Everything here is already fixed or ruled by-design. That is a clean answer,
+  // but it is not a fix THIS run verified, and calling it "passed" would let a
+  // session record a verification that never happened.
+  const statuses = [...new Set(members.map((m) => m.status))].sort();
+  const next = "nothing to verify; this issue was closed before this run";
+  if (json) {
+    printJson({ issue: issueId, verdict: "already-adjudicated", statuses, next });
+  } else {
+    console.log(`${issueId}: already adjudicated (${statuses.join(", ")})\n  ${next}`);
+  }
+  return 0;
+}
+
+/**
+ * Every shot lookout holds a previous hash for, from either source.
+ *
+ * `.lookout/evidence/` is gitignored and routinely cleaned, and an empty
+ * baseline made every fresh shot look changed, which switched the pixels-moved
+ * guard OFF exactly when it was needed: a wiped evidence directory would let
+ * judge variance alone pass an issue. backlog.json is committed and its evidence
+ * refs carry the hash each finding was filed against, so they outlive the
+ * pixels. The report is fresher, so it wins where both know a shot.
+ */
+export function baselineHashes(
+  priorShots: readonly { id: string; hash: string }[],
+  findings: readonly BacklogFinding[],
+): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const f of findings) {
+    // Later refs win: evidence is appended in capture order.
+    for (const ev of f.evidence) out.set(ev.shotId, ev.hash);
+  }
+  for (const sh of priorShots) out.set(sh.id, sh.hash);
+  return out;
+}
+
+/**
+ * Drop findings somebody already ruled intentional.
+ *
+ * A by-design sibling under an issue's own cluster key re-fires on every
+ * capture, because an intentional defect is still there by definition. Counting
+ * it held the issue open however well the real defect had been fixed, and then
+ * blocked it with a reason claiming a defect persists that somebody had already
+ * ruled intended. `mergeFindings` suppresses these; the verdict has to as well.
+ */
+export function withoutByDesign<T extends { fingerprint: string }>(
+  fresh: readonly T[],
+  backlog: Backlog,
+): T[] {
+  const byDesign = new Set(
+    Object.values(backlog.findings)
+      .filter((f) => f.status === "by-design")
+      .map((f) => f.fingerprint),
+  );
+  return fresh.filter((f) => !byDesign.has(f.fingerprint));
 }
 
 export async function verifyFix(parsed: Parsed): Promise<number> {
@@ -69,14 +171,11 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
   // ruling it blocked is this verb's job.
   const cluster = findIssue(before, issueId, { statuses: ["open"] });
   if (!cluster) {
-    // Nothing open under this id: either the id matches nothing, or an
-    // earlier pass already closed it. Both mean there is no work left here.
-    if (parsed.flags.json) {
-      printJson({ issue: issueId, verdict: "passed", reason: "no open findings under this issue" });
-    } else {
-      console.log(`${issueId}: passed (no open findings under this issue)`);
-    }
-    return 0;
+    // Nothing open under this id, which is four different answers rather than
+    // the one "passed" they used to share.
+    const code = noOpenWork(before, issueId, !!parsed.flags.json);
+    setCurrentLog(null);
+    return code;
   }
 
   const attempt = cluster.attemptsSpent + 1;
@@ -87,9 +186,7 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
   // Pixel hashes are deterministic, and they are what separates "the fixer
   // changed something" from "the judge said something different today".
   const priorReport = await loadReport(preResolved);
-  const priorHashes = new Map<string, string>(
-    (priorReport?.shots ?? []).map((sh) => [sh.id, sh.hash]),
-  );
+  const priorHashes = baselineHashes(priorReport?.shots ?? [], Object.values(before.findings));
   const reportedCommit = str(parsed.flags.commit) ?? (await headSha(preResolved.projectDir));
   const reportedNote = str(parsed.flags.note);
 
@@ -121,10 +218,18 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
   const latestShots = new Set(
     (report?.shots ?? []).filter((sh) => sh.runId === latestRun?.id).map((sh) => sh.id),
   );
+  // A shot with no baseline at all is not evidence of change: it is evidence of
+  // nothing. Counting it as changed is what let a cleaned evidence directory
+  // satisfy the guard. Kept separate so the verdict and the criterion can both
+  // say which of the two they are looking at.
   const changedShots = new Set<string>();
+  const noBaseline = new Set<string>();
   for (const sh of shotsById.values()) {
-    if (priorHashes.get(sh.id) !== sh.hash) changedShots.add(sh.id);
+    const prior = priorHashes.get(sh.id);
+    if (prior === undefined) noBaseline.add(sh.id);
+    else if (prior !== sh.hash) changedShots.add(sh.id);
   }
+  const baselineShots = shotsById.size - noBaseline.size;
 
   const freshDeterministic = report
     ? deterministicToFindings({
@@ -133,8 +238,11 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
       })
     : [];
   const fresh = [...aiToFindings(outcome.findings, shotsById), ...freshDeterministic];
-  const stillOpen = fresh.filter((f) => clusterKeyOf(f) === cluster.key);
   const backlog = merged.backlog;
+  const stillOpen = withoutByDesign(
+    fresh.filter((f) => clusterKeyOf(f) === cluster.key),
+    backlog,
+  );
   const runIdNow = outcome.runId;
 
   // 3. Rule this issue's acceptance criteria against the fresh evidence.
@@ -193,6 +301,7 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
     criteria,
     changedShots: changedShots.size,
     totalShots: shotsById.size,
+    baselineShots,
     deterministic: { freshFingerprints, recapturedFingerprints },
     judged,
     ruledAt: nowIso(),
@@ -219,9 +328,13 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
   });
 
   const judgeNote = nothingChanged
-    ? `nothing changed: all ${shotsById.size} screenshot(s) in this scope are byte-identical to the ` +
-      "previous run, so no edit reached the rendered output. Either the fix was not applied, it was " +
-      "applied somewhere the app does not use, or the app was not rebuilt."
+    ? baselineShots === 0
+      ? `no baseline: none of the ${shotsById.size} screenshot(s) in this scope have a previous ` +
+        "capture to compare against, so lookout cannot tell whether the fix reached the rendered " +
+        "output. Run `lookout check` on this scope first, then verify."
+      : `nothing changed: all ${baselineShots} comparable screenshot(s) in this scope are ` +
+        "byte-identical to the previous run, so no edit reached the rendered output. Either the fix " +
+        "was not applied, it was applied somewhere the app does not use, or the app was not rebuilt."
     : stillOpen.length > 0
       ? stillOpen[0]!.observed
       : unmet.length > 0
@@ -300,6 +413,7 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
     maxAttempts,
     stillOpen: stillOpen.map((f) => f.title),
     changedShots: changedShots.size,
+    baselineShots,
     // New issues this run filed. Separate work, with their own numbers; this
     // issue's verdict does not turn on them.
     spawned: spawned.map((s) => ({

@@ -128,6 +128,7 @@ describe("ruling them", () => {
   const base = {
     changedShots: 2,
     totalShots: 4,
+    baselineShots: 4,
     deterministic: { freshFingerprints: new Set<string>(), recapturedFingerprints: new Set(["fp"]) },
     judged: new Map(),
     ruledAt: "2026-01-01T00:00:00.000Z",
@@ -175,6 +176,21 @@ describe("ruling them", () => {
     const nothingMoved = ruleAcceptance({ ...base, criteria: [universal], changedShots: 0 })[0]!;
     expect(nothingMoved.verdict).toBe("unmet");
     expect(nothingMoved.note).toContain("byte-identical");
+  });
+
+  test("no baseline to compare is not verifiable, and does not claim byte-identical", () => {
+    // A cleaned evidence directory leaves nothing to compare against. Claiming
+    // the shots are byte-identical there would be a statement about pixels
+    // lookout has never seen.
+    const out = ruleAcceptance({
+      ...base,
+      criteria: [universal],
+      changedShots: 0,
+      baselineShots: 0,
+    })[0]!;
+    expect(out.verdict).toBe("not-verifiable");
+    expect(out.note).not.toContain("byte-identical");
+    expect(blocksPass([out])).toHaveLength(0);
   });
 
   test("a judge criterion the verifier never reached keeps its verdict and blocks nothing", () => {

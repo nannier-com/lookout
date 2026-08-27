@@ -29,6 +29,13 @@ export interface RuleAcceptanceInput {
   criteria: AcceptanceCriterion[];
   changedShots: number;
   totalShots: number;
+  /**
+   * Shots in scope that had a previous hash to compare against. Zero means the
+   * pixels-moved question cannot be asked at all (a cleaned evidence directory,
+   * a route never captured before), which is `not-verifiable` rather than the
+   * "byte-identical" this used to claim.
+   */
+  baselineShots: number;
   deterministic: DeterministicOutcome;
   /** Verdicts for the judge-authored criteria, by criterion id. */
   judged: Map<string, JudgedCriterion>;
@@ -42,21 +49,35 @@ export function ruleAcceptance(input: RuleAcceptanceInput): AcceptanceCriterion[
 
   return input.criteria.map((c): AcceptanceCriterion => {
     if (c.source === "universal") {
-      return input.changedShots > 0
-        ? {
-            ...c,
-            ...stamp,
-            verdict: "met",
-            note: `${input.changedShots} of ${input.totalShots} screenshot(s) changed.`,
-          }
-        : {
-            ...c,
-            ...stamp,
-            verdict: "unmet",
-            note:
-              `all ${input.totalShots} screenshot(s) are byte-identical to the previous run, ` +
-              "so no edit reached the rendered output.",
-          };
+      if (input.changedShots > 0) {
+        return {
+          ...c,
+          ...stamp,
+          verdict: "met",
+          note: `${input.changedShots} of ${input.totalShots} screenshot(s) changed.`,
+        };
+      }
+      // Nothing to compare against is not the same as nothing changed. Saying
+      // "byte-identical" with no baseline would be a claim about pixels lookout
+      // has never seen.
+      if (input.baselineShots === 0) {
+        return {
+          ...c,
+          ...stamp,
+          verdict: "not-verifiable",
+          note:
+            `none of the ${input.totalShots} screenshot(s) in scope have a previous capture to ` +
+            "compare against, so whether an edit reached the rendered output cannot be decided.",
+        };
+      }
+      return {
+        ...c,
+        ...stamp,
+        verdict: "unmet",
+        note:
+          `all ${input.baselineShots} comparable screenshot(s) are byte-identical to the ` +
+          "previous run, so no edit reached the rendered output.",
+      };
     }
 
     if (c.source === "derived") {
