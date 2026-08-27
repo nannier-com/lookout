@@ -97,7 +97,9 @@ export async function replayRegression(
   let costUsd = 0;
   const raw: AiFinding[] = [];
   for (const batch of batchShots(shots)) {
-    const res = await judgeBatch(rubric.text, resolved.project, batch, dir, model, rubric.handoff);
+    const res = await judgeBatch(rubric.text, resolved.project, batch, dir, model, {
+      handoff: rubric.handoff,
+    });
     costUsd += res.costUsd ?? 0;
     raw.push(...res.findings);
   }

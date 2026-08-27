@@ -44,6 +44,14 @@ belong to one system, whether anything is fighting for attention that should not
 be. Those judgments are worth more than any measurement, and they are the ones
 this rubric is asking you for. Spend your attention there.
 
+Where a shot in the manifest carries a `signals:` line, those ARE measurements,
+taken by lookout's own deterministic checks before you were called: an
+accessibility rule that fired, an element measured overflowing its container, an
+error the page logged. Use them the way you would use a colleague pointing at
+the screen: they tell you where to look and they corroborate what you see. Do
+not restate one as your own finding, because lookout has already filed it, and
+do not treat their absence as proof that a view is clean.
+
 ## Severity ladder
 
 - critical: unusable or unrendered. Blank or error content, text unreadable

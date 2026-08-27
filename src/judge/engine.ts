@@ -143,26 +143,93 @@ export function extractJson(text: string): unknown {
  * Everything the model is told to think lives in the skill file; everything
  * here is fact about the evidence.
  */
+/** A defect already open against one of the views being judged. */
+export interface PriorFinding {
+  shotId: string;
+  category: string;
+  attribute: string;
+  title: string;
+}
+
+export interface JudgeContext {
+  /** Hand-off instructions, carried only when a shot has a `design:` reference. */
+  handoff?: string;
+  /** What lookout already has open on these views, so a re-file keeps its name. */
+  prior?: PriorFinding[];
+}
+
+/** At most this many deterministic signals per shot: corroboration, not a list. */
+const MAX_SIGNALS = 3;
+
+/**
+ * The deterministic checks' findings for one shot, compactly.
+ *
+ * These are already computed and attached to every shot, and the judge never
+ * saw them. They are the one thing in this pipeline that IS a measurement: axe
+ * knows the rule that fired, the overflow check knows the selector and the
+ * amount. Giving them to a model that cannot measure is free precision, and it
+ * localizes: "something overflows here" plus a selector beats hunting the image.
+ */
+function signalsOf(shot: ShotRecord): string {
+  const parts = shot.deterministicFindings
+    .filter((f) => f.severity !== "info")
+    .slice(0, MAX_SIGNALS)
+    .map((f) => `${f.type}: ${f.message.slice(0, 120)}`);
+  return parts.length > 0 ? `\n  signals: ${parts.join(" | ")}` : "";
+}
+
 export function buildJudgePrompt(
   skillText: string,
   project: string,
   shots: ShotRecord[],
   evidenceDir: string,
-  handoffText = "",
+  ctx: JudgeContext = {},
 ): string {
   const manifest = shots
     .map(
       (s) =>
         `- shotId: ${s.id}\n  file: ${evidenceDir}/${s.path}\n  route: ${s.route} (${s.routeName})  state: ${s.state}  formFactor: ${s.formFactor}  scheme: ${s.scheme}  size: ${s.width}x${s.height}` +
-        (s.design ? `\n  design: ${s.design}` : ""),
+        (s.design ? `\n  design: ${s.design}` : "") +
+        signalsOf(s),
     )
     .join("\n");
+
   // Instructions for comparing against a design hand-off are a quarter of the
   // rubric and mean nothing without one, so a batch with no `design:` reference
   // does not carry them. Always FILLED, though: renderSkill refuses a prompt
   // with a placeholder left in it, which is what keeps that guarantee honest.
-  const handoff = shots.some((s) => s.design) ? handoffText : "";
-  return renderSkill(skillText, { project, shotCount: shots.length, manifest, handoff });
+  const handoff = shots.some((s) => s.design) ? ctx.handoff ?? "" : "";
+
+  // What is already open on these views. The attribute is free text the judge
+  // writes, and it is half of both the fingerprint and the cluster key, so the
+  // same defect coming back as "dark-theme-stuck" instead of
+  // "theme-not-switching" mints a second issue, splits the attempt history, and
+  // makes the first one look drift-resolved. Showing the judge the name a defect
+  // already has costs a few lines and keeps one defect one issue.
+  const known = new Set(shots.map((s) => s.id));
+  const prior = (ctx.prior ?? []).filter((p) => known.has(p.shotId));
+  const priorFindings =
+    prior.length === 0
+      ? ""
+      : [
+          "=== ALREADY FILED ON THESE VIEWS ===",
+          "Defects lookout already has open here. If you still see one, file it with",
+          "the SAME category and attribute so it is recognised as the same defect and",
+          "not a new one. If it is gone, just leave it out; absence is how a fix is",
+          "reported. This list is not a claim that these are still there.",
+          ...prior.map(
+            (p) => `- ${p.shotId}  [${p.category}/${p.attribute}] ${p.title.slice(0, 120)}`,
+          ),
+          "=== END ALREADY FILED ===",
+        ].join("\n");
+
+  return renderSkill(skillText, {
+    project,
+    shotCount: shots.length,
+    manifest,
+    handoff,
+    priorFindings,
+  });
 }
 
 const RETRY_SUFFIX =
@@ -174,10 +241,10 @@ export async function judgeBatch(
   shots: ShotRecord[],
   evidenceDir: string,
   model: string,
-  handoffText = "",
+  ctx: JudgeContext = {},
 ): Promise<JudgeBatchResult> {
   const started = Date.now();
-  const prompt = buildJudgePrompt(skillText, project, shots, evidenceDir, handoffText);
+  const prompt = buildJudgePrompt(skillText, project, shots, evidenceDir, ctx);
 
   let text = "";
   let costUsd: number | undefined;

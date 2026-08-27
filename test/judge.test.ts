@@ -85,7 +85,7 @@ describe("the design hand-off section is carried only when it applies", () => {
       "proj",
       [shot("web/app/x/rest/desktop/dark")],
       "/tmp",
-      rubric.handoff,
+      { handoff: rubric.handoff },
     );
     expect(prompt).not.toContain("Comparing against a design hand-off");
     // and no placeholder is left showing where it would have gone
@@ -98,7 +98,7 @@ describe("the design hand-off section is carried only when it applies", () => {
       "proj",
       [shot("web/app/x/rest/desktop/dark", { design: "/designs/x.png" })],
       "/tmp",
-      rubric.handoff,
+      { handoff: rubric.handoff },
     );
     expect(prompt).toContain("Comparing against a design hand-off");
     expect(prompt).toContain("design: /designs/x.png");
@@ -113,9 +113,90 @@ describe("the design hand-off section is carried only when it applies", () => {
         shot("web/app/x/rest/phone/dark", { design: "/designs/x.png" }),
       ],
       "/tmp",
-      rubric.handoff,
+      { handoff: rubric.handoff },
     );
     expect(prompt).toContain("Comparing against a design hand-off");
+  });
+});
+
+describe("context the judge already paid for", () => {
+  const prompt = (shots: ShotRecord[], ctx = {}) =>
+    buildJudgePrompt(rubric.text, "proj", shots, "/tmp", ctx);
+
+  test("deterministic signals reach the judge instead of being discarded", () => {
+    // axe knows the rule that fired and the overflow check knows the amount.
+    // Both were computed, attached to the shot, and never shown to the one
+    // participant that cannot measure anything for itself.
+    const s = shot("web/app/x/rest/desktop/dark", {
+      deterministicFindings: [
+        {
+          type: "axe-violation",
+          severity: "error",
+          message: "Button has no accessible name",
+          meta: { ruleId: "button-name" },
+        },
+        {
+          type: "horizontal-overflow",
+          severity: "error",
+          message: "main overflows by 42px at 390px",
+        },
+      ],
+    });
+    const out = prompt([s]);
+    // The manifest's own line, not the rubric's prose about it.
+    expect(out).toContain("\n  signals:");
+    expect(out).toContain("Button has no accessible name");
+    expect(out).toContain("overflows by 42px");
+  });
+
+  test("a shot with nothing measured carries no signals line", () => {
+    expect(prompt([shot("web/app/x/rest/desktop/dark")])).not.toContain("\n  signals:");
+  });
+
+  test("informational checks are not dressed up as signals", () => {
+    const s = shot("web/app/x/rest/desktop/dark", {
+      deterministicFindings: [{ type: "console-error", severity: "info", message: "just noise" }],
+    });
+    expect(prompt([s])).not.toContain("just noise");
+  });
+
+  test("open findings are named so a re-file keeps its attribute", () => {
+    // The attribute is free text and half of both the fingerprint and the
+    // cluster key, so the same defect returning as "dark-theme-stuck" instead
+    // of "theme-not-switching" mints a second issue and splits the first one's
+    // attempt history.
+    const out = prompt([shot("web/app/x/rest/desktop/dark")], {
+      prior: [
+        {
+          shotId: "web/app/x/rest/desktop/dark",
+          category: "color-scheme",
+          attribute: "theme-not-switching",
+          title: "Light scheme renders the dark theme",
+        },
+      ],
+    });
+    expect(out).toContain("ALREADY FILED");
+    expect(out).toContain("[color-scheme/theme-not-switching]");
+  });
+
+  test("findings for other views are not carried into this batch", () => {
+    const out = prompt([shot("web/app/x/rest/desktop/dark")], {
+      prior: [
+        {
+          shotId: "web/app/somewhere-else/rest/desktop/dark",
+          category: "contrast",
+          attribute: "body-text",
+          title: "Nothing to do with this batch",
+        },
+      ],
+    });
+    expect(out).not.toContain("ALREADY FILED");
+  });
+
+  test("nothing open leaves no empty section behind", () => {
+    const out = prompt([shot("web/app/x/rest/desktop/dark")]);
+    expect(out).not.toContain("ALREADY FILED");
+    expect(out).not.toContain("{{");
   });
 });
 

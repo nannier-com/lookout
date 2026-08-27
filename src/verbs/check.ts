@@ -16,7 +16,13 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { loadConfig, evidenceDir } from "../config.js";
 import { loadReport } from "../capture/store.js";
-import { batchShots, groupShots, judgeBatch, type AiFinding } from "../judge/engine.js";
+import {
+  batchShots,
+  groupShots,
+  judgeBatch,
+  type AiFinding,
+  type PriorFinding,
+} from "../judge/engine.js";
 import { loadRubric } from "../judge/rubric.js";
 import { loadSkill } from "../skills/load.js";
 import { recordIncident } from "../skills/incidents.js";
@@ -153,6 +159,34 @@ export async function runCheck(
     }
   }
 
+  // What lookout already has open on these views. The judge writes the
+  // `attribute` freehand, and it is half of both the fingerprint and the cluster
+  // key, so the same defect returning under a different word mints a second
+  // issue and splits the attempt history of the first. Showing it the name a
+  // defect already carries is a few lines of prompt and keeps one defect one
+  // issue. Only AI findings: the deterministic ones reach the judge as `signals`
+  // on the shot, and it is told not to restate those.
+  const prior: PriorFinding[] = [];
+  if (resolved.configPath) {
+    const { loadBacklog } = await import("./backlog.js");
+    const b = await loadBacklog(resolved);
+    const seen = new Set<string>();
+    for (const f of Object.values(b.findings)) {
+      if (f.status !== "open" || f.channel !== "ai") continue;
+      for (const ev of f.evidence) {
+        const key = `${ev.shotId}|${f.category}|${f.attribute}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        prior.push({
+          shotId: ev.shotId,
+          category: f.category,
+          attribute: f.attribute,
+          title: f.title,
+        });
+      }
+    }
+  }
+
   const quiet = !!parsed.flags.json || !!parsed.flags.quiet;
   const log = (line: string) => {
     if (!quiet) console.log(line);
@@ -211,7 +245,10 @@ export async function runCheck(
       // carries on.
       let res: Awaited<ReturnType<typeof judgeBatch>>;
       try {
-        res = await judgeBatch(rubric.text, resolved.project, batch, evDir, model, rubric.handoff);
+        res = await judgeBatch(rubric.text, resolved.project, batch, evDir, model, {
+          handoff: rubric.handoff,
+          prior,
+        });
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
         for (const s of batch) uncacheable.add(s.id);

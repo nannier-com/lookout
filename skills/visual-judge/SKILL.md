@@ -26,4 +26,6 @@ anything.
 {{manifest}}
 === END SHOTS ===
 
+{{priorFindings}}
+
 Now reply with ONLY the fenced json block per the output contract.
