@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { ISSUE_ID_MAX, ISSUE_ID_MIN, isIssueId, mintIssueId } from "../src/issues/id.js";
 import { issueByKey, issuesOf, reconcileIssues } from "../src/issues/registry.js";
 import { checkBacklog } from "../src/backlog/lib.js";
-import { issueDir, issueShotsDir } from "../src/issues/paths.js";
+import { issueDir, issueImgDir } from "../src/issues/paths.js";
 import { loadBacklog, saveBacklog } from "../src/verbs/backlog.js";
 import { emptyBacklog, type Backlog, type BacklogFinding } from "../src/backlog/lib.js";
 import { tmpProject } from "./tmp-project.js";
@@ -180,10 +180,12 @@ describe("the issue folder", () => {
 
     const id = Object.keys(b.issues)[0]!;
     const dir = issueDir(r, id);
-    expect(existsSync(join(dir, "issue.json"))).toBe(true);
-    expect(existsSync(join(dir, "ISSUE.md"))).toBe(true);
+    // Byte-exact listing rather than existsSync: on a case-insensitive
+    // filesystem (the macOS default) existsSync("issue.json") is true when
+    // only Issue.json exists, so it cannot pin the casing.
+    expect(readdirSync(dir).sort()).toEqual(["Issue.json", "Issue.md", "img"]);
 
-    const doc = JSON.parse(readFileSync(join(dir, "issue.json"), "utf8")) as Record<string, unknown>;
+    const doc = JSON.parse(readFileSync(join(dir, "Issue.json"), "utf8")) as Record<string, unknown>;
     expect(doc.id).toBe(id);
     expect(doc.key).toBe("app--color-scheme--theme-not-switching");
     expect(doc.status).toBe("open");
@@ -191,9 +193,9 @@ describe("the issue folder", () => {
 
     // The pixels come with it: a dossier that points into a gitignored
     // directory is a dossier full of dead links the first time it is cleaned.
-    const shots = readdirSync(issueShotsDir(r, id));
+    const shots = readdirSync(issueImgDir(r, id));
     expect(shots).toEqual(["web-app-dash-rest--desktop-dark.png"]);
-    expect(readFileSync(join(issueShotsDir(r, id), shots[0]!), "utf8")).toBe("png");
+    expect(readFileSync(join(issueImgDir(r, id), shots[0]!), "utf8")).toBe("png");
   });
 
   test("drops a screenshot that is no longer this issue's evidence", async () => {
@@ -203,9 +205,9 @@ describe("the issue folder", () => {
     await saveBacklog(r, b);
     const id = Object.keys(b.issues)[0]!;
 
-    writeFileSync(join(issueShotsDir(r, id), "stale.png"), "old");
+    writeFileSync(join(issueImgDir(r, id), "stale.png"), "old");
     await saveBacklog(r, b);
-    expect(readdirSync(issueShotsDir(r, id))).toEqual(["web-app-dash-rest--desktop-dark.png"]);
+    expect(readdirSync(issueImgDir(r, id))).toEqual(["web-app-dash-rest--desktop-dark.png"]);
   });
 
   test("the record is a projection: deleting it costs nothing", async () => {
@@ -213,7 +215,7 @@ describe("the issue folder", () => {
     const b = backlogOf([finding()]);
     await saveBacklog(r, b);
     const id = Object.keys(b.issues)[0]!;
-    const doc = JSON.parse(readFileSync(join(issueDir(r, id), "issue.json"), "utf8")) as {
+    const doc = JSON.parse(readFileSync(join(issueDir(r, id), "Issue.json"), "utf8")) as {
       generated: string;
     };
     expect(doc.generated).toContain("Safe to delete");
@@ -230,6 +232,92 @@ describe("the issue folder", () => {
       expect(existsSync(issueDir(r, issue.id))).toBe(true);
       expect(issue.key).not.toBe(issue.id);
     }
+  });
+});
+
+describe("a legacy folder migrates on save", () => {
+  /** Build the pre-rename layout by hand: issue.json, ISSUE.md, shots/. */
+  function seedLegacy(r: ResolvedConfig, id: string, files: Record<string, string>): string {
+    const dir = issueDir(r, id);
+    mkdirSync(join(dir, "shots"), { recursive: true });
+    for (const [name, bytes] of Object.entries(files)) {
+      writeFileSync(join(dir, name), bytes);
+    }
+    return dir;
+  }
+
+  test("renames the record, the document and the shots folder", async () => {
+    const r = tmpProject("lookout-issues-");
+    writeShot(r, "web/app/dash/rest--desktop-dark.png");
+    const b = backlogOf([finding()]);
+    reconcileIssues(b, "t");
+    const id = Object.keys(b.issues)[0]!;
+    const dir = seedLegacy(r, id, {
+      "issue.json": "{}",
+      "ISSUE.md": "old",
+      "shots/web-app-dash-rest--desktop-dark.png": "old-pixels",
+      "shots/stale.png": "old",
+    });
+
+    await saveBacklog(r, b);
+
+    // Byte-exact listing, never existsSync: on a case-insensitive filesystem
+    // (the macOS default) existsSync("issue.json") is true when only
+    // Issue.json exists, so it cannot tell a migrated folder from a stale one.
+    expect(readdirSync(dir).sort()).toEqual(["Issue.json", "Issue.md", "img"]);
+    const doc = JSON.parse(readFileSync(join(dir, "Issue.json"), "utf8")) as { id: string };
+    expect(doc.id).toBe(id);
+    // The wanted shot was refreshed from the evidence store; the stale one
+    // was moved across and then pruned like any other orphan.
+    expect(readdirSync(issueImgDir(r, id))).toEqual(["web-app-dash-rest--desktop-dark.png"]);
+    expect(readFileSync(join(issueImgDir(r, id), "web-app-dash-rest--desktop-dark.png"), "utf8")).toBe("png");
+  });
+
+  test("moved pixels survive an evidence clean", async () => {
+    const r = tmpProject("lookout-issues-");
+    // No evidence store on disk: it is gitignored and routinely cleaned. The
+    // folder's copy is the only one left, so migration must move it, not
+    // delete and re-copy it.
+    const b = backlogOf([finding()]);
+    reconcileIssues(b, "t");
+    const id = Object.keys(b.issues)[0]!;
+    seedLegacy(r, id, {
+      "issue.json": "{}",
+      "ISSUE.md": "old",
+      "shots/web-app-dash-rest--desktop-dark.png": "old-pixels",
+    });
+
+    await saveBacklog(r, b);
+
+    expect(readdirSync(issueImgDir(r, id))).toEqual(["web-app-dash-rest--desktop-dark.png"]);
+    expect(
+      readFileSync(join(issueImgDir(r, id), "web-app-dash-rest--desktop-dark.png"), "utf8"),
+    ).toBe("old-pixels");
+  });
+
+  test("is idempotent: a second save changes nothing", async () => {
+    const r = tmpProject("lookout-issues-");
+    writeShot(r, "web/app/dash/rest--desktop-dark.png");
+    const b = backlogOf([finding()]);
+    reconcileIssues(b, "t");
+    const id = Object.keys(b.issues)[0]!;
+    const dir = seedLegacy(r, id, {
+      "issue.json": "{}",
+      "shots/web-app-dash-rest--desktop-dark.png": "old-pixels",
+    });
+
+    await saveBacklog(r, b);
+    const first = readdirSync(dir).sort();
+    await saveBacklog(r, b);
+
+    // The failure this pins down is removing the legacy name AFTER the new
+    // one is written: on a case-insensitive filesystem "issue.json" resolves
+    // to Issue.json and deletes it. Linux CI is case-sensitive and cannot
+    // reproduce that, so the local macOS run of this suite is the real gate.
+    expect(readdirSync(dir).sort()).toEqual(first);
+    expect(first).toEqual(["Issue.json", "Issue.md", "img"]);
+    const doc = JSON.parse(readFileSync(join(dir, "Issue.json"), "utf8")) as { id: string };
+    expect(doc.id).toBe(id);
   });
 });
 

@@ -16,7 +16,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { chmod, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { findIssue } from "../issues/registry.js";
-import { issueDir } from "../issues/paths.js";
+import { issueDir, issueDocPath } from "../issues/paths.js";
 import { materializeIssue } from "../issues/store.js";
 import { loadBacklog } from "../verbs/backlog.js";
 import { execFileAsync, have } from "../util.js";
@@ -131,7 +131,7 @@ export async function launchHandoff(
     throw new LookoutError(`no issue with id ${issueId}`, "ids come from `lookout status`");
   }
   const dir = issueDir(resolved, issueId);
-  const doc = join(dir, "ISSUE.md");
+  const doc = issueDocPath(resolved, issueId);
   if (!existsSync(doc)) await materializeIssue(resolved, cluster, record);
 
   const prompt = `Read ${doc} and fix the issue it describes.`;

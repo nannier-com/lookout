@@ -9,7 +9,7 @@
  * themselves: fixAttempts, and the mandatory reason written when an issue is
  * finally blocked.
  *
- * Unlike issue.json and ISSUE.md beside it, this file is NOT generated. Nothing
+ * Unlike Issue.json and Issue.md beside it, this file is NOT generated. Nothing
  * rewrites it from the backlog, because nothing else remembers what was tried.
  */
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";

@@ -102,13 +102,13 @@ accessibility violations group by route instead, because an axe rule id names
 the rule that fired rather than the thing that is wrong, and one malformed
 widget trips several at once.
 
-Each cluster gets a self-contained brief under `.lookout/evidence/fix/`: the
-defect, its contact sheet and full-resolution screenshots, the repository to
-change, the rule files that govern it (CLAUDE.md, AGENTS.md and the like,
-discovered and listed by path, because lookout cannot assume the agent's harness
-loaded them), and the JSON the fix session must reply with. `PLAN.json` lists the clusters and the
-protocol. The orchestrating session spawns one subagent per brief, so it carries
-cluster ids and verdicts while the subagent carries the evidence.
+Each cluster is an issue with a folder under `.lookout/issues/<id>/`, and
+`Issue.md` in that folder is the self-contained document a fix session is
+handed: what is wrong and where, the screenshots (copied into `img/` and
+listed by absolute path), the acceptance criteria it will be graded against,
+and what lookout has ruled so far. The orchestrating session hands one issue
+to one subagent, so it carries issue ids and verdicts while the subagent
+carries the evidence.
 
 When a session reports back, lookout rules on the claim:
 
@@ -294,8 +294,8 @@ dirty checkout, or while another heal holds the lock.
   BACKLOG.md       committed: generated report (regen via `lookout backlog regen`)
   ledger.json      committed if you want cross-machine judge caching
   issues/<id>/     committed: one folder per issue, named by its six-digit id
-                     issue.json, ISSUE.md, state.json committed;
-                     shots/ gitignored with the evidence
+                     Issue.json, Issue.md, state.json committed;
+                     img/ gitignored with the evidence
   skills/          committed: this project's layer over lookout's shipped skills
   evidence/        gitignored: screenshots + capture-report.json + judge-report.json
 ```

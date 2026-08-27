@@ -3,7 +3,7 @@
  *
  * It is written the moment the issue is filed, not when somebody asks for it.
  * An issue folder that describes itself is the point of numbering issues at
- * all: `.lookout/issues/418203/ISSUE.md` answers "what is this" without the
+ * all: `.lookout/issues/418203/Issue.md` answers "what is this" without the
  * tool, the backlog, or this conversation.
  *
  * lookout still does not dispatch work. This names no agent, sets no protocol,
