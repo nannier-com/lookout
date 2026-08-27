@@ -95,9 +95,17 @@ export async function mergeLatest(
   const shotsById = new Map(report.shots.map((s) => [s.id, s]));
   const ai = judge ? aiToFindings(judge.findings, shotsById) : [];
 
+  // Both channels are stamped with the CAPTURE run id, not the judge's own.
+  // `lastSeen` answers one question, asked by `backlog check`: which capture run
+  // did this survive? Stamping the AI channel with the judge run id made that
+  // unanswerable, because the two id families ("web-…" and "check-…") never
+  // match, so every open AI finding the judge had just re-found was reported as
+  // drift-resolved and the documented gate failed on healthy backlogs. The judge
+  // run id is not lost: it stays on the outcome and in judge-report.json, and
+  // each evidence ref already carries the run its shot came from.
   const r1 = mergeFindings(backlog, det, latestRun.id, now);
   const r2 = judge
-    ? mergeFindings(backlog, ai, judge.runId, now)
+    ? mergeFindings(backlog, ai, latestRun.id, now)
     : { added: [] as string[], reopened: [] as string[], refreshed: [] as string[], suppressed: [] as string[] };
 
   await saveBacklog(resolved, backlog);

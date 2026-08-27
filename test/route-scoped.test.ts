@@ -15,8 +15,9 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadBacklog, mergeLatest } from "../src/verbs/backlog.js";
+import { checkBacklog, renderMarkdown } from "../src/backlog/lib.js";
 import { issuesOf } from "../src/issues/registry.js";
-import type { ResolvedConfig } from "../src/types.js";
+import type { CaptureReport, ResolvedConfig } from "../src/types.js";
 
 function project(): ResolvedConfig {
   const dir = mkdtempSync(join(tmpdir(), "lookout-route-"));
@@ -144,5 +145,36 @@ describe("a route's issues are all filed", () => {
     // This is the signal the walk branches on: nothing added means try the next
     // route, rather than stopping here and calling the application clean.
     expect(merged.added + merged.reopened).toBe(0);
+  });
+});
+
+describe("what lastSeen records", () => {
+  test("an AI finding just re-found is not reported as drift-resolved", async () => {
+    // `lastSeen` answers one question, asked by `backlog check`: which CAPTURE
+    // run did this finding survive? Stamping the AI channel with the judge's own
+    // run id made it unanswerable, because the two id families never match, so
+    // every open AI finding the judge had just re-found came back as
+    // "not re-found in run <id>; mark fixed or investigate" and the documented
+    // gate failed on healthy backlogs. The fixture below is the one the old
+    // tests never had: a judge run id that differs from the capture run id, the
+    // way `runId("check")` and `runId("web")` always do in production.
+    const r = project();
+    const shots = [shot("/dash", "desktop", "dark")];
+    writeReport(r, shots);
+    await mergeLatest(r, {
+      judgeOutcome: { runId: "check-1a2b3c", findings: [aiFinding()] } as never,
+    });
+
+    const b = await loadBacklog(r);
+    const latestReport = {
+      version: 1,
+      project: "app",
+      runs: [{ id: "r1" }],
+      shots,
+    } as unknown as CaptureReport;
+
+    const problems = checkBacklog(b, { mdOnDisk: renderMarkdown(b), latestReport });
+    expect(problems.map((p) => p.kind)).not.toContain("drift-resolved");
+    expect(Object.values(b.findings)[0]!.lastSeen).toBe("r1");
   });
 });
