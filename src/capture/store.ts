@@ -26,14 +26,14 @@ import { nowIso } from "../util.js";
 
 export interface ShotAxes {
   target: string;
-  route: string; // path, e.g. /components/button
+  route: string; // path, e.g. /settings
   state: string; // "rest" or a recipe name
   platform: PlatformKind;
   formFactor: FormFactor;
   scheme: Scheme;
 }
 
-/** "/components/button" -> "components-button"; "/" -> "root". */
+/** "/settings/profile" -> "settings-profile"; "/" -> "root". */
 export function routeSlug(route: string): string {
   const s = route.replace(/^\/+|\/+$/g, "").replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase();
   return s || "root";

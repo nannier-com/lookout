@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "@nannier/lookout",
+      "name": "@nannier-com/lookout",
       "dependencies": {
         "@axe-core/playwright": "^4.10.2",
         "playwright": "^1.60.0",

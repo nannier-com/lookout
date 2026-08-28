@@ -82,38 +82,38 @@ describe("resolveRoutes / resolveTargets", () => {
   const config = validateConfig(
     {
       targets: [
-        { name: "docs", url: "http://localhost:8081", routes: ["/components/button", { path: "components/badge", name: "Badge" }] },
-        { name: "site", url: "http://localhost:2000" },
+        { name: "app", url: "http://localhost:3000", routes: ["/settings", { path: "settings/profile", name: "Profile" }] },
+        { name: "marketing", url: "http://localhost:3100" },
       ],
     },
     "t",
   );
 
   test("string routes and object routes normalize; missing routes default to /", () => {
-    const docs = resolveRoutes(config.targets[0]!);
-    expect(docs.map((r) => r.path)).toEqual(["/components/button", "/components/badge"]);
-    expect(docs[1]!.name).toBe("Badge");
-    expect(resolveRoutes(config.targets[1]!)[0]!.url).toBe("http://localhost:2000");
+    const app = resolveRoutes(config.targets[0]!);
+    expect(app.map((r) => r.path)).toEqual(["/settings", "/settings/profile"]);
+    expect(app[1]!.name).toBe("Profile");
+    expect(resolveRoutes(config.targets[1]!)[0]!.url).toBe("http://localhost:3100");
   });
 
   test("--targets filters and unknown names throw with the known list", () => {
-    expect(resolveTargets(config, ["site"]).map((t) => t.def.name)).toEqual(["site"]);
+    expect(resolveTargets(config, ["marketing"]).map((t) => t.def.name)).toEqual(["marketing"]);
     try {
       resolveTargets(config, ["nope"]);
       throw new Error("expected resolveTargets to throw");
     } catch (e) {
       expect((e as Error).message).toMatch(/unknown target "nope"/);
-      expect((e as { hint?: string }).hint).toMatch(/docs, site/);
+      expect((e as { hint?: string }).hint).toMatch(/app, marketing/);
     }
   });
 
   test("--routes filter matches by path or name, drops empty targets, rejects total misses", () => {
-    const [t] = resolveTargets(config, ["docs"], ["Badge"]);
-    expect(t!.routes.map((r) => r.path)).toEqual(["/components/badge"]);
+    const [t] = resolveTargets(config, ["app"], ["Profile"]);
+    expect(t!.routes.map((r) => r.path)).toEqual(["/settings/profile"]);
     // A filter that misses one target but hits another drops the miss.
-    const across = resolveTargets(config, undefined, ["Badge"]);
-    expect(across.map((x) => x.def.name)).toEqual(["docs"]);
-    expect(() => resolveTargets(config, ["site"], ["/nope"])).toThrow(/matched nothing on any/);
+    const across = resolveTargets(config, undefined, ["Profile"]);
+    expect(across.map((x) => x.def.name)).toEqual(["app"]);
+    expect(() => resolveTargets(config, ["marketing"], ["/nope"])).toThrow(/matched nothing on any/);
   });
 });
 
@@ -124,9 +124,9 @@ describe("util", () => {
   });
 
   test("isLocalUrl accepts localhost forms and rejects everything else", () => {
-    expect(isLocalUrl("http://localhost:8081/x")).toBe(true);
+    expect(isLocalUrl("http://localhost:3000/x")).toBe(true);
     expect(isLocalUrl("http://127.0.0.1:2000")).toBe(true);
-    expect(isLocalUrl("http://dashboard.localhost:3001")).toBe(true);
+    expect(isLocalUrl("http://admin.localhost:3000")).toBe(true);
     expect(isLocalUrl("https://example.com")).toBe(false);
   });
 });

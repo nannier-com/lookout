@@ -490,7 +490,16 @@ export async function ui(parsed: Parsed): Promise<number> {
   return 0;
 }
 
-const PAGE = `<!doctype html>
+/**
+ * The whole page, script included.
+ *
+ * Exported so a test can parse the client script. It lives inside a template
+ * literal, which means neither tsc nor eslint ever sees it: a stray escape in
+ * here emits a broken string into the served JS and the entire page silently
+ * stops working, with nothing failing at build time. `test/ui-page.test.ts`
+ * parses it for exactly that reason.
+ */
+export const PAGE = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>lookout</title>
@@ -995,7 +1004,10 @@ function paintWhere(){
   const where = el("where");
   const text = notice ?? project.projectDir;
   if (where.textContent !== text) where.textContent = text;
-  where.title = notice ? notice + "\n\n" + project.projectDir : project.projectDir;
+  // Double-escaped on purpose: this script lives inside a template literal, so
+  // a single backslash-n would be consumed here and emit a raw newline into the
+  // served JS, breaking the string it sits in.
+  where.title = notice ? notice + "\\n\\n" + project.projectDir : project.projectDir;
   where.classList.toggle("notice", notice !== null);
 }
 

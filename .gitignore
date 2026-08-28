@@ -11,3 +11,6 @@ coverage/
 # package only. Committing it here would make GitHub read the whole repository as
 # MIT, which is the opposite of the intent (source stays all rights reserved).
 LICENSE
+
+# Local agent config; never part of the published project.
+.claude/

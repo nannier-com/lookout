@@ -126,7 +126,7 @@ describe("clusterFindings", () => {
 });
 
 describe("co-located accessibility violations", () => {
-  function axe(rule: string, route = "/identities"): BacklogFinding {
+  function axe(rule: string, route = "/users"): BacklogFinding {
     return finding({
       fingerprint: `app.${route}.${rule}`,
       route,
@@ -148,18 +148,18 @@ describe("co-located accessibility violations", () => {
       axe("button-name"),
     ]);
     expect(clusters.length).toBe(1);
-    expect(clusters[0]!.key).toBe("app--identities--a11y");
+    expect(clusters[0]!.key).toBe("app--users--a11y");
     // The id is a name, not the identity: six digits, minted elsewhere.
     expect(clusters[0]!.id).not.toBe(clusters[0]!.key);
     expect(clusters[0]!.defects.length).toBe(4);
     // Four rules, one screenshot: the brief must not list it four times.
     expect(clusters[0]!.shotCount).toBe(1);
     expect(clusters[0]!.findingCount).toBe(4);
-    expect(clusters[0]!.title).toBe("4 a11y defects on /identities");
+    expect(clusters[0]!.title).toBe("4 a11y defects on /users");
   });
 
   test("different routes stay separate, since they are different components", () => {
-    const clusters = cluster([axe("document-title", "/dashboard"), axe("button-name", "/identities")]);
+    const clusters = cluster([axe("document-title", "/dashboard"), axe("button-name", "/users")]);
     expect(clusters.length).toBe(2);
   });
 
@@ -177,15 +177,15 @@ describe("cluster keys are channel-stable", () => {
   // key it came from, every accessibility issue would pass while still firing.
   test("a re-captured axe violation lands on the issue it came from", () => {
     const shot = {
-      id: "web/app/identities/rest/desktop/dark",
+      id: "web/app/users/rest/desktop/dark",
       target: "app",
-      route: "/identities",
+      route: "/users",
       routeName: "identities",
       state: "rest",
       platform: "web",
       formFactor: "desktop",
       scheme: "dark",
-      path: "web/app/identities/rest--desktop-dark.png",
+      path: "web/app/users/rest--desktop-dark.png",
       hash: "h",
       bytes: 1,
       width: 1,
@@ -206,7 +206,7 @@ describe("cluster keys are channel-stable", () => {
     const [refound] = deterministicToFindings({ shots: [shot] } as unknown as CaptureReport);
     expect(refound).toBeDefined();
     expect(refound!.channel).toBe("deterministic");
-    expect(clusterKeyOf(refound!)).toBe("app--identities--a11y");
+    expect(clusterKeyOf(refound!)).toBe("app--users--a11y");
   });
 });
 

@@ -22,7 +22,7 @@ export const DEFAULT_VIEWPORTS: Record<FormFactor, Viewport> = {
 };
 
 export interface RouteDef {
-  /** Path under the target's base URL, e.g. "/components/button". */
+  /** Path under the target's base URL, e.g. "/settings". */
   path: string;
   /** Human name; defaults to the path. */
   name?: string;

@@ -5,23 +5,23 @@ import { checkOffOrigin } from "../src/capture/checks.js";
 
 describe("checkOffOrigin", () => {
   test("stays silent on the target's own origin", () => {
-    expect(checkOffOrigin("http://localhost:3001/dashboard", "http://localhost:3001")).toEqual([]);
+    expect(checkOffOrigin("http://localhost:3000/dashboard", "http://localhost:3000")).toEqual([]);
   });
 
   test("stays silent on a same-origin redirect", () => {
-    expect(checkOffOrigin("http://localhost:3001/login?next=%2F", "http://localhost:3001")).toEqual([]);
+    expect(checkOffOrigin("http://localhost:3000/login?next=%2F", "http://localhost:3000")).toEqual([]);
   });
 
   test("reports a different port as off-origin", () => {
-    const [f] = checkOffOrigin("http://localhost:4000/login?login_challenge=x", "http://localhost:3001");
+    const [f] = checkOffOrigin("http://localhost:3200/login?flow=abc", "http://localhost:3000");
     expect(f?.type).toBe("off-origin");
     expect(f?.severity).toBe("error");
-    expect(f?.meta?.landed).toBe("http://localhost:4000");
-    expect(f?.meta?.expected).toBe("http://localhost:3001");
+    expect(f?.meta?.landed).toBe("http://localhost:3200");
+    expect(f?.meta?.expected).toBe("http://localhost:3000");
   });
 
   test("reports a different host as off-origin", () => {
-    const [f] = checkOffOrigin("https://accounts.example.com/sso", "http://localhost:3001");
+    const [f] = checkOffOrigin("https://accounts.example.com/sso", "http://localhost:3000");
     expect(f?.type).toBe("off-origin");
   });
 
