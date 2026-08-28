@@ -1,5 +1,45 @@
 # @nannier-com/lookout
 
+## 0.23.2
+
+### Patch Changes
+
+- f8b4348: The last traces of the projects lookout was built against are gone, and two
+  stale package names are corrected.
+
+  A follow-up to the earlier sweep, from a second audit pass over the whole tree.
+
+  - `/components/button` was the only route example on lookout's public type
+    surface (`RouteDef.path`, and twice in the capture store), which ships in
+    `dist/*.d.ts` and therefore shows in every consumer's editor tooltips. It is
+    a design-system docs route and made lookout read like a design-system tool.
+    Now `/settings` and `/settings/profile`.
+  - Test fixtures collectively sketched a real deployment: an OAuth2
+    `login_challenge` parameter, an identity server's `/identities` admin route,
+    and four real ports. Individually harmless, together a map. Renamed to
+    neutral values; the tests assert on structure, so nothing else changed.
+  - The generated MIT LICENSE named `@nannier/lookout`, a package that does not
+    exist. The grant in the published tarball now names the real one.
+  - `bun.lock` still carried the pre-rename scope, disagreeing with
+    `package.json`. Aligned.
+  - `.gitignore` now covers `.claude/`, so local agent settings cannot be
+    committed into a public repository by accident.
+
+- b6268f1: Fixes a broken client script in `lookout ui`, and adds the test that would have
+  caught it.
+
+  The page's JavaScript lives inside a template literal, which means neither
+  `tsc` nor `eslint` ever sees it. A `\n` written in that region is consumed by
+  the template literal itself and emitted as a real line break inside a quoted
+  string in the served script, so the browser threw on load and the entire page
+  rendered blank while every build gate stayed green. That is exactly what
+  happened, and it is why the page looked empty rather than merely unhelpful.
+
+  The escape is fixed, and `test/ui-page.test.ts` now compiles every script block
+  in the page with `Function()`, the same parse the browser does on load and the
+  one thing the build never did. Verified by reintroducing the bug and watching
+  the test fail.
+
 ## 0.23.1
 
 ### Patch Changes
