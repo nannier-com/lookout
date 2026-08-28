@@ -201,6 +201,7 @@ export async function skills(parsed: Parsed): Promise<number> {
   const resolved = await loadConfig({
     configPath: str(parsed.flags.config),
     url: str(parsed.flags.url),
+    baseUrl: str(parsed.flags["base-url"]),
   });
   const model = str(parsed.flags.model) ?? "sonnet";
 

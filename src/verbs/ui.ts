@@ -24,6 +24,12 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { extname, join, resolve, sep } from "node:path";
 import { evidenceDir, loadConfig } from "../config.js";
 import { downReason, preflight, resolveTargets } from "../targets.js";
+import {
+  loadSettings,
+  saveSettings,
+  validBaseUrl,
+  type UiSettings,
+} from "./ui-settings.js";
 import { readEvents, summarise } from "../report/events.js";
 import { buildBoard, severityTally, tally } from "../report/board.js";
 import { launchHandoff, toolsAvailable } from "../report/handoff.js";
@@ -131,6 +137,9 @@ async function pickFolder(): Promise<string | null> {
  */
 let current: ResolvedConfig;
 
+/** Where the page has been pointed, and where the app actually is. */
+let settings: UiSettings = { projectDir: null, baseUrl: null };
+
 /** The check in flight, if the page started one. */
 let running: { child: ChildProcess; projectDir: string } | null = null;
 
@@ -226,7 +235,7 @@ function json(res: ServerResponse, code: number, body: unknown): void {
 /** Point lookout at a directory, reporting honestly when it has no config. */
 async function useProject(dir: string): Promise<Record<string, unknown>> {
   try {
-    current = await loadConfig({ cwd: dir });
+    current = await loadConfig({ cwd: dir, baseUrl: settings.baseUrl ?? undefined });
   } catch {
     // No config found up the tree: say so rather than serving an empty board
     // that looks like a project with nothing wrong with it.
@@ -237,6 +246,44 @@ async function useProject(dir: string): Promise<Record<string, unknown>> {
     project: current.project,
     projectDir: current.projectDir,
     configured: current.configPath !== null,
+  };
+}
+
+/**
+ * What the settings panel shows: where lookout is pointed, and whether the
+ * targets that implies actually answer right now.
+ *
+ * Probing here is what makes the panel worth opening: a wrong port is visible
+ * before a run is spent on it, rather than after.
+ */
+async function settingsView(): Promise<Record<string, unknown>> {
+  const configured = current?.configPath !== null && current?.configPath !== undefined;
+  let targets: { name: string; url: string; routes: number; up: boolean; status: number | null }[] = [];
+  let error: string | null = null;
+  if (configured) {
+    try {
+      const statuses = await preflight(
+        resolveTargets(current.config, undefined, undefined, current.configPath),
+      );
+      targets = statuses.map((t) => ({
+        name: t.name,
+        url: t.url,
+        routes: t.routes,
+        up: t.up,
+        status: t.status,
+      }));
+    } catch (e) {
+      error = (e as Error).message;
+    }
+  }
+  return {
+    projectDir: settings.projectDir ?? current?.projectDir ?? null,
+    baseUrl: settings.baseUrl,
+    configPath: current?.configPath ?? null,
+    project: current?.project ?? null,
+    configured,
+    targets,
+    error,
   };
 }
 
@@ -263,6 +310,33 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
         }
       }
       json(res, 200, await useProject(dir));
+    })();
+    return;
+  }
+
+  // Configuration is its own act, not something the run does on the way past.
+  // GET reports what lookout is pointed at and whether those targets answer;
+  // POST changes it and remembers, so the next launch starts configured.
+  if (url.pathname === "/api/settings") {
+    void (async () => {
+      if (req.method === "POST") {
+        const body = await readJson(req);
+        if (typeof body.baseUrl === "string") {
+          const cleaned = body.baseUrl.trim();
+          if (cleaned && !validBaseUrl(cleaned)) {
+            json(res, 400, { error: `not a valid URL: ${cleaned}` });
+            return;
+          }
+          settings.baseUrl = cleaned ? validBaseUrl(cleaned) : null;
+        }
+        if (typeof body.projectDir === "string" && body.projectDir.trim()) {
+          settings.projectDir = body.projectDir.trim();
+        }
+        await saveSettings(settings);
+        // Re-resolve so the new base URL reaches the targets immediately.
+        if (settings.projectDir) await useProject(settings.projectDir);
+      }
+      json(res, 200, await settingsView());
     })();
     return;
   }
@@ -447,10 +521,32 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
 }
 
 export async function ui(parsed: Parsed): Promise<number> {
-  const resolved = await loadConfig({
-    configPath: str(parsed.flags.config),
-    url: str(parsed.flags.url),
-  });
+  // The page is where lookout gets configured now, so the server has to be able
+  // to start with nothing configured. It used to refuse, which meant the one
+  // screen that can fix an unconfigured project could not be opened until the
+  // project was already configured.
+  settings = await loadSettings();
+  const explicit = str(parsed.flags.config) ?? str(parsed.flags.url);
+  const baseUrl = str(parsed.flags["base-url"]) ?? settings.baseUrl ?? undefined;
+  const startIn = explicit ? undefined : settings.projectDir ?? undefined;
+  let resolved: ResolvedConfig;
+  try {
+    resolved = await loadConfig({
+      configPath: str(parsed.flags.config),
+      url: str(parsed.flags.url),
+      baseUrl,
+      ...(startIn ? { cwd: startIn } : {}),
+    });
+    if (resolved.configPath) settings.projectDir = resolved.projectDir;
+  } catch {
+    // Nothing to point at yet. Serve the page anyway and let it ask.
+    resolved = {
+      config: { targets: [] },
+      configPath: null,
+      projectDir: startIn ?? process.cwd(),
+      project: "lookout",
+    };
+  }
   const port = num(parsed.flags.port) ?? 7333;
   current = resolved;
   const server = createServer((req, res) => {
@@ -593,6 +689,41 @@ flex:0 0 auto;transition:transform .12s ease,filter .12s ease}
 .findfix:active{transform:scale(.96)}
 .findfix:focus-visible{outline:2px solid var(--go);outline-offset:3px}
 .findfix[disabled]{cursor:default;transform:none;filter:none}
+/* Grey until there is something to run. Play means "go", so it must not look
+   like "go" while pressing it could only produce an error. */
+.findfix.unset{background:var(--sunk);color:var(--faint);
+box-shadow:inset 0 0 0 1px var(--line)}
+.findfix.unset:hover{filter:none;transform:none}
+/* The cog sits to the right of play: configuring is the rarer act, so it is the
+   quieter control, and it never moves once the run starts. */
+.cog{width:26px;height:26px;padding:0;margin-left:8px;border-radius:50%;
+border:1px solid var(--line);background:var(--panel);color:var(--dim);cursor:pointer;
+display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+.cog svg{display:block}
+.cog:hover{color:var(--ink);border-color:var(--dim)}
+.cog[aria-expanded="true"]{color:var(--ink);border-color:var(--accent)}
+.settings{border-top:1px solid var(--line);padding:12px 16px;display:flex;
+flex-direction:column;gap:8px;background:var(--sunk)}
+/* An author display rule beats the UA stylesheet's [hidden]{display:none}, so
+   the panel has to opt back out explicitly or it is never actually hidden. */
+.settings[hidden]{display:none}
+.srow{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--dim)}
+.srow>span:first-child{width:72px;flex:0 0 auto;color:var(--faint)}
+.srow .val{font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--ink);
+overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto}
+.srow input{flex:1 1 auto;min-width:0;padding:5px 8px;border-radius:6px;
+border:1px solid var(--line);background:var(--panel);color:var(--ink);
+font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}
+.srow input:focus{outline:2px solid var(--accent);outline-offset:-1px}
+.mini{padding:5px 10px;border-radius:6px;border:1px solid var(--line);
+background:var(--panel);color:var(--ink);font-size:11px;cursor:pointer;flex:0 0 auto}
+.mini:hover{border-color:var(--dim)}
+.shint{margin:0 0 0 82px;font-size:11px;color:var(--faint);max-width:70ch}
+.targets{margin-left:82px;display:flex;flex-direction:column;gap:3px}
+.tgt{font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dim)}
+.tgt b{font-weight:600;color:var(--ink)}
+.tgt .up{color:var(--ok)}
+.tgt .down{color:var(--crit)}
 /* Running: the triangle gives way to a ring turning around it. */
 .findfix.busy{background:none;color:var(--go);box-shadow:inset 0 0 0 2px var(--line)}
 .findfix.busy svg{display:none}
@@ -736,6 +867,26 @@ clip:rect(0 0 0 0);white-space:nowrap;border:0}
     <span class="spacer"></span>
     <span class="where" id="where"></span>
     <button type="button" class="findfix" id="findfix" aria-label="Find and fix"></button>
+    <button type="button" class="cog" id="cog" aria-label="Settings" aria-expanded="false"
+      title="Settings"><svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"
+      fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+      stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg></button>
+  </div>
+  <div class="settings" id="settings" hidden>
+    <label class="srow">
+      <span>Project</span>
+      <span class="val" id="setProject">not set</span>
+      <button type="button" class="mini" id="pickProject">Choose folder</button>
+    </label>
+    <label class="srow">
+      <span>Base URL</span>
+      <input type="text" id="setUrl" placeholder="leave empty to use the config"
+        spellcheck="false" autocomplete="off">
+      <button type="button" class="mini" id="saveUrl">Save</button>
+    </label>
+    <p class="shint">Overrides where the targets live. The config still supplies
+      the routes, viewports, state recipes and sign-in hook.</p>
+    <div class="targets" id="setTargets"></div>
   </div>
 </header>
 <main>
@@ -1011,25 +1162,106 @@ function paintWhere(){
   where.classList.toggle("notice", notice !== null);
 }
 
+/**
+ * Play, in one of three states.
+ *
+ * Grey until something is configured, because a green "go" that can only
+ * produce an error is a lie told by a colour. Green when it would really run.
+ * A turning ring while it is running.
+ */
+function paintPlay(){
+  const btn = el("findfix");
+  const ready = !!project.configured;
+  btn.classList.toggle("busy", project.checkRunning);
+  btn.classList.toggle("unset", !ready && !project.checkRunning);
+  if (!btn.querySelector("svg")) {
+    btn.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">'
+      + '<path fill="currentColor" d="M8 5.2 19 12 8 18.8Z"/></svg>';
+  }
+  // The name lives in the accessible label and the tooltip: the control is a
+  // shape, because the whole of it means "go".
+  const name = project.checkRunning
+    ? "looking for an issue"
+    : ready ? "Find and fix" : "Nothing configured yet";
+  btn.setAttribute("aria-label", name);
+  btn.title = project.checkRunning
+    ? "lookout is checking " + (config.projectDir || project.projectDir)
+    : ready
+      ? "Find and fix: one check of " + (config.projectDir || project.projectDir) +
+        ", stopping at the first issue"
+      : "Open settings (the cog) and choose a project first";
+}
+
+// What the settings panel is showing, so Play can refuse before it spends
+// anything and the cog can render without a round trip.
+let config = { configured: false, projectDir: null, baseUrl: null, targets: [] };
+
+function paintSettings(){
+  el("setProject").textContent = config.projectDir || "not set";
+  el("setProject").title = config.projectDir || "";
+  const input = el("setUrl");
+  if (document.activeElement !== input) input.value = config.baseUrl || "";
+  const box = el("setTargets");
+  if (config.error) {
+    box.innerHTML = '<div class="tgt down">' + esc(config.error) + "</div>";
+  } else if (!config.configured) {
+    box.innerHTML = '<div class="tgt">Choose a folder holding .lookout/config.ts.</div>';
+  } else if (!config.targets.length) {
+    box.innerHTML = '<div class="tgt">That config declares no targets.</div>';
+  } else {
+    // Reachability here is the point of opening the panel: a wrong port shows
+    // up before a run is spent on it rather than after.
+    box.innerHTML = config.targets.map(t =>
+      '<div class="tgt"><b>' + esc(t.name) + "</b> " + esc(t.url) +
+      "  (" + t.routes + " route" + (t.routes === 1 ? "" : "s") + ")  " +
+      '<span class="' + (t.up ? "up" : "down") + '">' +
+      (t.up ? "reachable" : "not responding" + (t.status ? " (HTTP " + t.status + ")" : "")) +
+      "</span></div>").join("");
+  }
+  paintPlay();
+}
+
+async function loadConfigState(){
+  try { config = await (await fetch("/api/settings")).json(); } catch { return; }
+  project.configured = !!config.configured;
+  paintSettings();
+}
+
+async function saveConfigState(body){
+  const res = await fetch("/api/settings", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (data.error) { say(data.error); return; }
+  config = data;
+  project.configured = !!config.configured;
+  say(null);
+  last.board = null;
+  paintSettings();
+  await tick();
+}
+
+function toggleSettings(){
+  const panel = el("settings");
+  const open = panel.hidden;
+  panel.hidden = !open;
+  el("cog").setAttribute("aria-expanded", String(open));
+  if (open) loadConfigState();
+}
+
 async function findAndFix(){
   const btn = el("findfix");
+  // Configuring is the cog's job. Play only ever runs, and says so plainly when
+  // there is nothing to run.
+  if (!project.configured) {
+    say("no project configured yet: open settings and choose one");
+    if (el("settings").hidden) toggleSettings();
+    return;
+  }
   btn.disabled = true;
   try {
-    // No config in the current folder means there is nothing to check. Ask for
-    // a repository first rather than starting a run that cannot work.
-    if (!project.configured) {
-      const picked = await (await fetch("/api/pick", { method: "POST" })).json();
-      if (picked.cancelled) return;
-      if (picked.error) { say(picked.error); return; }
-      if (!picked.configured) {
-        say("no .lookout/config.ts in " + picked.projectDir);
-        return;
-      }
-      project = Object.assign(project, picked);
-      say(null);
-      last.board = null;
-      await tick();
-    }
     const r = await (await fetch("/api/check", { method: "POST" })).json();
     // A refusal names the target that is down and how to start it, so it stays
     // up until something replaces it.
@@ -1085,23 +1317,7 @@ async function tick(){
     projectDir: d.projectDir || "",
     checkRunning: !!s.checkRunning,
   };
-  const btn = el("findfix");
-  btn.classList.toggle("busy", project.checkRunning);
-  if (!btn.querySelector("svg")) {
-    btn.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">'
-      + '<path fill="currentColor" d="M8 5.2 19 12 8 18.8Z"/></svg>';
-  }
-  // The name lives in the accessible label and the tooltip: the control is a
-  // shape, because the whole of it means "go".
-  const name = project.checkRunning
-    ? "looking for an issue"
-    : project.configured ? "Find and fix" : "Choose a repo";
-  btn.setAttribute("aria-label", name);
-  btn.title = project.checkRunning
-    ? "lookout is checking " + project.projectDir
-    : project.configured
-      ? "Find and fix: one check of " + project.projectDir + ", stopping at the first issue"
-      : "lookout has no config here; pick the repository to check";
+  paintPlay();
   // A run that died says why. The server keeps the child's stderr precisely so
   // this is possible; before, the process exited into a discarded pipe.
   if (d.lastFailure) {
@@ -1201,6 +1417,21 @@ document.addEventListener("click", e => {
     return;
   }
   if (e.target.closest("#findfix")) { findAndFix(); return; }
+  if (e.target.closest("#cog")) { toggleSettings(); return; }
+  if (e.target.closest("#pickProject")) {
+    (async () => {
+      const picked = await (await fetch("/api/pick", { method: "POST" })).json();
+      if (picked.cancelled) return;
+      if (picked.error) { say(picked.error); return; }
+      if (!picked.configured) { say("no .lookout/config.ts in " + picked.projectDir); return; }
+      await saveConfigState({ projectDir: picked.projectDir });
+    })();
+    return;
+  }
+  if (e.target.closest("#saveUrl")) {
+    saveConfigState({ baseUrl: el("setUrl").value });
+    return;
+  }
   const go = e.target.closest("[data-launch]");
   if (go) { launch(go.dataset.launch, go); return; }
   const tile = e.target.closest("button.stat");
@@ -1240,6 +1471,15 @@ document.addEventListener("keydown", e => {
 });
 // Tools first: the launch buttons are labelled with the chosen one, and a board
 // painted before the list arrives says "open in your editor".
-loadTools().then(tick);
+// Settings first: the saved project decides whether Play is even live, so
+// resolving it before the first poll avoids a green button flashing grey.
+loadConfigState().then(loadTools).then(tick);
+// Enter in the URL box saves, which is what anyone typing a URL expects.
+document.addEventListener("keydown", e => {
+  if (e.key === "Enter" && e.target && e.target.id === "setUrl") {
+    e.preventDefault();
+    saveConfigState({ baseUrl: e.target.value });
+  }
+});
 setInterval(tick, 1500); setInterval(ticks, 1000);
 </script></body></html>`;

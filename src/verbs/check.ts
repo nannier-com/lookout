@@ -105,7 +105,8 @@ export async function runCheck(
   // 1. Fresh evidence unless the caller judges an existing set.
   let resolved;
   if (parsed.flags["no-capture"]) {
-    resolved = await loadConfig({ configPath: str(parsed.flags.config), url: str(parsed.flags.url) });
+    resolved = await loadConfig({ configPath: str(parsed.flags.config), url: str(parsed.flags.url),
+    baseUrl: str(parsed.flags["base-url"]) });
   } else {
     resolved = (await runCapture(parsed)).resolved;
   }
@@ -500,6 +501,7 @@ export async function check(parsed: Parsed): Promise<number> {
   const pre = await loadConfig({
     configPath: str(parsed.flags.config),
     url: str(parsed.flags.url),
+    baseUrl: str(parsed.flags["base-url"]),
   });
   const elog = new EventLog(pre, checkRun);
   elog.start("lookout check", {

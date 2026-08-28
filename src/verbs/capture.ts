@@ -50,6 +50,7 @@ export async function runCapture(parsed: Parsed): Promise<{
   const resolved = await loadConfig({
     configPath: str(parsed.flags.config),
     url: str(parsed.flags.url),
+    baseUrl: str(parsed.flags["base-url"]),
     });
   assertTargetsAllowed(resolved.config, !!parsed.flags["allow-remote"]);
 
@@ -164,6 +165,7 @@ export async function capture(parsed: Parsed): Promise<number> {
   const pre = await loadConfig({
     configPath: str(parsed.flags.config),
     url: str(parsed.flags.url),
+    baseUrl: str(parsed.flags["base-url"]),
   });
   const elog = new EventLog(pre, runId("capture"));
   elog.start("lookout capture", { project: pre.project });

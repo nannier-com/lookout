@@ -9,6 +9,7 @@ export async function targets(parsed: Parsed): Promise<number> {
   const resolved = await loadConfig({
     configPath: str(parsed.flags.config),
     url: str(parsed.flags.url),
+    baseUrl: str(parsed.flags["base-url"]),
   });
   assertTargetsAllowed(resolved.config, !!parsed.flags["allow-remote"]);
 

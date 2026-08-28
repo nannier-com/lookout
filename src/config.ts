@@ -31,10 +31,47 @@ const CONFIG_CANDIDATES = [
 export interface LoadOptions {
   /** Explicit config path from --config. */
   configPath?: string;
-  /** Zero-config base URL from --url. */
+  /** Zero-config base URL from --url: REPLACES the config with one target. */
   url?: string;
+  /**
+   * Base URL from --base-url: OVERRIDES where the config's targets live,
+   * keeping everything else about them.
+   *
+   * The difference from `url` is the whole point. `url` short-circuits the
+   * config file entirely, so the routes, viewports, state recipes and signIn
+   * hook a project wrote all vanish and the run captures "/" of one origin.
+   * That is right for pointing lookout at something it knows nothing about, and
+   * wrong for the common case of a configured project whose dev server came up
+   * somewhere else today. This keeps the config and moves the targets.
+   */
+  baseUrl?: string;
   /** Search start directory (defaults to cwd). */
   cwd?: string;
+}
+
+/**
+ * Move every target to a different origin, keeping everything else.
+ *
+ * A dev server that came up on another port does not make a project's routes,
+ * viewports, recipes or sign-in hook wrong, so overriding the origin must not
+ * discard them. Only the origin is replaced: any path a target's URL carried is
+ * kept, because that is part of where the app is mounted rather than part of
+ * which machine it is on.
+ */
+export function applyBaseUrl(config: LookoutConfig, baseUrl: string): void {
+  let origin: URL;
+  try {
+    origin = new URL(baseUrl);
+  } catch {
+    throw new LookoutError(
+      `--base-url is not a valid URL: ${baseUrl}`,
+      "give an origin such as http://localhost:3000",
+    );
+  }
+  for (const t of config.targets) {
+    const mounted = new URL(t.url).pathname.replace(/\/$/, "");
+    t.url = (origin.origin + mounted).replace(/\/$/, "");
+  }
 }
 
 export async function loadConfig(opts: LoadOptions = {}): Promise<ResolvedConfig> {
@@ -103,6 +140,7 @@ export async function loadConfig(opts: LoadOptions = {}): Promise<ResolvedConfig
     );
   }
   config.setScheme = setScheme;
+  if (opts.baseUrl) applyBaseUrl(config, opts.baseUrl);
 
   const projectDir = dirname(dirname(path)); // .lookout/config.ts -> project root
   return {

@@ -162,6 +162,7 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
   const preResolved = await loadConfig({
     configPath: str(parsed.flags.config),
     url: str(parsed.flags.url),
+    baseUrl: str(parsed.flags["base-url"]),
   });
   const elog = new EventLog(preResolved, makeRunId("verify-fix"));
   // Join, never start: this run rules on one issue of a board another run

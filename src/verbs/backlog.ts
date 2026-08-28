@@ -119,7 +119,8 @@ export async function mergeLatest(
 
 export async function backlog(parsed: Parsed): Promise<number> {
   const sub = parsed.positionals[0] ?? "stats";
-  const resolved = await loadConfig({ configPath: str(parsed.flags.config), url: str(parsed.flags.url) });
+  const resolved = await loadConfig({ configPath: str(parsed.flags.config), url: str(parsed.flags.url),
+    baseUrl: str(parsed.flags["base-url"]) });
 
   if (sub === "merge") {
     const { backlog: b, added, reopened, refreshed } = await mergeLatest(resolved, {});
