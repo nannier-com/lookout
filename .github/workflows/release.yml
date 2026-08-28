@@ -1,8 +1,7 @@
 name: Release
 
 # npm publishes itself on every push to main: `changeset publish` is a no-op unless
-# a changeset bumped the version. Mirrors the canvas deploy pipeline, including the
-# guard that a MAJOR bump never releases automatically.
+# a changeset bumped the version. A MAJOR bump never releases automatically.
 on:
   push:
     branches: [main]
@@ -37,8 +36,8 @@ jobs:
       - run: bun install --frozen-lockfile
 
       # A MAJOR bump is never allowed to happen automatically; a breaking release is
-      # a deliberate act via the manual run. (Lesson inherited from canvas, where a
-      # major changeset once rode a push straight to a published 2.0.0.)
+      # a deliberate act via the manual run: a major changeset riding an ordinary
+      # push straight to a published 2.0.0 is exactly what this prevents.
       - name: Block automatic major releases
         id: major_guard
         run: |

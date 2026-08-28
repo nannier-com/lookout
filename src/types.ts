@@ -113,9 +113,9 @@ export interface StateRecipe {
 }
 
 export interface NativeAppConfig {
-  /** Deep-link scheme, e.g. "canvas" for canvas:///components/button. */
+  /** Deep-link scheme, e.g. "myapp" for myapp:///settings. */
   deepLinkScheme: string;
-  /** Bundle/application id, e.g. "com.nannier.canvas". */
+  /** Bundle/application id, e.g. "com.example.myapp". */
   bundleId: string;
   /** Milliseconds to wait after opening a deep link before the screenshot. */
   settleMs?: number;

@@ -98,8 +98,8 @@ function help(): void {
     "\ncommon flags: --config <path> --url <base> --targets a,b --routes /x,/y" +
       "\n              --json --allow-remote" +
       "\nexamples:" +
-      "\n  lookout targets --url http://localhost:8081" +
-      "\n  lookout capture --targets docs --routes /components/button" +
+      "\n  lookout targets --url http://localhost:3000" +
+      "\n  lookout capture --targets app --routes /,/settings" +
       "\n  lookout check" +
       "\n  lookout verify-fix --issue 418203 --commit <sha>" +
       '\n  lookout verify --criteria ticket.md --targets app' +

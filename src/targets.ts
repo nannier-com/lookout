@@ -134,17 +134,32 @@ export async function preflight(targets: ResolvedTarget[]): Promise<TargetStatus
   );
 }
 
-/** Throw with start instructions when any requested target is down. */
-export function requireUp(statuses: TargetStatus[]): void {
+/**
+ * Why the requested targets cannot be captured, or null when they all can.
+ *
+ * Shared so the CLI and the UI say the same thing about the same state. The UI
+ * needs this as a value rather than a throw: it refuses to spawn a doomed run
+ * and shows the reason, where before it spawned one and discarded the stderr
+ * that would have explained it.
+ */
+export function downReason(statuses: TargetStatus[]): string | null {
   const down = statuses.filter((s) => !s.up);
-  if (down.length === 0) return;
+  if (down.length === 0) return null;
   const lines = down.map(
     (s) =>
       `  ${s.name}: ${s.url} is not responding` +
+      (s.status !== null ? ` (HTTP ${s.status})` : "") +
       (s.startHint ? `\n    start it: ${s.startHint}` : ""),
   );
+  return `target(s) not reachable:\n${lines.join("\n")}`;
+}
+
+/** Throw with start instructions when any requested target is down. */
+export function requireUp(statuses: TargetStatus[]): void {
+  const reason = downReason(statuses);
+  if (!reason) return;
   throw new LookoutError(
-    `target(s) not reachable:\n${lines.join("\n")}`,
+    reason,
     "lookout never starts services itself; start the app, then re-run",
   );
 }

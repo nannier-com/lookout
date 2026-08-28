@@ -3,7 +3,7 @@
  * any app that exposes a deep-link scheme; the per-project config supplies
  * deepLinkScheme, bundleId, and settle times.
  *
- * Recipes proven in canvas's capture-looks pipeline:
+ * Recipes learned the hard way:
  * - Android MUST `am force-stop` before every VIEW intent: an intent delivered
  *   to a running activity is swallowed and the router never moves, banking a
  *   screenshot of the previous page. No retry fixes it; only the force-stop.

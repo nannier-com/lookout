@@ -1,6 +1,6 @@
 // Writes the MIT LICENSE into the package immediately before it is packed for npm.
 //
-// lookout follows the canvas split: the SOURCE in this repository is not licensed
+// The split: the SOURCE in this repository is not licensed
 // (all rights reserved), while the PUBLISHED PACKAGE consumers install is MIT. A
 // LICENSE file at the repository root is how GitHub decides a repository's licence,
 // so it is generated at pack time (and gitignored) rather than committed.

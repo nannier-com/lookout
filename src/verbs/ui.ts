@@ -23,6 +23,7 @@ import { fileURLToPath } from "node:url";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { extname, join, resolve, sep } from "node:path";
 import { evidenceDir, loadConfig } from "../config.js";
+import { downReason, preflight, resolveTargets } from "../targets.js";
 import { readEvents, summarise } from "../report/events.js";
 import { buildBoard, severityTally, tally } from "../report/board.js";
 import { launchHandoff, toolsAvailable } from "../report/handoff.js";
@@ -133,16 +134,41 @@ let current: ResolvedConfig;
 /** The check in flight, if the page started one. */
 let running: { child: ChildProcess; projectDir: string } | null = null;
 
+/**
+ * Why the last run this page started ended badly, if it did.
+ *
+ * The child used to be spawned with its output discarded and only an `error`
+ * handler attached, which fires when the process cannot be LAUNCHED and never
+ * when it exits non-zero. A run that started and died a second later (target
+ * down, unreadable config, nothing captured) left the page idle and blank with
+ * the one artifact that explained it, its stderr, thrown away.
+ */
+let lastFailure: { code: number | null; message: string } | null = null;
+
 function checkIsRunning(): boolean {
   return running !== null && running.child.exitCode === null && !running.child.killed;
 }
 
-function startCheck(project: ResolvedConfig): { started: boolean; reason?: string } {
+async function startCheck(project: ResolvedConfig): Promise<{ started: boolean; reason?: string }> {
   if (running && running.child.exitCode === null) {
     return { started: false, reason: "a check is already running" };
   }
   if (!project.configPath) {
     return { started: false, reason: "no .lookout/config.ts in that folder" };
+  }
+
+  // Ask whether the app is even reachable before spending a run on it. The CLI
+  // path would throw `requireUp` moments from now; doing it here means the page
+  // can say which target is down and how to start it, instead of showing
+  // nothing while a doomed subprocess exits into a discarded pipe.
+  try {
+    const reason = downReason(
+      await preflight(resolveTargets(project.config, undefined, undefined, project.configPath)),
+    );
+    if (reason) return { started: false, reason };
+  } catch (e) {
+    // A config that cannot even be resolved into targets is itself the answer.
+    return { started: false, reason: (e as Error).message };
   }
   // lookout runs itself: this verb is lookout doing its own job, which is
   // finding issues and writing them down. It narrates to the event log as it
@@ -153,14 +179,43 @@ function startCheck(project: ResolvedConfig): { started: boolean; reason?: strin
   // hand back twenty-six more answers a question nobody has asked yet.
   const child = spawn(process.execPath, [cli, "check", "--quiet", "--first"], {
     cwd: project.projectDir,
-    stdio: "ignore",
+    // stderr is kept, not discarded: it carries the only explanation a failed
+    // run ever produces.
+    stdio: ["ignore", "ignore", "pipe"],
     detached: false,
   });
-  child.on("error", () => {
+  let stderr = "";
+  child.stderr?.on("data", (chunk: Buffer) => {
+    if (stderr.length < MAX_STDERR) stderr += chunk.toString();
+  });
+  child.on("error", (err) => {
+    lastFailure = { code: null, message: err.message };
     running = null;
   });
+  // Exit codes are contractual: 1 findings, 2 execution error, 3 blocked. Only
+  // 2 and unexpected codes are failures worth surfacing; 0 and 1 are answers.
+  child.on("exit", (code) => {
+    if (code !== null && code > 1) {
+      lastFailure = { code, message: tailLines(stderr) || `check exited ${code}` };
+    }
+    running = null;
+  });
+  lastFailure = null;
   running = { child, projectDir: project.projectDir };
   return { started: true };
+}
+
+/** Cap on retained stderr: enough to carry a LookoutError and its hint. */
+const MAX_STDERR = 4000;
+
+/** The last few non-empty lines, which is where a CLI puts its actual message. */
+function tailLines(text: string, lines = 4): string {
+  return text
+    .split("\n")
+    .map((l) => l.trimEnd())
+    .filter((l) => l.length > 0)
+    .slice(-lines)
+    .join("\n");
 }
 
 function json(res: ServerResponse, code: number, body: unknown): void {
@@ -213,19 +268,30 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
   }
 
   if (req.method === "POST" && url.pathname === "/api/check") {
-    const r = startCheck(resolved);
-    json(res, r.started ? 200 : 409, {
-      ...r,
-      project: resolved.project,
-      projectDir: resolved.projectDir,
-    });
+    void (async () => {
+      const r = await startCheck(resolved);
+      json(res, r.started ? 200 : 409, {
+        ...r,
+        project: resolved.project,
+        projectDir: resolved.projectDir,
+      });
+    })();
     return;
   }
 
   if (url.pathname === "/api/status") {
     // Keyed on the project too, so pointing lookout elsewhere cannot serve the
     // previous one's board.
-    const key = resolved.projectDir + "|" + diskKey(resolved) + "|" + checkIsRunning();
+    // The failure is part of the key: a body cached from before a run died
+    // would keep serving "nothing wrong here" over the top of the reason.
+    const key =
+      resolved.projectDir +
+      "|" +
+      diskKey(resolved) +
+      "|" +
+      checkIsRunning() +
+      "|" +
+      (lastFailure ? `${lastFailure.code}:${lastFailure.message}` : "");
     if (boardCache?.key === key) {
       res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
       res.end(boardCache.body);
@@ -249,6 +315,10 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
           project: resolved.project,
           projectDir: resolved.projectDir,
           configured: resolved.configPath !== null,
+          // Why the last run this page started ended badly, if it did. Null is
+          // the common case and means nothing has gone wrong, not that nothing
+          // is known.
+          lastFailure,
           status: {
             ...status,
             board,
@@ -499,6 +569,11 @@ button.stat.clear:hover{border-color:var(--accent);color:var(--accent)}
 .where{font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--faint);
 max-width:38ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;
 text-align:left}
+/* A path is read from its tail, which is why .where is rtl and clipped to one
+   line. A message is read from its start and can be several lines, so it needs
+   the opposite of all three. */
+.where.notice{direction:ltr;white-space:pre-wrap;overflow:visible;text-overflow:clip;
+max-width:60ch;color:var(--crit)}
 /* One green play button: the whole control means "go", so it is a shape rather
    than a sentence. Its name lives in aria-label and the tooltip. */
 .findfix{width:32px;height:32px;padding:0;border-radius:50%;border:0;cursor:pointer;
@@ -897,6 +972,33 @@ function card(b){
 // Where lookout is pointed, and whether it can run there at all.
 let project = { configured: false, projectDir: "", checkRunning: false };
 
+/**
+ * Why the last thing you asked for did not happen.
+ *
+ * This exists because the reason used to be written straight into the "where"
+ * element, which tick() then overwrote with the project path on its next poll.
+ * Every explanation this page produced was erased within a second of appearing,
+ * so picking an unusable folder looked identical to picking a fine one and
+ * getting no results. Held as state instead, with tick() rendering the notice
+ * when there is one and the path otherwise, so precedence is decided not raced.
+ *
+ * No backticks anywhere in this script: it lives inside a template literal.
+ */
+let notice = null;
+
+function say(message){
+  notice = message;
+  paintWhere();
+}
+
+function paintWhere(){
+  const where = el("where");
+  const text = notice ?? project.projectDir;
+  if (where.textContent !== text) where.textContent = text;
+  where.title = notice ? notice + "\n\n" + project.projectDir : project.projectDir;
+  where.classList.toggle("notice", notice !== null);
+}
+
 async function findAndFix(){
   const btn = el("findfix");
   btn.disabled = true;
@@ -906,17 +1008,20 @@ async function findAndFix(){
     if (!project.configured) {
       const picked = await (await fetch("/api/pick", { method: "POST" })).json();
       if (picked.cancelled) return;
-      if (picked.error) { el("where").textContent = picked.error; return; }
+      if (picked.error) { say(picked.error); return; }
       if (!picked.configured) {
-        el("where").textContent = "no .lookout/config.ts in " + picked.projectDir;
+        say("no .lookout/config.ts in " + picked.projectDir);
         return;
       }
       project = Object.assign(project, picked);
+      say(null);
       last.board = null;
       await tick();
     }
     const r = await (await fetch("/api/check", { method: "POST" })).json();
-    if (!r.started) el("where").textContent = r.reason || "could not start";
+    // A refusal names the target that is down and how to start it, so it stays
+    // up until something replaces it.
+    say(r.started ? null : (r.reason || "could not start"));
     await tick();
   } finally {
     btn.disabled = false;
@@ -985,11 +1090,12 @@ async function tick(){
     : project.configured
       ? "Find and fix: one check of " + project.projectDir + ", stopping at the first issue"
       : "lookout has no config here; pick the repository to check";
-  const where = el("where");
-  if (where.textContent !== project.projectDir && !project.checkRunning) {
-    where.textContent = project.projectDir;
-    where.title = project.projectDir;
+  // A run that died says why. The server keeps the child's stderr precisely so
+  // this is possible; before, the process exited into a discarded pipe.
+  if (d.lastFailure) {
+    say(d.lastFailure.message + (d.lastFailure.code ? " (exit " + d.lastFailure.code + ")" : ""));
   }
+  paintWhere();
 
   const a = s.issues;
   const statsHtml =

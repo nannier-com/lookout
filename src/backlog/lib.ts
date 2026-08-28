@@ -2,7 +2,7 @@
  * Backlog: the adjudicated findings ledger for a project. Pure functions only
  * (no I/O) so every transition is unit-testable.
  *
- * The idiom (proven in canvas's handoff-parity tooling): every finding carries
+ * The idiom: every finding carries
  * a status, by-design and blocked REQUIRE prose reasons, merges dedupe by a
  * stable fingerprint, and `backlog check` fails on schema violations and
  * staleness instead of letting drift accumulate silently.

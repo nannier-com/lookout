@@ -5,10 +5,9 @@ description: Verify UI work with the lookout visual AI tester: capture what the 
 
 # lookout
 
-lookout (`@nannier-com/lookout`, source at ~/Workspaces/lookout, runs via
-`~/Workspaces/lookout/dist/cli.js` until the npm release lands) is a visual
-oracle: it captures what an app renders, judges it, and rules on whether a
-defect is gone. It never edits code and never starts services.
+lookout is a visual oracle: it captures what an app renders, judges it, and
+rules on whether a defect is gone. It never edits code and never starts
+services.
 
 **lookout carries its own instructions.** It is meant to be driven by any
 agent, not only this one, so the operating contract lives in the tool rather
@@ -19,8 +18,8 @@ lookout protocol
 ```
 
 Run that first. It prints what lookout is, the loop, the exit codes, and the
-rules. This file exists only to point you at it and to carry the few facts
-that are specific to this machine.
+rules. This file exists only to point you at it and to carry the handful of
+practical notes that are easier to hit than to work out.
 
 ## When to reach for it
 
@@ -31,7 +30,7 @@ that are specific to this machine.
 - A ticket has acceptance criteria: `lookout verify --criteria <file|text>`.
 - You are unsure a visual assumption holds: `lookout ask "..."`.
 
-## Machine-specific facts
+## Practical notes
 
 - A running `lookout ui` server keeps executing the dist it was started with;
   rebuilding does not reach it. If the ui page looks stale while
@@ -43,12 +42,14 @@ that are specific to this machine.
 - Judging shells out to `claude -p` and needs the standalone CLI logged in.
   `lookout doctor` reports it; if it says "Not logged in", ask the user to run
   `claude` in a terminal once and complete /login.
-- Wired projects: canvas (the docs, 100 component routes, overlay recipes and
-  native apps), ionize dashboard (13 admin routes behind a demo-admin
-  `signIn`), ionize auth and site (public routes through Caddy addresses).
-- lookout never starts services. A down target prints its startHint; start the
-  app the way that project intends (canvas: `cd docs && bun run dev`; the
-  ionize stack: ask the user to start it, NEVER run ionctl yourself).
+- Which projects are wired, and what each one targets, is whatever
+  `.lookout/config.ts` says in the repo you are standing in. `lookout targets`
+  lists them and probes whether they are reachable; read that rather than
+  assuming.
+- lookout never starts services. A down target prints that project's own
+  `startHint`; start the app the way the hint says. If the hint names an
+  orchestration tool the operator runs by hand, ask them rather than running
+  it yourself.
 - Native capture (`--platforms ios,android`) needs a booted simulator or
   emulator with the app installed.
 - Authenticated targets sign in via the project's `signIn` hook, which clicks a

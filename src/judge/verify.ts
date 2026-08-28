@@ -2,8 +2,8 @@
  * Adversarial verification: a second, independent `claude -p` pass whose
  * explicit mandate is to REFUTE a finding against the same evidence. Findings
  * that survive are marked verified; refuted ones are dropped from the results
- * (kept in the report for transparency). Experience from the canvas audits:
- * roughly a quarter of serious findings die under verification.
+ * (kept in the report for transparency). In practice roughly a quarter of
+ * serious findings do not survive it.
  *
  * What gets verified follows RISK, not severity alone. Severity says how much a
  * defect costs if it is real; it says nothing about how likely the judge was to
