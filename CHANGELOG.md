@@ -1,5 +1,62 @@
 # @nannier-com/lookout
 
+## 0.23.1
+
+### Patch Changes
+
+- 41cbec8: lookout no longer carries knowledge of the projects it happened to be built
+  against, ahead of being open sourced.
+
+  It is a project-agnostic tool, but its comments, help text and agent skill had
+  accumulated references to the author's own private repositories: what they are
+  called, how many routes they have, which orchestration tool starts them, and
+  where they sit on one particular machine. None of it changed behaviour, and all
+  of it would be meaningless or misleading to anyone else reading the source.
+
+  - The agent-facing skill listed "wired projects" by name with route counts and
+    sign-in details, named a private orchestration tool, and hard-coded a home
+    directory as the install path. It now says to read `.lookout/config.ts` and
+    `lookout targets` for what a project targets, and to follow whatever
+    `startHint` that project sets.
+  - `lookout --help` used a private app's port and route as its examples
+    (`--targets docs --routes /components/button`). It now shows examples a new
+    user can recognise.
+  - `NativeAppConfig` documented its deep-link scheme and bundle id with a real
+    private app's identifiers; both are now generic.
+  - Several module headers credited techniques to a named private project. The
+    techniques and the reasoning are kept; the attribution is gone.
+  - Two release-workflow comments referenced another repository's pipeline.
+
+  No behaviour changes. Verified by grepping the whole tracked tree for every
+  project, tool, host and path name involved and finding nothing left.
+
+- 7cdb837: The UI now tells you why a run did not happen, instead of going quiet.
+
+  Clicking Play, picking a folder and getting nothing back was three separate
+  defects, each turning an explanation lookout already had into silence.
+
+  **The message was erased before it could be read.** Every failure path wrote its
+  reason into the `where` element, and the polling loop overwrote that same element
+  with the project path on its next tick. One element, two writers, and the path
+  always won, so "no .lookout/config.ts in ..." appeared for a fraction of a second
+  and vanished. Notices are now held as state and rendered in preference to the
+  path, with their own styling: the path is clipped to one right-to-left line
+  because a path is read from its tail, while a message wraps and reads normally.
+
+  **A run that died said nothing.** The check was spawned with its output discarded
+  and only an `error` handler attached, which fires when a process cannot be
+  launched and never when it exits non-zero. A run that started and died a second
+  later left the page idle and blank. Its stderr is now kept and an `exit` handler
+  records a non-zero code, surfaced through `/api/status` and shown on the page.
+  Exit 1 is not treated as a failure: that is findings, which is an answer.
+
+  **Nothing checked the target first.** The UI spawned a run before asking whether
+  the app was reachable. It now probes with `preflight` and refuses with a reason
+  naming the target, its status and its `startHint`, rather than starting a run
+  that dies on `requireUp` moments later with its output thrown away. The wording
+  is shared with the CLI through a new exported `downReason`, so both say the same
+  thing about the same state.
+
 ## 0.23.0
 
 ### Minor Changes
