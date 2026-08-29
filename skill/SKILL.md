@@ -1,6 +1,6 @@
 ---
 name: lookout
-description: Verify UI work with the lookout visual AI tester: capture what the app actually renders across form factors, schemes, and platforms; judge it against best practices; verify a ticket's acceptance criteria; fact-check a visual assumption; find which design system a project uses and where a visual fix belongs; track findings in the project backlog. Use BEFORE declaring UI work done, when a ticket carries acceptance criteria, when unsure whether a visual or responsive assumption holds, when about to fix UI in a project that has a component kit, or when asked to audit an app's UI.
+description: Verify UI work with the lookout visual AI tester: capture what the app actually renders across form factors, schemes, and platforms; judge it against best practices; verify a ticket's acceptance criteria; fact-check a visual assumption; find which design system a project uses, whether the app is actually built out of it, and where a visual fix belongs; track findings in the project backlog. Use BEFORE declaring UI work done, when a ticket carries acceptance criteria, when unsure whether a visual or responsive assumption holds, when about to fix UI in a project that has a component kit, when a control is about to be built out of raw elements, or when asked to audit an app's UI.
 ---
 
 # lookout
@@ -61,12 +61,23 @@ practical notes that are easier to hit than to work out.
   answer that matters most is whether the kit is this repository's to edit or an
   installed dependency, because that decides whether the fix is to the component
   or to the application's use of it. Never patch a kit inside `node_modules`.
+  Its `provides` line is the kit's real export list, read from the kit, so use
+  it rather than guessing whether a component exists.
+- Before building any control out of raw elements in a project that has a kit,
+  check whether the kit already ships it. `lookout design-system --audit` reads
+  the application and answers exactly that, and `lookout check` files what it
+  finds on the `code` channel. A hand-rolled look-alike is a defect even when it
+  looks right, and if the kit genuinely lacks the control the fix is to add it to
+  the kit and consume it, not to keep the copy.
 - Placing a defect costs a model call per new issue (about $0.30). `lookout
   check --no-placement` skips it, `--max-placements N` changes the cap. The
   leftovers are placed on the next run rather than lost.
 - Findings on the `code` channel were read out of the source, not photographed,
   so they have no screenshots and `verify-fix` rules on them by re-reading the
-  source. An issue with no `img/` folder is not a broken issue.
+  source. An issue with no `img/` folder is not a broken issue. Some of them were
+  found by a reading pass rather than by the scanner, and those are ruled by
+  running that pass again over the same file, which costs a model call per
+  `verify-fix`. Fixing the file is what closes them; nothing else does.
 - Authenticated targets sign in via the project's `signIn` hook, which clicks a
   demo account rather than typing credentials. If a run comes back full of
   findings about a login screen, read the `off-origin` finding before believing

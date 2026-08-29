@@ -109,7 +109,11 @@ so it is wrong in both directions and you are the one who settles it.
 Confirm a suspicion by filing it as a finding. Refute it by listing it in
 `refuted` with one sentence saying what the component actually is. Refuting is
 not a failure: a suspicion killed here is a false issue that never reaches
-anybody, and the reasons you give are read back into the scanner's rules.
+anybody, and your sentence is kept with the file, so the same question is not
+put to you again while the file stays as it is.
+
+Never do both to the same component. A reply that files a control and refutes it
+in the same breath has said nothing, and lookout throws the contradiction out.
 
 ## Rules
 

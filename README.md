@@ -48,7 +48,7 @@ lookout targets               # resolve + probe the configured targets
 | `ask`     | answer a free-form question about the rendered app, grounded in fresh screenshots |
 | `backlog` | adjudicate findings: merge, set statuses (fixed / by-design / blocked, with mandatory reasons), regenerate the report, `check` for staleness |
 | `targets` | list configured targets and probe reachability |
-| `design-system` | what the project is built from (component kit, tokens, adoption), and where a visual fix belongs |
+| `design-system` | what the project is built from (component kit, tokens, adoption), and where a visual fix belongs; `--audit` reads the application and says whether it is actually built out of that kit |
 | `skills`  | lookout's own instructions: `list`, `diff`, `freeze`, `replay`, `improve` |
 | `self-heal` | fix what lookout keeps getting wrong, in lookout's own source |
 | `init`    | scaffold `.lookout/config.ts` |
@@ -141,6 +141,45 @@ kit the moment either side changes, it is invisible to the kit's own tests, and
 it hides whatever gap in the kit made hand-rolling it seem necessary. Those are
 filed on their own channel and ruled by re-reading the source, so `verify-fix`
 closes them on evidence exactly like any other issue.
+
+### Is the application actually built out of its kit
+
+Having a kit and using it are different facts, and only the second one shows up
+in the code. So lookout reads the application as well as scanning it.
+
+The scan is a regex: it fires on a declaration whose name ends in a control word,
+in a file that imports the kit nowhere. Both restrictions keep it honest, and
+together they miss the common case, which is a screen that imports the kit for
+its text and layout and then builds a button out of a styled `div` in the same
+file. No pattern separates that from ordinary scaffolding, because the difference
+is what the thing IS.
+
+The reading pass is the `kit-conformance` skill, handed the kit's actual export
+list and the files densest in raw interactive markup. It adds the hand-rolls the
+scan cannot see and refutes the ones the scan got wrong, and nothing it says is
+taken on trust: every claim names a file, a symbol and a line, the symbol is
+looked up in the file and the file's own line wins, and a kit component the kit
+does not export is dropped rather than repeated.
+
+```bash
+lookout check                       # reads the application as part of the run
+lookout check --no-conformance      # skip it
+lookout check --max-conformance 12  # read at most 12 files
+lookout design-system --audit       # read it on its own; files nothing, exits 1 on findings
+```
+
+It is on by default because it is nearly free the second time. A verdict is kept
+per file, keyed on that file's own bytes plus the skill's version and the kit's
+export list, so an unchanged file costs nothing, a changed one is read again, and
+amending the skill or moving the kit drops every cached verdict at once. A file
+the reply never accounted for is recorded as unread rather than cached clean.
+
+Two defects come out of this, and they are not the same work. A **duplicate**
+has something in the kit to be replaced by, and the finding names it. A **gap**
+does not: the kit ships no equivalent, so the fix is to add the control to the
+kit, backwards-compatibly, and consume it from there. Findings the reading pass
+filed are ruled by asking it again about that file, never by the scan, because
+the scan is exactly what could not see them in the first place.
 
 ## Issues
 
@@ -269,6 +308,8 @@ skills/
   refute-finding/     SKILL.md: the adversarial pass that kills false findings
   verify-acceptance/  SKILL.md: ruling on a ticket's criteria from evidence alone
   fact-check/         SKILL.md: answering one question from screenshots
+  design-placement/   SKILL.md: where a defect belongs, in a project with a kit
+  kit-conformance/    SKILL.md: whether the application is built out of that kit
 ```
 
 A skill carries the whole prompt shape, placeholders and all. lookout supplies
@@ -375,6 +416,8 @@ dirty checkout, or while another heal holds the lock.
   backlog.json     committed: adjudicated findings (managed via `lookout backlog`)
   BACKLOG.md       committed: generated report (regen via `lookout backlog regen`)
   ledger.json      committed if you want cross-machine judge caching
+  design-system.json  committed: what the project is built from, cached
+  conformance.json    committed if you want the reading pass cached across machines
   issues/<id>/     committed: one folder per issue, named by its six-digit id
                      Issue.json, Issue.md, state.json committed;
                      img/ gitignored with the evidence
