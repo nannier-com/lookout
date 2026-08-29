@@ -61,6 +61,9 @@ practical notes that are easier to hit than to work out.
   answer that matters most is whether the kit is this repository's to edit or an
   installed dependency, because that decides whether the fix is to the component
   or to the application's use of it. Never patch a kit inside `node_modules`.
+- Placing a defect costs a model call per new issue (about $0.30). `lookout
+  check --no-placement` skips it, `--max-placements N` changes the cap. The
+  leftovers are placed on the next run rather than lost.
 - Findings on the `code` channel were read out of the source, not photographed,
   so they have no screenshots and `verify-fix` rules on them by re-reading the
   source. An issue with no `img/` folder is not a broken issue.

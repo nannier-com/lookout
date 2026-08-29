@@ -536,18 +536,26 @@ export async function check(parsed: Parsed): Promise<number> {
     // defect is found on a screen and fixed in a component, and those are
     // rarely the same file, so the issue document says which before anybody
     // opens it. Once per issue, ever: it is a fact about the codebase.
-    const { resolveInventory } = await import("../design/resolve.js");
-    const { placeNewIssues } = await import("../design/place-issues.js");
-    const inv = await resolveInventory(resolved);
-    if (inv.kits.length > 0) {
-      const run = await placeNewIssues(resolved, merged.backlog, inv, {
-        model: str(parsed.flags.model),
-      });
-      if (run.placed > 0 || run.skipped > 0) {
-        await saveBacklog(resolved, merged.backlog);
-        backlogNote +=
-          `; placement: ${run.placed} issue(s) located in ${inv.kits[0]!.name}` +
-          (run.skipped > 0 ? `, ${run.skipped} left for the next run` : "");
+    // Placement costs a model call per newly filed issue, so it has an off
+    // switch and a cap. Neither is a default anybody should have to reach for,
+    // but a first sweep of a neglected project can file a lot at once, and a
+    // tool that spends money with no way to say no is one people stop running.
+    if (!parsed.flags["no-placement"]) {
+      const { resolveInventory } = await import("../design/resolve.js");
+      const { placeNewIssues } = await import("../design/place-issues.js");
+      const inv = await resolveInventory(resolved);
+      const kit = inv.kits[0];
+      if (kit) {
+        const run = await placeNewIssues(resolved, merged.backlog, inv, {
+          model: str(parsed.flags.model),
+          limit: num(parsed.flags["max-placements"]),
+        });
+        if (run.placed > 0 || run.skipped > 0) {
+          await saveBacklog(resolved, merged.backlog);
+          backlogNote +=
+            `; placement: ${run.placed} issue(s) located in ${kit.name}` +
+            (run.skipped > 0 ? `, ${run.skipped} left for the next run` : "");
+        }
       }
     }
   }

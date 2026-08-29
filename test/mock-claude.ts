@@ -26,13 +26,33 @@ if (mode === "auto") {
         ? "improve"
         : promptText.includes("editing lookout's own source")
           ? "heal"
-          : "judge";
+          : promptText.includes("placement advisor")
+            ? "placement"
+            : "judge";
 }
 
 const shotIds = [...promptText.matchAll(/^- shotId: (.+)$/gm)].map((m) => m[1]!);
 
 let result = "";
-if (mode === "heal") {
+if (mode === "placement") {
+  // MOCK_PLACEMENT overrides the whole verdict; the default names the kit path
+  // the prompt's inventory block advertised, which is what a real reply does.
+  const root = promptText.match(/^\s*components: (.+)$/m)?.[1] ?? "/unknown";
+  result =
+    process.env.MOCK_PLACEMENT ??
+    "```json\n" +
+      JSON.stringify({
+        placement: "kit-component",
+        primaryPath: `${root}/Button.tsx`,
+        symbol: "Button",
+        reason: "the component sets it for every caller",
+        otherCallers: 3,
+        blastRadius: "every Button in the product",
+        alsoRead: [],
+        notes: "",
+      }) +
+      "\n```";
+} else if (mode === "heal") {
   const file = process.env.MOCK_HEAL_FILE;
   if (file) writeFileSync(file, "// written by the mock healer\n");
   result =

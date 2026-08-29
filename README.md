@@ -123,6 +123,11 @@ export default {
 };
 ```
 
+Working out where a defect belongs costs one model call per newly filed issue
+(roughly $0.30 on sonnet), capped per run. Turn it off with
+`lookout check --no-placement`, or change the cap with `--max-placements N`;
+whatever is left over is placed on the next run rather than dropped.
+
 Every issue lookout files in such a project carries a **Where this belongs**
 section, above the description of the defect on purpose: somebody who reads
 what is wrong first has already started planning to fix it on the screen they

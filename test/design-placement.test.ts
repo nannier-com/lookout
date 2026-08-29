@@ -13,6 +13,8 @@ import type { DesignInventory } from "../src/design/inventory.js";
 import type { FixCluster } from "../src/fix/cluster.js";
 import type { IssuePlacement } from "../src/backlog/lib.js";
 
+const MOCK = join(import.meta.dir, "mock-claude.ts");
+
 const cluster = (over: Partial<FixCluster> = {}): FixCluster => ({
   id: "418203",
   key: "app--contrast--disabled",
@@ -195,5 +197,96 @@ describe("a code-channel issue document", () => {
     const { markdown } = await renderIssueDocument(r, codeCluster, {});
     expect(markdown).toContain("re-reads the source");
     expect(markdown).toContain("verify-fix --issue 418203");
+  });
+});
+
+describe("placing new issues in a run", () => {
+  test("places issues that lack one, skips issues that have one, and caps the batch", async () => {
+    const { placeNewIssues } = await import("../src/design/place-issues.js");
+    const r = tmpProject("lookout-placerun-");
+    const inv: DesignInventory = {
+      schema: 1,
+      at: "now",
+      project: "demo",
+      kits: [
+        {
+          id: "@acme/kit",
+          name: "@acme/kit",
+          via: "dependency",
+          evidence: ["dependency @acme/kit@1"],
+          editable: true,
+          packageRoot: "/repo/packages/kit",
+          componentRoots: ["/repo/packages/kit/src/atoms"],
+          importPrefixes: ["@acme/kit"],
+        },
+      ],
+      tokens: [],
+      appRoots: ["/repo/src"],
+      handRolls: [],
+      adoption: null,
+      notes: [],
+    };
+
+    // Two issues: one already placed, one not. Only the unplaced one may cost
+    // a call, because placement is a fact about the codebase and re-deriving it
+    // on every save is the waste this design exists to avoid.
+    const backlog = {
+      note: "",
+      project: "demo",
+      updatedAt: "now",
+      findings: {
+        fp1: {
+          fingerprint: "fp1", target: "app", route: "/a", state: "rest",
+          platform: "web" as const, formFactor: "desktop" as const, scheme: "dark" as const,
+          category: "contrast" as const, attribute: "x", severity: "high" as const,
+          status: "open" as const, reason: null, title: "t", problem: "p",
+          expected: "e", observed: "o", channel: "ai" as const, confidence: "high" as const,
+          verified: true, evidence: [], firstSeen: "r", lastSeen: "r", fixAttempts: 0, fixedIn: null,
+        },
+        fp2: {
+          fingerprint: "fp2", target: "app", route: "/b", state: "rest",
+          platform: "web" as const, formFactor: "desktop" as const, scheme: "dark" as const,
+          category: "spacing" as const, attribute: "y", severity: "high" as const,
+          status: "open" as const, reason: null, title: "t2", problem: "p2",
+          expected: "e", observed: "o", channel: "ai" as const, confidence: "high" as const,
+          verified: true, evidence: [], firstSeen: "r", lastSeen: "r", fixAttempts: 0, fixedIn: null,
+        },
+      },
+      issues: {
+        "111111": { id: "111111", key: "app--contrast--x", createdAt: "now" },
+        "222222": {
+          id: "222222", key: "app--spacing--y", createdAt: "now",
+          placement: placement({ kit: "@acme/kit" }),
+        },
+      },
+    } as never;
+
+    const before = process.env.LOOKOUT_CLAUDE_BIN;
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    try {
+      const run = await placeNewIssues(r, backlog, inv);
+      expect(run.placed).toBe(1);
+      const placed = (backlog as never as { issues: Record<string, { placement?: IssuePlacement }> }).issues;
+      expect(placed["111111"]!.placement?.primaryPath).toContain("Button.tsx");
+      expect(placed["111111"]!.placement?.kit).toBe("@acme/kit");
+      expect(placed["111111"]!.placement?.kitEditable).toBe(true);
+      // Untouched: it already had one.
+      expect(placed["222222"]!.placement?.reason).toBe(placement().reason);
+    } finally {
+      if (before === undefined) delete process.env.LOOKOUT_CLAUDE_BIN;
+      else process.env.LOOKOUT_CLAUDE_BIN = before;
+    }
+  });
+
+  test("does nothing at all when the project has no design system", async () => {
+    const { placeNewIssues } = await import("../src/design/place-issues.js");
+    const r = tmpProject("lookout-placenone-");
+    const empty: DesignInventory = {
+      schema: 1, at: "now", project: "d", kits: [], tokens: [],
+      appRoots: [], handRolls: [], adoption: null, notes: [],
+    };
+    const run = await placeNewIssues(r, { findings: {}, issues: {} } as never, empty);
+    expect(run.placed).toBe(0);
+    expect(run.costUsd).toBe(0);
   });
 });
