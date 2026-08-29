@@ -71,6 +71,10 @@ const VERBS: Record<string, { load: () => Promise<Verb>; summary: string }> = {
     load: async () => (await import("./verbs/targets.js")).targets,
     summary: "list configured targets and probe reachability",
   },
+  "design-system": {
+    load: async () => (await import("./verbs/design-system.js")).designSystem,
+    summary: "what this project is built from, and where a visual fix belongs",
+  },
   init: {
     load: async () => (await import("./verbs/init.js")).init,
     summary: "scaffold .lookout/config.ts in this repo",
@@ -92,7 +96,7 @@ const VERBS: Record<string, { load: () => Promise<Verb>; summary: string }> = {
 function help(): void {
   console.log("lookout <verb> [flags]\n");
   for (const [name, v] of Object.entries(VERBS)) {
-    console.log(`  ${name.padEnd(10)} ${v.summary}`);
+    console.log(`  ${name.padEnd(14)} ${v.summary}`);
   }
   console.log(
     "\ncommon flags: --config <path> --url <base> --targets a,b --routes /x,/y" +

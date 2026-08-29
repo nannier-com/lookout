@@ -12,6 +12,7 @@ import { pathToFileURL } from "node:url";
 import {
   DEFAULT_VIEWPORTS,
   LookoutError,
+  type DesignSystemDeclaration,
   type FormFactor,
   type LookoutConfig,
   type ResolvedConfig,
@@ -277,6 +278,38 @@ export function validateConfig(raw: unknown, path: string): LookoutConfig {
     }
   }
 
+  let designSystem: DesignSystemDeclaration | undefined;
+  if (raw.designSystem !== undefined) {
+    if (!isRecord(raw.designSystem)) fail(path, "designSystem must be an object");
+    const d = raw.designSystem;
+    const strArray = (key: string): string[] | undefined => {
+      const v = d[key];
+      if (v === undefined) return undefined;
+      if (!Array.isArray(v) || v.some((x) => typeof x !== "string")) {
+        fail(path, `designSystem.${key} must be an array of strings`);
+      }
+      return v as string[];
+    };
+    const strField = (key: string): string | undefined => {
+      const v = d[key];
+      if (v === undefined) return undefined;
+      if (typeof v !== "string") fail(path, `designSystem.${key} must be a string`);
+      return v;
+    };
+    if (d.editable !== undefined && typeof d.editable !== "boolean") {
+      fail(path, "designSystem.editable must be a boolean");
+    }
+    designSystem = {
+      name: strField("name"),
+      packageRoot: strField("packageRoot"),
+      componentRoots: strArray("componentRoots"),
+      importPrefixes: strArray("importPrefixes"),
+      tokenFiles: strArray("tokenFiles"),
+      docs: strField("docs"),
+      editable: d.editable as boolean | undefined,
+    };
+  }
+
   return {
     project: typeof raw.project === "string" ? raw.project : undefined,
     targets: validTargets,
@@ -288,6 +321,7 @@ export function validateConfig(raw: unknown, path: string): LookoutConfig {
     neverFile: Array.isArray(raw.neverFile)
       ? raw.neverFile.filter((s): s is string => typeof s === "string")
       : undefined,
+    designSystem,
     native: raw.native as LookoutConfig["native"],
   };
 }

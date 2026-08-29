@@ -142,12 +142,55 @@ export interface LookoutConfig {
   rubric?: string;
   /** Extra never-file lines appended to the judge's exclusion list. */
   neverFile?: string[];
+  /**
+   * What this project is built out of, when the scan cannot work it out.
+   *
+   * lookout detects the design system by reading manifests and directory
+   * layout, which covers a published kit, a vendored one, and a workspace
+   * package the app imports. An in-house kit with none of those marks is
+   * invisible to it, and guessing would be worse than asking: a wrongly named
+   * kit sends every fix to the wrong repository.
+   *
+   * Anything declared here overrides what was detected, because a person who
+   * has written down what their project uses has said something the scanner is
+   * not entitled to argue with.
+   */
+  designSystem?: DesignSystemDeclaration;
   native?: {
     /** Which target's routes the native app mirrors (default: the first). */
     target?: string;
     ios?: NativeAppConfig;
     android?: NativeAppConfig;
   };
+}
+
+/**
+ * A project's own statement of what it is built from. Every field is optional:
+ * declaring only `componentRoots` to correct a scan that found the kit but not
+ * its source is a normal and useful thing to do.
+ */
+export interface DesignSystemDeclaration {
+  /** What the kit is called. Used in issue documents and nowhere else. */
+  name?: string;
+  /**
+   * Absolute or config-relative path to the kit's own package root. Naming it
+   * is what turns "you use a design system" into "the fix goes here".
+   */
+  packageRoot?: string;
+  /** Directories holding the kit's components, config-relative or absolute. */
+  componentRoots?: string[];
+  /** Import specifiers that mean "this came from the kit", e.g. "@acme/ui". */
+  importPrefixes?: string[];
+  /** Files holding design tokens: colours, spacing, type scale. */
+  tokenFiles?: string[];
+  /** Where the kit documents itself, for the issue document to point at. */
+  docs?: string;
+  /**
+   * False when the kit is consumed from a registry and is not this
+   * repository's to edit. Defaults to true when a packageRoot is declared,
+   * because declaring a path to something you cannot edit would be pointless.
+   */
+  editable?: boolean;
 }
 
 /** A LookoutConfig plus where it came from, after validation. */
