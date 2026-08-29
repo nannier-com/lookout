@@ -54,6 +54,9 @@ const FILES_PER_BATCH = 8;
 /** Files one run will look at, unless the caller says otherwise. */
 export const DEFAULT_FILE_BUDGET = 40;
 
+/** Batches in flight at once. Two, the same width the judge runs at. */
+const BATCH_CONCURRENCY = 2;
+
 /** Raw elements that carry interaction, which is what a control is made of. */
 const INTERACTIVE = /<(button|input|select|textarea|a)[\s/>]|onClick|onPress|role=["'](button|tab|dialog|switch|checkbox)/g;
 
@@ -166,7 +169,7 @@ export async function conformanceCandidates(
     if (a.suspicions.length !== b.suspicions.length) return b.suspicions.length - a.suspicions.length;
     return b.score - a.score;
   });
-  return out.slice(0, budget);
+  return out.slice(0, Math.max(0, budget));
 }
 
 /** The file list as the skill sees it: paths to open, and what was suspected. */
@@ -182,6 +185,19 @@ function fileBrief(batch: Candidate[]): string {
     }
   }
   return l.join("\n");
+}
+
+/** What one batch produced, before it is folded into the run's result. */
+interface BatchOutcome {
+  findings: ConformanceFinding[];
+  refuted: Refutation[];
+  examined: string[];
+  unread: string[];
+  rejected: { reason: string; raw: unknown }[];
+  /** Per-file verdicts, for the cache. A file missing here has no verdict. */
+  decided: Map<string, { findings: ConformanceFinding[]; refuted: Refutation[] }>;
+  costUsd: number;
+  calls: number;
 }
 
 interface RawFinding {
@@ -213,12 +229,15 @@ export function verifyClaim(
   kitExports: string[],
 ): { ok: true; finding: ConformanceFinding } | { ok: false; reason: string } {
   const symbol = typeof raw.symbol === "string" ? raw.symbol.trim() : "";
-  if (!symbol) return { ok: false, reason: "no symbol named" };
+  // An identifier, or nothing. Sanitising a symbol down to the empty string and
+  // searching for that would match the first declaration in the file and file a
+  // finding against a component nobody named.
+  if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(symbol)) {
+    return { ok: false, reason: symbol ? `"${symbol}" is not an identifier` : "no symbol named" };
+  }
 
   // The declaration, found in the file rather than trusted from the reply.
-  const decl = new RegExp(
-    `(?:function|const|let|var|class)\\s+${symbol.replace(/[^A-Za-z0-9_$]/g, "")}\\b`,
-  ).exec(text);
+  const decl = new RegExp(`(?:function|const|let|var|class)\\s+${symbol}\\b`).exec(text);
   if (!decl) {
     return { ok: false, reason: `${symbol} is not declared in ${candidate.relPath}` };
   }
@@ -237,9 +256,13 @@ export function verifyClaim(
   const confidence = CONFIDENCE.has(String(raw.confidence))
     ? (raw.confidence as "high" | "medium" | "low")
     : "medium";
-  const what = typeof raw.what === "string" ? raw.what.trim() : "";
-  const why = typeof raw.why === "string" ? raw.why.trim() : "";
-  const note = [what, why].filter(Boolean).join(" ");
+  // What it is and why it counts, as two sentences rather than one run-on. This
+  // text lands in the issue a person reads, so it is punctuated here rather
+  // than hoping the reply punctuated itself.
+  const parts = [raw.what, raw.why]
+    .map((t) => (typeof t === "string" ? t.trim().replace(/[.;,\s]+$/, "") : ""))
+    .filter(Boolean);
+  const note = parts.length > 0 ? `${parts.join(". ")}.` : "";
   if (!note) return { ok: false, reason: `${symbol} was filed with no account of what it is` };
 
   return {
@@ -260,7 +283,11 @@ export function verifyClaim(
 
 export interface ConformanceOptions {
   model?: string;
-  /** How many files to read. Zero means every candidate. */
+  /**
+   * How many files to read at most. Zero reads nothing, because this is a cap
+   * on spending and a cap that means "unlimited" at zero is a way to spend a
+   * lot of somebody's money by typing the smallest number they could think of.
+   */
   fileBudget?: number;
   /** Read only these files, for ruling on one issue rather than sweeping. */
   only?: string[];
@@ -298,7 +325,7 @@ export async function readConformance(
   let candidates = await conformanceCandidates(
     inv,
     repoRoot,
-    opts.fileBudget === 0 ? Number.MAX_SAFE_INTEGER : (opts.fileBudget ?? DEFAULT_FILE_BUDGET),
+    Math.max(0, opts.fileBudget ?? DEFAULT_FILE_BUDGET),
   );
   if (opts.only) {
     const wanted = new Set(opts.only);
@@ -350,14 +377,26 @@ export async function readConformance(
     toRead.push(c);
   }
 
+  const batches: Candidate[][] = [];
   for (let i = 0; i < toRead.length; i += FILES_PER_BATCH) {
-    const batch = toRead.slice(i, i + FILES_PER_BATCH);
-    // What this batch decided, per file, so the cache records verdicts rather
-    // than the absence of one.
-    const decided = new Map<string, { findings: ConformanceFinding[]; refuted: Refutation[] }>();
+    batches.push(toRead.slice(i, i + FILES_PER_BATCH));
+  }
+
+  /** One model call, and everything that survived checking it. */
+  const readBatch = async (batch: Candidate[]): Promise<BatchOutcome> => {
+    const out: BatchOutcome = {
+      findings: [],
+      refuted: [],
+      examined: [],
+      unread: [],
+      rejected: [],
+      decided: new Map(),
+      costUsd: 0,
+      calls: 0,
+    };
     const entryFor = (relPath: string) => {
-      const e = decided.get(relPath) ?? { findings: [], refuted: [] };
-      decided.set(relPath, e);
+      const e = out.decided.get(relPath) ?? { findings: [], refuted: [] };
+      out.decided.set(relPath, e);
       return e;
     };
     const prompt = renderSkill(skill.text, {
@@ -387,11 +426,11 @@ export async function readConformance(
         message: `conformance batch failed: ${e instanceof Error ? e.message : String(e)}`,
         project: resolved.project,
       });
-      for (const c of batch) result.unread.push(c.path);
-      continue;
+      out.unread.push(...batch.map((c) => c.path));
+      return out;
     }
-    result.calls++;
-    result.costUsd += reply.costUsd ?? 0;
+    out.calls++;
+    out.costUsd += reply.costUsd ?? 0;
 
     let parsed: { findings?: unknown; refuted?: unknown; examined?: unknown };
     try {
@@ -405,8 +444,8 @@ export async function readConformance(
         detail: reply.text.slice(0, 400),
         project: resolved.project,
       });
-      for (const c of batch) result.unread.push(c.path);
-      continue;
+      out.unread.push(...batch.map((c) => c.path));
+      return out;
     }
 
     for (const raw of Array.isArray(parsed.findings) ? parsed.findings : []) {
@@ -414,32 +453,32 @@ export async function readConformance(
       const path = typeof claim.path === "string" ? claim.path : "";
       const candidate = byPath.get(path);
       if (!candidate) {
-        result.rejected.push({ reason: "names a file that was not in the batch", raw });
+        out.rejected.push({ reason: "names a file that was not in the batch", raw });
         continue;
       }
       let text: string;
       try {
         text = await readFile(candidate.path, "utf8");
       } catch {
-        result.rejected.push({ reason: `${candidate.relPath} could not be read back`, raw });
+        out.rejected.push({ reason: `${candidate.relPath} could not be read back`, raw });
         continue;
       }
       const checked = verifyClaim(claim, text, candidate, kit.exports);
       if (!checked.ok) {
-        result.rejected.push({ reason: checked.reason, raw });
+        out.rejected.push({ reason: checked.reason, raw });
         continue;
       }
       // One finding per control. A model asked about a file twice in one reply
       // is describing the same component from two angles.
       if (
-        result.handRolls.some(
+        out.findings.some(
           (h) => h.path === checked.finding.path && h.symbol === checked.finding.symbol,
         )
       ) {
         continue;
       }
-      result.handRolls.push(checked.finding);
-      result.examined.push(candidate.path);
+      out.findings.push(checked.finding);
+      out.examined.push(candidate.path);
       entryFor(candidate.relPath).findings.push(checked.finding);
     }
 
@@ -451,10 +490,8 @@ export async function readConformance(
       // nothing. The finding is the assertive half and it stands; the
       // contradiction is recorded, because a reader doing this often is a
       // reader whose instructions need fixing.
-      if (
-        result.handRolls.some((h) => h.path === candidate.path && h.symbol === r.symbol)
-      ) {
-        result.rejected.push({
+      if (out.findings.some((h) => h.path === candidate.path && h.symbol === r.symbol)) {
+        out.rejected.push({
           reason: `${r.symbol} was filed and refuted in the same reply`,
           raw,
         });
@@ -465,15 +502,15 @@ export async function readConformance(
         symbol: r.symbol,
         why: typeof r.why === "string" ? r.why : "",
       };
-      result.refuted.push(refutation);
-      result.examined.push(candidate.path);
+      out.refuted.push(refutation);
+      out.examined.push(candidate.path);
       entryFor(candidate.relPath).refuted.push(refutation);
     }
 
     for (const raw of Array.isArray(parsed.examined) ? parsed.examined : []) {
       const candidate = typeof raw === "string" ? byPath.get(raw) : undefined;
       if (!candidate) continue;
-      result.examined.push(candidate.path);
+      out.examined.push(candidate.path);
       entryFor(candidate.relPath);
     }
 
@@ -481,11 +518,41 @@ export async function readConformance(
     // clean would turn silence into a durable clean bill of health, so it is
     // recorded as unread and asked about again next run.
     for (const c of batch) {
-      if (decided.has(c.relPath)) {
-        cache.files[c.relPath] = { hash: c.hash, ...decided.get(c.relPath)! };
-      } else {
-        result.unread.push(c.path);
-      }
+      if (!out.decided.has(c.relPath)) out.unread.push(c.path);
+    }
+    return out;
+  };
+
+  // Two at a time, the same width the judge uses. These are subprocesses that
+  // read files and think for a minute each; running a first sweep of forty
+  // files strictly in series is several minutes of a person watching nothing.
+  const outcomes: BatchOutcome[] = new Array(batches.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const i = next++;
+      if (i >= batches.length) return;
+      outcomes[i] = await readBatch(batches[i]!);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(BATCH_CONCURRENCY, batches.length) }, () => worker()),
+  );
+
+  // Folded in batch order, so the same repository gives the same report
+  // whichever call happened to return first.
+  for (const [i, out] of outcomes.entries()) {
+    if (!out) continue;
+    result.handRolls.push(...out.findings);
+    result.refuted.push(...out.refuted);
+    result.examined.push(...out.examined);
+    result.unread.push(...out.unread);
+    result.rejected.push(...out.rejected);
+    result.costUsd += out.costUsd;
+    result.calls += out.calls;
+    for (const [relPath, decided] of out.decided) {
+      const c = batches[i]!.find((b) => b.relPath === relPath);
+      if (c) cache.files[relPath] = { hash: c.hash, ...decided };
     }
   }
 

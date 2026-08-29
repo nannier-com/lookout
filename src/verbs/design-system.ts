@@ -125,8 +125,12 @@ export async function designSystem(parsed: Parsed): Promise<number> {
   // The reading pass, on request. It layers over the inventory rather than
   // replacing it: the scan's suspicions are what the reader is handed, and what
   // comes back both adds to them and kills the wrong ones.
+  //
+  // A project with no kit has nothing to conform to, and the inventory already
+  // says so in its own words, so the audit is skipped rather than reported as
+  // zero files read.
   let audit: Awaited<ReturnType<typeof readConformance>> | null = null;
-  if (parsed.flags.audit) {
+  if (parsed.flags.audit && inv.kits.length > 0) {
     audit = await readConformance(resolved, inv, await repoRootOf(resolved.projectDir), {
       model: str(parsed.flags.model),
       fileBudget: num(parsed.flags["max-conformance"]),

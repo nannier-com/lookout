@@ -163,6 +163,14 @@ describe("verifying a claim before believing it", () => {
     if (out.ok) expect(out.finding.candidate).toBeNull();
   });
 
+  test("refuses a symbol that is not an identifier", () => {
+    // Sanitising this to nothing and searching for it would match the first
+    // declaration in the file and file against a component nobody named.
+    const out = verifyClaim({ symbol: "<<>>", what: "x", why: "y" }, text, candidate, []);
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.reason).toContain("not an identifier");
+  });
+
   test("refuses a finding with no account of what the component is", () => {
     const out = verifyClaim({ symbol: "PriceTag" }, text, candidate, []);
     expect(out.ok).toBe(false);
@@ -227,6 +235,46 @@ describe("reading the application", () => {
     );
     expect(res.considered).toBe(1);
     expect(res.handRolls.map((h) => h.symbol)).toEqual(["QuietThing"]);
+  });
+});
+
+describe("the cap is a cap", () => {
+  test("a budget of zero reads nothing at all", async () => {
+    const r = appWithKit("lookout-conf-zero-");
+    write(
+      r.projectDir,
+      "src/screens/Checkout.tsx",
+      `import { Text } from "@acme/kit";\nexport function PayCard() { return <div onClick={() => {}}><button/></div>; }\n`,
+    );
+    const inv = await detect(r);
+    const res = await withMockClaude(() => readConformance(r, inv, r.projectDir, { fileBudget: 0 }));
+    // Zero means zero. A cap that means "unlimited" at its smallest value is a
+    // way to spend a lot of money by typing the smallest number there is.
+    expect(res.calls).toBe(0);
+    expect(res.considered).toBe(0);
+  });
+
+  test("more files than fit in one batch are all read, in a stable order", async () => {
+    const r = appWithKit("lookout-conf-batches-");
+    for (let i = 0; i < 10; i++) {
+      write(
+        r.projectDir,
+        `src/screens/S${i}.tsx`,
+        `import { Text } from "@acme/kit";\nexport function Screen${i}() { return <div onClick={() => {}}><button/></div>; }\n`,
+      );
+    }
+    const inv = await detect(r);
+    const res = await withMockClaude(() => readConformance(r, inv, r.projectDir));
+    // Ten files is two batches, and both of them ran.
+    expect(res.calls).toBe(2);
+    expect(res.considered).toBe(10);
+    // The mock files the first file of each batch, so two findings, and the
+    // order of the report does not depend on which call returned first.
+    expect(res.handRolls).toHaveLength(2);
+    const again = await withMockClaude(() =>
+      readConformance(r, inv, r.projectDir, { cache: false }),
+    );
+    expect(again.handRolls.map((h) => h.symbol)).toEqual(res.handRolls.map((h) => h.symbol));
   });
 });
 
