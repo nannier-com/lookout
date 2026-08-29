@@ -127,15 +127,16 @@ export async function renderIssueDocument(
   // here, this says where.
   if (record?.placement) {
     const p = record.placement;
+    // Each phrase completes "The fix belongs ...", except the one that cannot.
     const WHERE: Record<string, string> = {
-      "kit-component": `in ${p.kit} itself, the component, where it is fixed once for every caller`,
-      "app-composition": `in this application's use of ${p.kit}, not in the kit`,
-      tokens: "in the design tokens, which moves everything using them",
-      "kit-gap": `in ${p.kit}, by adding or extending what is missing, then consuming it`,
-      unclear: "not settled by the source; see the note below",
+      "kit-component": `The fix belongs in ${p.kit} itself, in the component, where it is made once for every caller.`,
+      "app-composition": `The fix belongs in this application's use of ${p.kit}, not in the kit.`,
+      tokens: "The fix belongs in the design tokens, which moves everything using them.",
+      "kit-gap": `The fix belongs in ${p.kit}: add or extend what is missing there, backwards-compatibly, then consume it.`,
+      unclear: "Reading the source did not settle where the fix belongs. See the note below, and decide it yourself.",
     };
     l.push("## Where this belongs", "");
-    l.push(`This project uses **${p.kit}**. ${WHERE[p.kind] ?? p.kind}.`, "");
+    l.push(`This project uses **${p.kit}**. ${WHERE[p.kind] ?? p.kind}`, "");
     if (p.primaryPath) {
       l.push(`- **change** ${p.primaryPath}${p.symbol ? `  (${p.symbol})` : ""}`);
     }

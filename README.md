@@ -48,6 +48,7 @@ lookout targets               # resolve + probe the configured targets
 | `ask`     | answer a free-form question about the rendered app, grounded in fresh screenshots |
 | `backlog` | adjudicate findings: merge, set statuses (fixed / by-design / blocked, with mandatory reasons), regenerate the report, `check` for staleness |
 | `targets` | list configured targets and probe reachability |
+| `design-system` | what the project is built from (component kit, tokens, adoption), and where a visual fix belongs |
 | `skills`  | lookout's own instructions: `list`, `diff`, `freeze`, `replay`, `improve` |
 | `self-heal` | fix what lookout keeps getting wrong, in lookout's own source |
 | `init`    | scaffold `.lookout/config.ts` |
@@ -78,6 +79,63 @@ Both are readers. Either can watch a run started by anything, in any terminal.
 contact sheet, a view's dark and light captures side by side and defect-carrying
 tiles marked, so a session can see what lookout saw for the cost of one read.
 Full-resolution paths are printed beside it for close reading.
+
+## Design systems
+
+Most applications are built out of a component kit, and a defect found on a
+screen is usually fixed in a component: a different file, and often a different
+package. Fix it on the screen instead and the kit stays broken for every other
+consumer, the screen acquires an override that will drift, and the next person
+to touch that component has no idea why it is special.
+
+So lookout reads the repository and works out what it is built from:
+
+```bash
+lookout design-system          # the inventory
+lookout design-system --refresh   # re-read the repository rather than the cache
+```
+
+It resolves a kit four ways, and the distinction that matters most is whether
+the kit is **this repository's to edit**:
+
+- the repository IS the kit (a design system's own repo), told from an ordinary
+  application by whether the package publishes an entry point
+- a workspace-local kit, found by asking which workspace package the
+  application source actually imports
+- a vendored kit such as shadcn/ui, found by its marker file and located on disk
+- an installed kit from the dependency list, which is **not** editable here: the
+  fix is to the application's use of it, never a patch inside `node_modules`
+
+The result caches to `.lookout/design-system.json`. Where the scan cannot work
+it out (an in-house kit with no dependency, marker or workspace package to name
+it), declare it and the declaration wins:
+
+```ts
+export default {
+  targets: [...],
+  designSystem: {
+    name: "House",
+    packageRoot: "../packages/ui",
+    componentRoots: ["../packages/ui/src/components"],
+    importPrefixes: ["@house/ui"],
+    tokenFiles: ["../packages/ui/src/tokens.ts"],
+  },
+};
+```
+
+Every issue lookout files in such a project carries a **Where this belongs**
+section, above the description of the defect on purpose: somebody who reads
+what is wrong first has already started planning to fix it on the screen they
+saw it on. The section names the file to change, why there and not the other
+place, how many other callers a kit change would reach, and what it moves.
+
+lookout also files what it can see without a screenshot. A control an
+application hand-rolls out of raw elements, in a project whose kit already
+provides it, is a real defect that no photograph can show: it drifts from the
+kit the moment either side changes, it is invisible to the kit's own tests, and
+it hides whatever gap in the kit made hand-rolling it seem necessary. Those are
+filed on their own channel and ruled by re-reading the source, so `verify-fix`
+closes them on evidence exactly like any other issue.
 
 ## Issues
 

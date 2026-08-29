@@ -36,6 +36,10 @@ export const RULES = [
     "  lookout's to write; adjudicate through `lookout backlog set`.",
   "Never judge without looking. Every issue names the screenshots it was filed\n" +
     "  against, and keeps a copy of them in its own folder.",
+  "In a project with a design system, fix the defect where the issue says it\n" +
+    "  belongs, not where you photographed it. A component's defect is fixed in the\n" +
+    "  component, once, for every caller. If the kit is missing what you need, add\n" +
+    "  it to the kit backwards-compatibly rather than hand-rolling it in the app.",
   "Localhost only, unless the user explicitly passes --allow-remote.",
 ];
 
@@ -50,6 +54,7 @@ export function protocolText(): string {
     "```bash",
     "lookout doctor                 # prerequisites, once per machine",
     "lookout targets                # what this project declares, and whether it is up",
+    "lookout design-system          # what it is built from, and where a fix belongs",
     "lookout check                  # capture, judge, and write findings to the backlog",
     "lookout ui                     # read the findings, with their screenshots",
     "lookout verify-fix --issue <id> --commit <sha> --note \"<root cause>\"",
@@ -120,6 +125,27 @@ export function protocolText(): string {
     "incidents lookout has hit across every project, fixes the cause of one in",
     "its own source, and reverts the lot unless the type check, the linter, the",
     "tests, the build and the frozen set all pass afterwards.",
+    "",
+    "## Design systems",
+    "",
+    "Most applications are built out of a component kit, and a defect found on a",
+    "screen is usually fixed in a component: a different file, often in a",
+    "different package. Fix it on the screen instead and the kit stays broken for",
+    "every other consumer, the screen acquires an override that will drift, and",
+    "the next person to touch the component has no idea why it is special.",
+    "",
+    "So lookout reads the repository and works out what it is built from, and",
+    "every issue document carries a `Where this belongs` section naming the file",
+    "to change, why there and not the other place, and how many other callers a",
+    "change would reach. `lookout design-system` prints the same inventory on its",
+    "own. When the kit is an installed dependency rather than this repository's",
+    "source, the issue says so: the fix is to the application's use of it, never",
+    "a patch inside node_modules.",
+    "",
+    "It also files what it can see without a screenshot. A control an application",
+    "hand-rolls out of raw elements, where the kit already provides it, is a real",
+    "defect that no photograph can show, so it is filed on its own channel and",
+    "ruled by re-reading the source rather than by re-capturing anything.",
     "",
     "`lookout capture` answers the simpler question: show me what this renders.",
     "`lookout verify --criteria <file>` rules on a ticket's acceptance criteria,",

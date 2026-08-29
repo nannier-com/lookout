@@ -1,6 +1,6 @@
 ---
 name: lookout
-description: Verify UI work with the lookout visual AI tester: capture what the app actually renders across form factors, schemes, and platforms; judge it against best practices; verify a ticket's acceptance criteria; fact-check a visual assumption; track findings in the project backlog. Use BEFORE declaring UI work done, when a ticket carries acceptance criteria, when unsure whether a visual or responsive assumption holds, or when asked to audit an app's UI.
+description: Verify UI work with the lookout visual AI tester: capture what the app actually renders across form factors, schemes, and platforms; judge it against best practices; verify a ticket's acceptance criteria; fact-check a visual assumption; find which design system a project uses and where a visual fix belongs; track findings in the project backlog. Use BEFORE declaring UI work done, when a ticket carries acceptance criteria, when unsure whether a visual or responsive assumption holds, when about to fix UI in a project that has a component kit, or when asked to audit an app's UI.
 ---
 
 # lookout
@@ -29,6 +29,10 @@ practical notes that are easier to hit than to work out.
   filed, then have `lookout verify-fix` rule on each fix.
 - A ticket has acceptance criteria: `lookout verify --criteria <file|text>`.
 - You are unsure a visual assumption holds: `lookout ask "..."`.
+- Before fixing anything lookout filed in a project with a design system: read
+  the issue's **Where this belongs** section first. The defect was photographed
+  on a screen and is usually fixed in a component, which is a different file and
+  often a different package.
 
 ## Practical notes
 
@@ -52,6 +56,14 @@ practical notes that are easier to hit than to work out.
   it yourself.
 - Native capture (`--platforms ios,android`) needs a booted simulator or
   emulator with the app installed.
+- `lookout design-system` says what the project is built out of and where a
+  visual fix belongs. Run it before fixing UI in an unfamiliar repository: the
+  answer that matters most is whether the kit is this repository's to edit or an
+  installed dependency, because that decides whether the fix is to the component
+  or to the application's use of it. Never patch a kit inside `node_modules`.
+- Findings on the `code` channel were read out of the source, not photographed,
+  so they have no screenshots and `verify-fix` rules on them by re-reading the
+  source. An issue with no `img/` folder is not a broken issue.
 - Authenticated targets sign in via the project's `signIn` hook, which clicks a
   demo account rather than typing credentials. If a run comes back full of
   findings about a login screen, read the `off-origin` finding before believing

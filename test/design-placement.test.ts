@@ -116,6 +116,8 @@ describe("the Where this belongs section", () => {
     const r = tmpProject("lookout-place-doc-");
     const { markdown } = await renderIssueDocument(r, cluster(), { placement: placement() });
     expect(markdown).toContain("## Where this belongs");
+    // The sentence has to read as a sentence, not as a fragment stapled to one.
+    expect(markdown).toContain("This project uses **@acme/kit**. The fix belongs in @acme/kit itself");
     expect(markdown).toContain("/repo/packages/kit/src/atoms/Button.tsx");
     expect(markdown).toContain("37 other place(s)");
     expect(markdown).toContain("every disabled Button in the product");
