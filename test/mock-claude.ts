@@ -8,10 +8,13 @@
 //   improve emit a skill amendment; MOCK_AMENDMENT overrides the body
 //   heal    edit a file in cwd (MOCK_HEAL_FILE) and report the fix, so the
 //           gates and the revert path can be exercised end to end
+//   conform read the first file in the prompt's list, file its first component
+//           as a hand-roll of whatever the prompt says the kit provides, plus
+//           one claim that must be rejected at ingestion
 //   verify  confirm index 0, refute every other index
 //   prose   reply with prose + a trailing fenced json (parser must cope)
 //   ask     plain-text answer
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 
 const argv = process.argv.slice(2);
 const p = argv.indexOf("-p");
@@ -28,7 +31,9 @@ if (mode === "auto") {
           ? "heal"
           : promptText.includes("placement advisor")
             ? "placement"
-            : "judge";
+            : promptText.includes("conformance reader")
+              ? "conform"
+              : "judge";
 }
 
 const shotIds = [...promptText.matchAll(/^- shotId: (.+)$/gm)].map((m) => m[1]!);
@@ -50,6 +55,58 @@ if (mode === "placement") {
         blastRadius: "every Button in the product",
         alsoRead: [],
         notes: "",
+      }) +
+      "\n```";
+} else if (mode === "conform") {
+  // A real reply names files from the list and symbols read out of them, so the
+  // mock does the same: anything else would exercise only the reject path.
+  const files = [...promptText.matchAll(/^- (\/.+)$/gm)].map((m) => m[1]!);
+  const provides = promptText.match(/^\s*provides: (.+)$/m)?.[1]?.split(", ") ?? [];
+  const first = files[0];
+  let symbol = "";
+  if (first) {
+    try {
+      const text = readFileSync(first, "utf8");
+      symbol = text.match(/(?:function|const|class)\s+([A-Z][A-Za-z0-9]*)/)?.[1] ?? "";
+    } catch {
+      symbol = "";
+    }
+  }
+  result =
+    process.env.MOCK_CONFORMANCE ??
+    "```json\n" +
+      JSON.stringify({
+        findings:
+          first && symbol
+            ? [
+                {
+                  path: first,
+                  symbol,
+                  line: 1,
+                  elements: ["div", "button"],
+                  kitComponent: provides[0] ?? null,
+                  what: "a pressable card",
+                  why: "it is a control assembled from raw elements",
+                  confidence: "high",
+                },
+                {
+                  path: first,
+                  symbol: "NeverDeclaredHere",
+                  line: 999,
+                  elements: ["div"],
+                  kitComponent: null,
+                  what: "a claim about a symbol that is not in the file",
+                  why: "must be rejected at ingestion",
+                  confidence: "high",
+                },
+              ]
+            : [],
+        refuted: [...promptText.matchAll(/scanner suspects: ([A-Za-z0-9]+) /g)].map((m) => ({
+          path: files.find((f) => promptText.includes(`- ${f}\n    scanner suspects: ${m[1]}`)) ?? first,
+          symbol: m[1],
+          why: "it is layout scaffolding, not a control",
+        })),
+        examined: files.slice(1),
       }) +
       "\n```";
 } else if (mode === "heal") {

@@ -80,6 +80,21 @@ async function sourceFiles(root: string, maxDepth = 6): Promise<string[]> {
   return found;
 }
 
+/**
+ * Every source file under the application's own roots.
+ *
+ * Exported because the conformance sweep chooses which of these are worth a
+ * model's attention, and it must be choosing from the same set the scan read.
+ * Two different notions of "the application's source" would mean a file the
+ * scan cleared could never be re-examined, or a file nobody scanned could be
+ * filed against.
+ */
+export async function appSourceFiles(roots: string[]): Promise<string[]> {
+  const out: string[] = [];
+  for (const root of roots) out.push(...(await sourceFiles(root)));
+  return [...new Set(out)];
+}
+
 /** Import specifiers in one file, from both `import ... from "x"` and `require("x")`. */
 export function importsOf(text: string): string[] {
   const out: string[] = [];

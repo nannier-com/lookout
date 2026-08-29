@@ -7,6 +7,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fillPlaceholders, loadSkill, renderSkill } from "../src/skills/load.js";
+import { SKILL_NAMES } from "../src/verbs/skills.js";
 import { loadRubric } from "../src/judge/rubric.js";
 import { tmpProject } from "./tmp-project.js";
 import { LookoutError, type ResolvedConfig } from "../src/types.js";
@@ -21,13 +22,9 @@ function amend(resolved: ResolvedConfig, name: string, text: string): void {
 
 describe("shipped skills", () => {
   test("every capability lookout has ships as a skill", async () => {
-    for (const name of [
-      "visual-judge",
-      "refute-finding",
-      "verify-acceptance",
-      "fact-check",
-      "design-placement",
-    ]) {
+    // Driven off the registry rather than a copy of it, so a capability added
+    // to SKILL_NAMES without a loadable file fails here rather than in a run.
+    for (const name of SKILL_NAMES) {
       const skill = await loadSkill(null, name);
       expect(skill.name).toBe(name);
       expect(skill.description.length).toBeGreaterThan(20);

@@ -45,6 +45,7 @@ export const SKILL_NAMES = [
   "verify-acceptance",
   "fact-check",
   "design-placement",
+  "kit-conformance",
   "improve-skills",
 ] as const;
 
@@ -55,6 +56,10 @@ export const SKILL_NAMES = [
  */
 const GATED_SKILLS = new Set(["visual-judge", "refute-finding"]);
 
+// kit-conformance is not gated either, for the same reason and one more: what
+// it reads is source, and the frozen set holds screenshots. An amendment to it
+// is written down as a proposal.
+//
 // design-placement is deliberately NOT gated. The frozen set is screenshots
 // replayed through the visual judge, and it cannot decide whether a fix belongs
 // in a component or in its caller: that answer lives in source the frozen set
