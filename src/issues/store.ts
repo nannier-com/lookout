@@ -22,7 +22,7 @@ import { copyFile, mkdir, readdir, rename, rm, writeFile } from "node:fs/promise
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { evidenceDir } from "../config.js";
-import type { Backlog, BacklogFinding, IssueRecord } from "../backlog/lib.js";
+import { wasPhotographed, type Backlog, type BacklogFinding, type IssueRecord } from "../backlog/lib.js";
 import type { FixCluster } from "../fix/cluster.js";
 import { clusterLabel } from "../fix/brief.js";
 import { issuesOf } from "./registry.js";
@@ -92,7 +92,8 @@ async function syncShots(resolved: ResolvedConfig, id: string, cluster: FixClust
   const wanted = new Set<string>();
   for (const m of cluster.members) {
     const ev = m.evidence[m.evidence.length - 1];
-    if (!ev) continue;
+    // Source findings have no image to copy into img/.
+    if (!ev || !wasPhotographed(m)) continue;
     const file = flatShotName(ev.path);
     if (wanted.has(file)) continue;
     wanted.add(file);

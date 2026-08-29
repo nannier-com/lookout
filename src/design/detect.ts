@@ -303,7 +303,17 @@ export async function scanHandRolls(
   repoRoot: string,
 ): Promise<HandRoll[]> {
   if (kits.length === 0) return [];
-  const kitRoots = kits.flatMap((k) => [k.packageRoot, ...k.componentRoots]).filter((p): p is string => !!p);
+  // What counts as "inside the kit", and therefore off limits.
+  //
+  // Component roots always. The package root only when it is a real package
+  // boundary BELOW the repository: in a design system's own repository the
+  // package root IS the repository, so excluding it would exclude everything
+  // and silently disable the scan in the one case it matters most. A kit's own
+  // docs or example app hand-rolling a control it ships is a genuine defect,
+  // and it lives under that same package root.
+  const kitRoots = kits
+    .flatMap((k) => [...(k.packageRoot && k.packageRoot !== repoRoot ? [k.packageRoot] : []), ...k.componentRoots])
+    .filter((p): p is string => !!p);
   const prefixes = kits.flatMap((k) => k.importPrefixes);
   const out: HandRoll[] = [];
 
@@ -321,17 +331,25 @@ export async function scanHandRolls(
       const imports = importsOf(text);
       const usesKit = imports.some((i) => prefixes.some((p) => i === p || i.startsWith(p)));
 
-      for (const m of text.matchAll(
-        /(?:export\s+)?(?:default\s+)?(?:function|const|class)\s+([A-Z][A-Za-z0-9]*)/g,
-      )) {
+      // A component that already imports the kit is composing it, which is
+      // exactly what an app is supposed to do. Only a control built from raw
+      // elements with no kit import in the file is a suspected duplicate.
+      if (usesKit) continue;
+
+      // Every declaration in the file, so each one's body can be bounded by the
+      // start of the next. Slicing to end-of-file instead would credit the
+      // first component in a file with every element in the ones below it, and
+      // the finding would name elements the component does not contain.
+      const decls = [
+        ...text.matchAll(/(?:export\s+)?(?:default\s+)?(?:function|const|class)\s+([A-Z][A-Za-z0-9]*)/g),
+      ];
+      for (const [i, m] of decls.entries()) {
         const symbol = m[1]!;
         const control = CONTROL_NAMES.find((c) => symbol === c || symbol.endsWith(c));
         if (!control) continue;
-        // A component that already imports the kit is composing it, which is
-        // exactly what an app is supposed to do. Only a control built from raw
-        // elements with no kit import in the file is a suspected duplicate.
-        if (usesKit) continue;
-        const body = text.slice(m.index ?? 0);
+        const start = m.index ?? 0;
+        const end = decls[i + 1]?.index ?? text.length;
+        const body = text.slice(start, end);
         const raw = [...body.matchAll(RAW_ELEMENTS)].map((r) => r[1]!);
         if (raw.length === 0) continue;
         out.push({
@@ -340,12 +358,46 @@ export async function scanHandRolls(
           symbol,
           elements: [...new Set(raw)].slice(0, 6),
           candidate: control,
-          line: text.slice(0, m.index ?? 0).split("\n").length,
+          line: text.slice(0, start).split("\n").length,
         });
       }
     }
   }
   return out;
+}
+
+/**
+ * Applications that live beside the thing being scanned: a docs site, an
+ * example, a playground, an app inside a monorepo.
+ *
+ * A design system's own repository is the case this exists for. Its `src` is
+ * the kit and is exempt from the hand-roll scan by definition, so without this
+ * there is nothing left to scan and the most valuable finding available (the
+ * kit's own docs app hand-rolling a control the kit ships) is unreachable.
+ *
+ * The rule is structural rather than a list of blessed directory names: a
+ * directory with its own package.json is its own application. That covers
+ * `docs`, `example`, `playground` and `apps/web` without having to guess which
+ * of them a given project happens to use.
+ */
+async function siblingApps(repoRoot: string): Promise<string[]> {
+  const found: string[] = [];
+  let entries;
+  try {
+    entries = await readdir(repoRoot, { withFileTypes: true });
+  } catch {
+    return found;
+  }
+  for (const e of entries) {
+    if (!e.isDirectory() || e.name.startsWith(".") || SKIP_DIRS.has(e.name)) continue;
+    const dir = join(repoRoot, e.name);
+    if (!existsSync(join(dir, "package.json"))) continue;
+    // Scan its source, not its whole tree: the root of an app holds config,
+    // lockfiles and build output that the walk would otherwise wade through.
+    const src = join(dir, "src");
+    found.push(existsSync(src) ? src : dir);
+  }
+  return found;
 }
 
 /** Directories holding the application's own screens, as opposed to a kit's. */
@@ -359,7 +411,8 @@ async function appSourceRoots(projectDir: string): Promise<string[]> {
       continue;
     }
   }
-  if (found.length > 0) return found;
+  found.push(...(await siblingApps(projectDir)));
+  if (found.length > 0) return [...new Set(found)];
   const src = join(projectDir, "src");
   return existsSync(src) ? [src] : [projectDir];
 }

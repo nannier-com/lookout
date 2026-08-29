@@ -244,3 +244,40 @@ describe("adoption reporting", () => {
     expect(inv.notes.join(" ")).not.toContain("imports nothing from it");
   });
 });
+
+describe("hand-roll scanning inside a kit's own repository", () => {
+  test("scans the kit's own app while still exempting the kit's components", async () => {
+    const r = tmpProject("lookout-kitrepo-");
+    pkg(r.projectDir, { name: "@acme/kit", main: "./dist/index.js" });
+    // The kit itself: raw elements by definition, and never a finding.
+    write(r.projectDir, "src/atoms/Button.tsx", `export function Button() { return <button/>; }`);
+    write(r.projectDir, "src/atoms/Card.tsx", `export function Card() { return <div/>; }`);
+    // The kit's own docs app, duplicating what it ships. That IS a finding:
+    // the package root is the whole repo here, so an exclusion by package root
+    // would have hidden it.
+    write(r.projectDir, "app/Demo.tsx", `export function DemoButton() { return <button/>; }`);
+
+    const inv = await detect(r);
+    expect(inv.handRolls.map((h) => h.symbol)).toEqual(["DemoButton"]);
+  });
+});
+
+describe("hand-roll evidence accuracy", () => {
+  test("each component reports only the elements in its own body", async () => {
+    const r = tmpProject("lookout-bounds-");
+    pkg(r.projectDir, { name: "app", private: true, dependencies: { "@mui/material": "^6" } });
+    write(
+      r.projectDir,
+      "src/screens/Checkout.tsx",
+      `export function PayButton() {\n  return <button/>;\n}\n\nexport function PriceCard() {\n  return <div><span/></div>;\n}\n`,
+    );
+
+    const inv = await detect(r);
+    const pay = inv.handRolls.find((h) => h.symbol === "PayButton")!;
+    const card = inv.handRolls.find((h) => h.symbol === "PriceCard")!;
+    // PayButton must not be credited with the div and span below it.
+    expect(pay.elements).toEqual(["button"]);
+    expect(card.elements.sort()).toEqual(["div", "span"]);
+    expect(pay.line).toBeLessThan(card.line);
+  });
+});

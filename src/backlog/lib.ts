@@ -16,6 +16,7 @@ import type {
   Severity,
   ShotRecord,
 } from "../types.js";
+import type { HandRoll } from "../design/inventory.js";
 import type { AiFinding } from "../judge/engine.js";
 import { CATEGORIES, type Category } from "../judge/rubric.js";
 import { routeSlug } from "../capture/store.js";
@@ -33,14 +34,43 @@ export interface EvidenceRef {
   runId: string;
 }
 
+/**
+ * Where a code-channel finding lives. A defect the source scanner found is not
+ * on a screen, it is in a file, so it carries a file instead of a screenshot.
+ */
+export interface SourceRef {
+  /** Absolute path, for whoever has to open it. */
+  path: string;
+  /** Repo-relative, so the fingerprint survives moving the checkout. */
+  relPath: string;
+  /** The declaration's name, when one could be read. */
+  symbol: string | null;
+  /** 1-based line of the declaration. */
+  line: number;
+}
+
 export interface BacklogFinding {
   fingerprint: string;
   target: string;
+  /**
+   * Where the defect is. A route for anything photographed; the repo-relative
+   * source path for a code-channel finding, which is the same question asked of
+   * a file rather than of a screen.
+   */
   route: string;
   state: string;
-  platform: PlatformKind;
-  formFactor: FormFactor;
-  scheme: Scheme;
+  /**
+   * The capture axes. Absent on a code-channel finding, which was read out of
+   * the source rather than photographed: there is no viewport at which a
+   * hand-rolled component is or is not a duplicate. They are optional rather
+   * than filled with a plausible default so that the compiler finds every place
+   * that assumes a finding came from a screenshot.
+   */
+  platform?: PlatformKind;
+  formFactor?: FormFactor;
+  scheme?: Scheme;
+  /** Set on code-channel findings only. */
+  source?: SourceRef;
   category: Category;
   attribute: string;
   severity: Severity;
@@ -125,8 +155,8 @@ export function fingerprintOf(f: {
   target: string;
   route: string;
   state: string;
-  formFactor: FormFactor;
-  scheme: Scheme;
+  formFactor?: FormFactor;
+  scheme?: Scheme;
   category: string;
   attribute: string;
 }): string {
@@ -134,8 +164,31 @@ export function fingerprintOf(f: {
     f.target,
     routeSlug(f.route),
     f.state,
-    f.formFactor,
-    f.scheme,
+    f.formFactor ?? "-",
+    f.scheme ?? "-",
+    f.category,
+    f.attribute,
+  ].join(".");
+}
+
+/**
+ * The identity of a source finding: the file it is in and what is wrong there.
+ *
+ * Deliberately NOT the line number. A hand-rolled component that moves down the
+ * file when an import is added is the same defect, and keying on the line would
+ * file a new one on every unrelated edit above it.
+ */
+export function sourceFingerprintOf(f: {
+  target: string;
+  source: Pick<SourceRef, "relPath" | "symbol">;
+  category: string;
+  attribute: string;
+}): string {
+  return [
+    f.target,
+    "source",
+    f.source.relPath,
+    f.source.symbol ?? "-",
     f.category,
     f.attribute,
   ].join(".");
@@ -168,6 +221,25 @@ function severityFromDeterministic(f: DeterministicFinding): Severity {
   if (f.severity === "error") return "high";
   if (f.severity === "warning") return "medium";
   return "low";
+}
+
+/**
+ * A finding that was photographed, and therefore carries the capture axes.
+ *
+ * Everything that renders a finding against a screenshot needs this: a
+ * code-channel finding has no viewport, no scheme and no image, so a board
+ * tile, a contact sheet entry or a frozen regression case cannot be built from
+ * one. Narrowing through this guard is what makes that a compile-time fact
+ * rather than a convention somebody has to remember.
+ */
+export type PhotographedFinding = BacklogFinding & {
+  platform: PlatformKind;
+  formFactor: FormFactor;
+  scheme: Scheme;
+};
+
+export function wasPhotographed(f: BacklogFinding): f is PhotographedFinding {
+  return f.formFactor !== undefined && f.scheme !== undefined && f.platform !== undefined;
 }
 
 /** Deterministic findings from a capture report, as backlog-shaped findings. */
@@ -239,6 +311,80 @@ export function aiToFindings(
     });
   }
   return out;
+}
+
+/**
+ * Hand-rolled duplicates of kit components, as backlog-shaped findings.
+ *
+ * This is the code channel's only producer, and it is deliberately the only
+ * kind of claim on it: a component the application built out of raw elements in
+ * a project that has a design system providing the same thing. That is decidable
+ * by reading the source, which is what makes it safe to file. lookout can rule
+ * on it later by reading the source again, so `verify-fix` still closes it on
+ * evidence rather than on the fixer's say-so.
+ *
+ * Severity is fixed at medium. A duplicated control is a real defect (it drifts
+ * from the kit the moment either changes, and it is invisible to the kit's own
+ * tests) and it is never an emergency, so ranking it against a broken render
+ * would be false precision.
+ */
+export function handRollsToFindings(
+  handRolls: HandRoll[],
+  kitName: string,
+  target: string,
+): ReturnType<typeof deterministicToFindings> {
+  return handRolls.map((h) => {
+    const source: SourceRef = {
+      path: h.path,
+      relPath: h.relPath,
+      symbol: h.symbol,
+      line: h.line,
+    };
+    const what = h.symbol ?? "A component";
+    return {
+      fingerprint: sourceFingerprintOf({
+        target,
+        source,
+        category: "consistency",
+        attribute: "hand-rolled",
+      }),
+      target,
+      // "Where" for a source finding is the file, asked of a file rather than
+      // of a screen.
+      route: h.relPath,
+      state: "source",
+      source,
+      category: "consistency" as Category,
+      attribute: "hand-rolled",
+      severity: "medium" as Severity,
+      title: `${what} is hand-rolled where ${kitName} provides ${h.candidate ?? "an equivalent"}`,
+      problem:
+        `${what} in ${h.relPath} is built from raw <${h.elements.join(">, <")}> ` +
+        `elements, in a project that uses ${kitName}. ${kitName} appears to provide ` +
+        `${h.candidate ?? "an equivalent component"} already. A hand-rolled copy drifts from the kit ` +
+        `the moment either side changes, is invisible to the kit's own tests and ` +
+        `docs, and hides whatever the kit is missing that made hand-rolling it ` +
+        `seem necessary.`,
+      expected:
+        `The control is composed from ${kitName}. If ${kitName} does not cover this ` +
+        `case, the gap is filled IN ${kitName}, backwards-compatibly, and consumed ` +
+        `from there.`,
+      observed: `Built from raw elements at ${h.relPath}:${h.line}, with no ${kitName} import in the file.`,
+      channel: "code" as Channel,
+      // Read out of the source rather than inferred: either the file imports
+      // the kit or it does not.
+      confidence: "high" as const,
+      // Nothing adversarially verifies a code finding; the scanner IS the
+      // evidence, and it is re-run to rule on the fix.
+      verified: false,
+      acceptance: [
+        `${what} in ${h.relPath} is composed from ${kitName} components, or the file no longer declares it.`,
+        `No raw-element control named ${what} remains in that file.`,
+      ],
+      // No screenshot: this was read, not photographed.
+      evidence: [],
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------

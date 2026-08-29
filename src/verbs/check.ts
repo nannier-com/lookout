@@ -467,7 +467,7 @@ async function firstIssue(parsed: Parsed, pre: ResolvedConfig): Promise<number> 
     // Everything this route turned up is filed. lookout captured and judged it
     // already, so dropping any of it would throw away work it has done and
     // report the route as healthier than it found it.
-    const merged = await mergeLatest(resolved, { judgeOutcome: outcome });
+    const merged = await mergeLatest(resolved, { judgeOutcome: outcome, scanSource: true });
 
     const found = merged.added + merged.reopened;
     if (found > 0) {
@@ -529,7 +529,7 @@ export async function check(parsed: Parsed): Promise<number> {
   let backlogNote = "";
   if (resolved.configPath) {
     const { mergeLatest } = await import("./backlog.js");
-    const merged = await mergeLatest(resolved, { judgeOutcome: outcome });
+    const merged = await mergeLatest(resolved, { judgeOutcome: outcome, scanSource: true });
     backlogNote = `backlog: ${merged.added} added, ${merged.reopened} reopened, ${merged.refreshed} refreshed`;
   }
 

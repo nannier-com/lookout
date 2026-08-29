@@ -27,6 +27,7 @@ import type { AcceptanceCriterion } from "../issues/acceptance.js";
 import { clusterLabel } from "../fix/brief.js";
 import { loadState, type ClusterState } from "../fix/state.js";
 import { loadBacklog } from "../verbs/backlog.js";
+import { wasPhotographed } from "../backlog/lib.js";
 import type { ResolvedConfig } from "../types.js";
 import { readEvents, type LookoutEvent } from "./events.js";
 
@@ -127,7 +128,8 @@ function shotsOf(resolved: ResolvedConfig, c: FixCluster): BoardShot[] {
   const out: BoardShot[] = [];
   for (const m of c.members) {
     const ev = m.evidence[m.evidence.length - 1];
-    if (!ev || seen.has(ev.path)) continue;
+    // A board tile IS a screenshot; a code-channel member has none to show.
+    if (!ev || seen.has(ev.path) || !wasPhotographed(m)) continue;
     seen.add(ev.path);
     out.push({
       path: ev.path,

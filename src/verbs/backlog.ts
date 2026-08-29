@@ -72,7 +72,19 @@ export async function saveBacklog(resolved: ResolvedConfig, backlog: Backlog): P
 /** Merge the latest evidence + judge results; shared with `lookout check`. */
 export async function mergeLatest(
   resolved: ResolvedConfig,
-  opts: { judgeOutcome?: CheckOutcome | null },
+  opts: {
+    judgeOutcome?: CheckOutcome | null;
+    /**
+     * Also read the source and file hand-rolled duplicates of kit components.
+     *
+     * Opt-in rather than automatic, because `verify-fix` merges through here
+     * too. A visual fix that happens to be verified in a repository with a
+     * hand-rolled button would otherwise file that button as an issue the fix
+     * had just caused, which is untrue: it was there all along and nobody had
+     * looked. `check` is the verb that sweeps, so `check` is the verb that asks.
+     */
+    scanSource?: boolean;
+  },
 ): Promise<{ backlog: Backlog; added: number; reopened: number; refreshed: number }> {
   const report = await loadReport(resolved);
   if (!report) throw new LookoutError("no capture-report.json to merge from; run `lookout capture` first");
@@ -103,7 +115,27 @@ export async function mergeLatest(
   // drift-resolved and the documented gate failed on healthy backlogs. The judge
   // run id is not lost: it stays on the outcome and in judge-report.json, and
   // each evidence ref already carries the run its shot came from.
-  const r1 = mergeFindings(backlog, det, latestRun.id, now);
+  // 3. Source findings: hand-rolled duplicates of components the project's own
+  // design system already provides. Read from the repository rather than from
+  // any screenshot, which is why they are their own channel.
+  let code: ReturnType<typeof deterministicToFindings> = [];
+  if (opts.scanSource) {
+    const { resolveInventory } = await import("../design/resolve.js");
+    const { primaryKit } = await import("../design/inventory.js");
+    const { handRollsToFindings } = await import("../backlog/lib.js");
+    const inv = await resolveInventory(resolved, { refresh: true });
+    const kit = primaryKit(inv);
+    if (kit && inv.handRolls.length > 0) {
+      // A source finding is not about one target, but a finding must name one
+      // and the cluster key is built from it. The first configured target is
+      // the project's primary by convention, and using it consistently is what
+      // keeps a re-found duplicate merging onto the same issue.
+      const target = resolved.config.targets[0]?.name ?? "app";
+      code = handRollsToFindings(inv.handRolls, kit.name, target);
+    }
+  }
+
+  const r1 = mergeFindings(backlog, [...det, ...code], latestRun.id, now);
   const r2 = judge
     ? mergeFindings(backlog, ai, latestRun.id, now)
     : { added: [] as string[], reopened: [] as string[], refreshed: [] as string[], suppressed: [] as string[] };

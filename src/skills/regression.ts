@@ -26,7 +26,7 @@ import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { evidenceDir, lookoutDir } from "../config.js";
 import { flatShotName } from "../issues/paths.js";
-import type { Backlog, BacklogFinding } from "../backlog/lib.js";
+import { wasPhotographed, type Backlog, type BacklogFinding } from "../backlog/lib.js";
 import type { AiFinding } from "../judge/engine.js";
 import type { FormFactor, PlatformKind, ResolvedConfig, Scheme, ShotRecord } from "../types.js";
 
@@ -106,6 +106,11 @@ export function claimsByShot(backlog: Backlog): Map<string, { case: Omit<Regress
   const add = (f: BacklogFinding, kind: "mustNotFile" | "mustFile", why: string): void => {
     const ev = f.evidence[f.evidence.length - 1];
     if (!ev) return;
+    // The frozen set is screenshots, replayed through the visual judge. A
+    // code-channel finding was read out of the source and cannot be re-judged
+    // from pixels, so it has no place here: freezing one would put a case in
+    // the gate that every replay is bound to get "wrong".
+    if (!wasPhotographed(f)) return;
     let entry = out.get(ev.shotId);
     if (!entry) {
       entry = {

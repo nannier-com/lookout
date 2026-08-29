@@ -75,6 +75,15 @@ export function clusterKeyOf(
   if (f.channel === "deterministic" && f.category === "a11y") {
     return `${slug(f.target)}--${slug(routeSlug(f.route))}--a11y`;
   }
+  // Source findings cluster per FILE. The shared axes that make one cluster one
+  // root cause do not hold here: two hand-rolled controls in two different
+  // files are two separate pieces of work, in two separate places, and grouping
+  // them would hand one session an issue spanning the whole application. The
+  // file is the root cause for a code finding the way a component is for a
+  // visual one.
+  if (f.channel === "code") {
+    return `${slug(f.target)}--code--${slug(f.route)}--${slug(f.attribute)}`;
+  }
   return `${slug(f.target)}--${slug(f.category)}--${slug(f.attribute)}`;
 }
 
