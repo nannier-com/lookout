@@ -17,23 +17,40 @@
  * judge variance, which is why it refuses to pass on unchanged pixels. The
  * scanner is deterministic, so an unchanged file gives an unchanged answer and
  * no such guard is needed: if the finding is gone, something really changed.
+ *
+ * The channel has two oracles, and this is where that matters most. A defect
+ * the conformance skill found lives in a file the scanner cleared, usually
+ * because the file imports the kit, which is the one thing that makes the
+ * scanner look away. Ruling such a finding by re-running the scanner would
+ * clear it the first time anybody asked, with nothing fixed and a commit
+ * recorded against it. So a cluster carrying skill-found members is re-read by
+ * the skill, over the files those members name, and a reader that cannot run
+ * leaves the finding open rather than passing it.
  */
-import { detect } from "../design/detect.js";
+import { detect, repoRootOf } from "../design/detect.js";
 import { primaryKit } from "../design/inventory.js";
+import { readConformance } from "../design/conformance.js";
 import { handRollsToFindings } from "../backlog/lib.js";
 import { clusterKeyOf } from "./cluster.js";
 import type { FixCluster } from "./cluster.js";
 import type { ResolvedConfig } from "../types.js";
 
 export interface CodeRuling {
-  /** True when the scanner no longer sees this finding anywhere. */
+  /** True when no oracle that filed this cluster still sees it. */
   cleared: boolean;
-  /** What it still sees, when it still sees something. */
+  /** What is still seen, when something is. */
   note: string;
   /** How many of the cluster's findings are still present. */
   stillOpen: number;
   /** Whether the file the finding was in still exists and was read. */
   scanned: boolean;
+  /** What the conformance re-read cost, when one was needed. */
+  costUsd?: number;
+}
+
+export interface CodeRulingOptions {
+  /** Model for the conformance re-read; only spent when the skill filed a member. */
+  model?: string;
 }
 
 /**
@@ -44,6 +61,7 @@ export interface CodeRuling {
 export async function ruleCodeCluster(
   resolved: ResolvedConfig,
   cluster: FixCluster,
+  opts: CodeRulingOptions = {},
 ): Promise<CodeRuling> {
   // Deliberately a fresh scan, never the cache: the cache is what the tree
   // looked like before the fix, and ruling a fix against a pre-fix snapshot
@@ -65,14 +83,58 @@ export async function ruleCodeCluster(
 
   const fresh = handRollsToFindings(inv.handRolls, kit.name, cluster.target);
   const still = fresh.filter((f) => clusterKeyOf(f) === cluster.key);
+  if (still.length > 0) {
+    return {
+      cleared: false,
+      note: `the source scan still sees it: ${still[0]!.observed}`,
+      stillOpen: still.length,
+      scanned: true,
+    };
+  }
 
+  // The files this cluster's skill-found members live in. Nothing else is
+  // re-read: a conformance sweep of the whole application to rule on one issue
+  // would cost a run's worth of model calls to answer a question about one file.
+  const files = [
+    ...new Set(
+      cluster.members
+        .filter((m) => m.source?.foundBy === "skill" && m.source.path)
+        .map((m) => m.source!.path),
+    ),
+  ];
+  if (files.length === 0) {
+    return { cleared: true, note: "", stillOpen: 0, scanned: true };
+  }
+
+  const repoRoot = await repoRootOf(resolved.projectDir);
+  const read = await readConformance(resolved, inv, repoRoot, {
+    only: files,
+    model: opts.model,
+  });
+  // A reader that never ran has not cleared anything. Passing here would close
+  // a defect because a subprocess failed, which is the one outcome this channel
+  // must never produce.
+  if (read.calls === 0 && read.considered > 0) {
+    return {
+      cleared: false,
+      note: "the conformance reader could not run, so this finding has not been re-read",
+      stillOpen: cluster.fingerprints.length,
+      scanned: false,
+      costUsd: read.costUsd,
+    };
+  }
+
+  const reread = handRollsToFindings(read.handRolls, kit.name, cluster.target).filter(
+    (f) => clusterKeyOf(f) === cluster.key,
+  );
   return {
-    cleared: still.length === 0,
+    cleared: reread.length === 0,
     note:
-      still.length === 0
+      reread.length === 0
         ? ""
-        : `the source scan still sees it: ${still[0]!.observed}`,
-    stillOpen: still.length,
+        : `the conformance reader still sees it: ${reread[0]!.observed}`,
+    stillOpen: reread.length,
     scanned: true,
+    costUsd: read.costUsd,
   };
 }

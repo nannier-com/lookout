@@ -1,7 +1,8 @@
 // The conformance pass: choosing what to read, refusing to believe the reply,
 // and merging what a model saw with what the scanner saw.
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   conformanceCandidates,
@@ -23,12 +24,19 @@ function write(dir: string, rel: string, text: string): string {
   return p;
 }
 
-function withMockClaude<T>(fn: () => Promise<T>): Promise<T> {
-  const before = process.env.LOOKOUT_CLAUDE_BIN;
+/** Run with a claude stand-in and an incident log of its own, then restore. */
+function withMockClaude<T>( fn: () => Promise<T>): Promise<T> {
+  const beforeBin = process.env.LOOKOUT_CLAUDE_BIN;
+  const beforeHome = process.env.LOOKOUT_HOME;
   process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+  // Incidents are appended to the operator's home by default, and a test run
+  // has no business writing there.
+  process.env.LOOKOUT_HOME = mkdtempSync(join(tmpdir(), "lookout-home-"));
   return fn().finally(() => {
-    if (before === undefined) delete process.env.LOOKOUT_CLAUDE_BIN;
-    else process.env.LOOKOUT_CLAUDE_BIN = before;
+    if (beforeBin === undefined) delete process.env.LOOKOUT_CLAUDE_BIN;
+    else process.env.LOOKOUT_CLAUDE_BIN = beforeBin;
+    if (beforeHome === undefined) delete process.env.LOOKOUT_HOME;
+    else process.env.LOOKOUT_HOME = beforeHome;
   });
 }
 
