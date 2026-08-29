@@ -13,14 +13,22 @@
  * inspection view of that; the same inventory is what puts a "where this
  * belongs" section into every issue document.
  *
+ * `--audit` goes one step further and asks the conformance skill whether the
+ * application is actually built out of the kit it has. That is the same reading
+ * `check` does before it files, run on its own so somebody can look at an
+ * unfamiliar repository and get an answer without capturing a single
+ * screenshot. It costs model calls and it files nothing: `check` is the verb
+ * that files.
+ *
  * It reads. It never edits, and it never installs anything.
  */
 import { relative } from "node:path";
 import { loadConfig } from "../config.js";
-import { detect } from "../design/detect.js";
+import { detect, repoRootOf } from "../design/detect.js";
+import { mergeHandRolls, readConformance } from "../design/conformance.js";
 import { inventoryPath, saveInventory, type DesignInventory } from "../design/inventory.js";
 import { resolveInventory } from "../design/resolve.js";
-import { printJson, row, type Parsed } from "../util.js";
+import { num, printJson, row, str, type Parsed } from "../util.js";
 import type { ResolvedConfig } from "../types.js";
 
 /** The human view. Paths are absolute where they are meant to be opened. */
@@ -114,15 +122,42 @@ export async function designSystem(parsed: Parsed): Promise<number> {
       })()
     : await resolveInventory(resolved);
 
+  // The reading pass, on request. It layers over the inventory rather than
+  // replacing it: the scan's suspicions are what the reader is handed, and what
+  // comes back both adds to them and kills the wrong ones.
+  let audit: Awaited<ReturnType<typeof readConformance>> | null = null;
+  if (parsed.flags.audit) {
+    audit = await readConformance(resolved, inv, await repoRootOf(resolved.projectDir), {
+      model: str(parsed.flags.model),
+      fileBudget: num(parsed.flags["max-conformance"]),
+      cache: !parsed.flags["no-cache"],
+    });
+    inv.handRolls = mergeHandRolls(inv.handRolls, audit);
+  }
+
   if (parsed.flags.json) {
-    printJson({ ...inv, cachedAt: inventoryPath(resolved) });
+    printJson({ ...inv, cachedAt: inventoryPath(resolved), ...(audit ? { audit } : {}) });
   } else {
     console.log(`\n${renderInventory(resolved, inv)}\n`);
+    if (audit) {
+      console.log(
+        `conformance: ${audit.examined.length} of ${audit.considered} file(s) read ` +
+          `(${audit.cached} cached)` +
+          (audit.unread.length > 0 ? `, ${audit.unread.length} not read` : "") +
+          `; ${audit.refuted.length} scanner suspicion(s) refuted; ~$${audit.costUsd.toFixed(4)}`,
+      );
+      for (const r of audit.refuted.slice(0, 10)) {
+        console.log(`  not a hand-roll: ${r.symbol} in ${r.relPath} (${r.why})`);
+      }
+      console.log("\nnothing here is filed; `lookout check` is the verb that files.");
+    }
     console.log(`cached: ${inventoryPath(resolved)}`);
   }
 
-  // Always 0. An inventory is a fact about a repository, not a verdict on it:
-  // having no design system is a legitimate answer, and exiting non-zero for it
-  // would make a CI gate out of an observation.
-  return 0;
+  // An inventory is a fact about a repository, not a verdict on it: having no
+  // design system is a legitimate answer, and exiting non-zero for it would
+  // make a CI gate out of an observation. An audit IS a verdict, so it follows
+  // the exit-code convention every other verb uses and reports 1 when it found
+  // something.
+  return audit && inv.handRolls.length > 0 ? 1 : 0;
 }

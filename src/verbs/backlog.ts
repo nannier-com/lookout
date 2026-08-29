@@ -28,6 +28,7 @@ import {
   type Backlog,
 } from "../backlog/lib.js";
 import type { CheckOutcome } from "./check.js";
+import { emit } from "../report/events.js";
 import { LookoutError, type ResolvedConfig } from "../types.js";
 import { nowIso, printJson, str, type Parsed } from "../util.js";
 
@@ -69,6 +70,23 @@ export async function saveBacklog(resolved: ResolvedConfig, backlog: Backlog): P
   await materializeIssues(resolved, backlog);
 }
 
+/** What one conformance sweep did, for the run summary. */
+export interface ConformanceRun {
+  /** Files that came back with a verdict, cache hits included. */
+  read: number;
+  /** Of those, how many cost nothing because the file had not changed. */
+  cached: number;
+  /** Files chosen for reading. */
+  considered: number;
+  /** Files chosen but left without a verdict; asked about again next run. */
+  unread: number;
+  /** Hand-rolled controls the reader stands behind. */
+  found: number;
+  /** Scanner suspicions it killed. */
+  refuted: number;
+  costUsd: number;
+}
+
 /** Merge the latest evidence + judge results; shared with `lookout check`. */
 export async function mergeLatest(
   resolved: ResolvedConfig,
@@ -84,8 +102,21 @@ export async function mergeLatest(
      * looked. `check` is the verb that sweeps, so `check` is the verb that asks.
      */
     scanSource?: boolean;
+    /**
+     * Also read the application with the conformance skill, which sees the
+     * hand-rolls the scan cannot: a control built out of raw elements in a file
+     * that imports the kit for something else. Costs model calls, so the caller
+     * decides, and the caller is `check`.
+     */
+    conformance?: { model?: string; fileBudget?: number };
   },
-): Promise<{ backlog: Backlog; added: number; reopened: number; refreshed: number }> {
+): Promise<{
+  backlog: Backlog;
+  added: number;
+  reopened: number;
+  refreshed: number;
+  conformance?: ConformanceRun;
+}> {
   const report = await loadReport(resolved);
   if (!report) throw new LookoutError("no capture-report.json to merge from; run `lookout capture` first");
   const backlog = await loadBacklog(resolved);
@@ -119,19 +150,50 @@ export async function mergeLatest(
   // design system already provides. Read from the repository rather than from
   // any screenshot, which is why they are their own channel.
   let code: ReturnType<typeof deterministicToFindings> = [];
+  let conformance: ConformanceRun | undefined;
   if (opts.scanSource) {
     const { resolveInventory } = await import("../design/resolve.js");
     const { primaryKit } = await import("../design/inventory.js");
     const { handRollsToFindings } = await import("../backlog/lib.js");
     const inv = await resolveInventory(resolved, { refresh: true });
     const kit = primaryKit(inv);
-    if (kit && inv.handRolls.length > 0) {
+    let handRolls = inv.handRolls;
+
+    // The reading pass, when the caller asked for it. It both adds what the
+    // scan cannot see and removes what the scan got wrong, so it runs before
+    // anything is filed rather than after.
+    if (kit && opts.conformance) {
+      const { readConformance, mergeHandRolls } = await import("../design/conformance.js");
+      const { repoRootOf } = await import("../design/detect.js");
+      const read = await readConformance(resolved, inv, await repoRootOf(resolved.projectDir), {
+        model: opts.conformance.model,
+        fileBudget: opts.conformance.fileBudget,
+      });
+      handRolls = mergeHandRolls(inv.handRolls, read);
+      conformance = {
+        read: read.examined.length,
+        cached: read.cached,
+        considered: read.considered,
+        unread: read.unread.length,
+        found: read.handRolls.length,
+        refuted: read.refuted.length,
+        costUsd: read.costUsd,
+      };
+      emit(
+        "note",
+        `conformance: read ${read.examined.length} file(s), ${read.handRolls.length} hand-rolled control(s), ` +
+          `${read.refuted.length} suspicion(s) refuted`,
+        { read: read.examined.length, cached: read.cached, found: read.handRolls.length },
+      );
+    }
+
+    if (kit && handRolls.length > 0) {
       // A source finding is not about one target, but a finding must name one
       // and the cluster key is built from it. The first configured target is
       // the project's primary by convention, and using it consistently is what
       // keeps a re-found duplicate merging onto the same issue.
       const target = resolved.config.targets[0]?.name ?? "app";
-      code = handRollsToFindings(inv.handRolls, kit.name, target);
+      code = handRollsToFindings(handRolls, kit.name, target);
     }
   }
 
@@ -146,6 +208,7 @@ export async function mergeLatest(
     added: r1.added.length + r2.added.length,
     reopened: r1.reopened.length + r2.reopened.length,
     refreshed: r1.refreshed.length + r2.refreshed.length,
+    ...(conformance ? { conformance } : {}),
   };
 }
 

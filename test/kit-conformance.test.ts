@@ -11,6 +11,7 @@ import {
   verifyClaim,
   type ConformanceResult,
 } from "../src/design/conformance.js";
+import { loadCache, readerIdentity, saveCache } from "../src/design/conformance-cache.js";
 import { detect } from "../src/design/detect.js";
 import { tmpProject } from "./tmp-project.js";
 import type { DesignInventory, DetectedKit, HandRoll } from "../src/design/inventory.js";
@@ -124,7 +125,13 @@ describe("choosing what to read", () => {
 });
 
 describe("verifying a claim before believing it", () => {
-  const candidate = { path: "/app/src/Screen.tsx", relPath: "src/Screen.tsx", score: 1, suspicions: [] };
+  const candidate = {
+    path: "/app/src/Screen.tsx",
+    relPath: "src/Screen.tsx",
+    score: 1,
+    suspicions: [],
+    hash: "deadbeef",
+  };
   const text = `import { Text } from "@acme/kit";\n\nexport function PriceTag() {\n  return <div/>;\n}\n`;
 
   test("takes the line from the file, not from the reply", () => {
@@ -223,9 +230,94 @@ describe("reading the application", () => {
   });
 });
 
+describe("not paying twice for the same file", () => {
+  test("an unchanged file is carried from the cache, and a changed one is read again", async () => {
+    const r = appWithKit("lookout-conf-cache-");
+    const file = write(
+      r.projectDir,
+      "src/screens/Checkout.tsx",
+      `import { Text } from "@acme/kit";\n\nexport function PayCard() {\n  return <div onClick={() => {}}><button/></div>;\n}\n`,
+    );
+    const inv = await detect(r);
+
+    const first = await withMockClaude(() => readConformance(r, inv, r.projectDir));
+    expect(first.calls).toBe(1);
+    expect(first.cached).toBe(0);
+    expect(first.handRolls.map((h) => h.symbol)).toEqual(["PayCard"]);
+
+    const second = await withMockClaude(() => readConformance(r, inv, r.projectDir));
+    expect(second.calls).toBe(0);
+    expect(second.cached).toBe(1);
+    // The verdict survives the trip through disk, not just the file list.
+    expect(second.handRolls.map((h) => h.symbol)).toEqual(["PayCard"]);
+    expect(second.handRolls[0]!.foundBy).toBe("skill");
+
+    write(
+      r.projectDir,
+      "src/screens/Checkout.tsx",
+      `import { Button, Text } from "@acme/kit";\n\nexport function PayCard() {\n  return <div><Button onClick={() => {}}>pay</Button></div>;\n}\n`,
+    );
+    const third = await withMockClaude(() => readConformance(r, inv, r.projectDir));
+    expect(third.calls).toBe(1);
+    expect(third.cached).toBe(0);
+    expect(file.endsWith("Checkout.tsx")).toBe(true);
+  });
+
+  test("a cache written by a different reader is discarded whole", async () => {
+    const r = appWithKit("lookout-conf-identity-");
+    const a = readerIdentity(1, ["Button", "Card"]);
+    const b = readerIdentity(2, ["Button", "Card"]);
+    const c = readerIdentity(1, ["Button", "Card", "Sheet"]);
+    expect(a).not.toBe(b);
+    expect(a).not.toBe(c);
+    // Export order is not a change; what the kit provides is a set.
+    expect(readerIdentity(1, ["Card", "Button"])).toBe(a);
+
+    await saveCache(r, {
+      schema: 1,
+      identity: a,
+      files: { "src/x.tsx": { hash: "h", findings: [], refuted: [] } },
+    });
+    expect(Object.keys((await loadCache(r, a)).files)).toEqual(["src/x.tsx"]);
+    expect(Object.keys((await loadCache(r, b)).files)).toEqual([]);
+  });
+
+  test("a file the reply never accounted for is left unread rather than cached clean", async () => {
+    const r = appWithKit("lookout-conf-unread-");
+    write(
+      r.projectDir,
+      "src/screens/One.tsx",
+      `import { Text } from "@acme/kit";\nexport function OneThing() { return <div onClick={() => {}}><button/></div>; }\n`,
+    );
+    write(
+      r.projectDir,
+      "src/screens/Two.tsx",
+      `import { Text } from "@acme/kit";\nexport function TwoThing() { return <div onClick={() => {}}><button/></div>; }\n`,
+    );
+    const inv = await detect(r);
+
+    const before = process.env.MOCK_CONFORMANCE;
+    // A reply that mentions neither file: both are unread, and neither is
+    // cached, so the next run asks again.
+    process.env.MOCK_CONFORMANCE =
+      "```json\n" + JSON.stringify({ findings: [], refuted: [], examined: [] }) + "\n```";
+    try {
+      const res = await withMockClaude(() => readConformance(r, inv, r.projectDir));
+      expect(res.unread.length).toBe(2);
+      expect(res.examined).toEqual([]);
+      const again = await withMockClaude(() => readConformance(r, inv, r.projectDir));
+      expect(again.cached).toBe(0);
+    } finally {
+      if (before === undefined) delete process.env.MOCK_CONFORMANCE;
+      else process.env.MOCK_CONFORMANCE = before;
+    }
+  });
+});
+
 describe("merging the scanner and the skill", () => {
   const read = (over: Partial<ConformanceResult> = {}): ConformanceResult => ({
-    handRolls: [], refuted: [], examined: [], considered: 0, rejected: [], costUsd: 0, calls: 0,
+    handRolls: [], refuted: [], examined: [], unread: [], cached: 0, considered: 0,
+    rejected: [], costUsd: 0, calls: 0,
     ...over,
   });
 
@@ -260,6 +352,100 @@ describe("merging the scanner and the skill", () => {
     );
     expect(merged).toHaveLength(1);
     expect(merged[0]!.foundBy).toBe("scan");
+  });
+});
+
+// The wiring `lookout check` actually uses: read the application, merge what
+// the reader found with what the scanner found, and file the result on the code
+// channel.
+describe("filing what the reader found", () => {
+  function withReport(prefix: string) {
+    const r = appWithKit(prefix);
+    mkdirSync(join(r.projectDir, ".lookout", "evidence"), { recursive: true });
+    writeFileSync(
+      join(r.projectDir, ".lookout", "evidence", "capture-report.json"),
+      JSON.stringify({
+        version: 1,
+        project: "proj",
+        runs: [{ id: "r1", startedAt: new Date(0).toISOString() }],
+        shots: [],
+        failures: [],
+      }),
+    );
+    return r;
+  }
+
+  test("a control only the reader saw is filed on the code channel", async () => {
+    const r = withReport("lookout-conf-merge-");
+    write(
+      r.projectDir,
+      "src/screens/Checkout.tsx",
+      `import { Text } from "@acme/kit";\n\nexport function PayCard() {\n  return <div onClick={() => {}}><button/></div>;\n}\n`,
+    );
+
+    const { loadBacklog, mergeLatest } = await import("../src/verbs/backlog.js");
+    const merged = await withMockClaude(() =>
+      mergeLatest(r, { scanSource: true, conformance: {} }),
+    );
+
+    expect(merged.conformance?.found).toBe(1);
+    expect(merged.conformance?.read).toBe(1);
+    const filed = Object.values((await loadBacklog(r)).findings);
+    expect(filed).toHaveLength(1);
+    expect(filed[0]!.channel).toBe("code");
+    expect(filed[0]!.source?.foundBy).toBe("skill");
+    expect(filed[0]!.title).toContain("PayCard");
+    // The reader named a component the kit really ships, so the finding says so.
+    expect(filed[0]!.title).toContain("provides Button");
+  });
+
+  test("a suspicion the reader refuted is never filed", async () => {
+    const r = withReport("lookout-conf-refute-");
+    // The scanner suspects this by name. The reader is told to disagree.
+    write(r.projectDir, "src/screens/Row.tsx", `export function RowCard() { return <div><span/></div>; }\n`);
+    write(
+      r.projectDir,
+      "src/screens/Uses.tsx",
+      `import { Text } from "@acme/kit";\nexport const Uses = () => <Text>hi</Text>;\n`,
+    );
+
+    const before = process.env.MOCK_CONFORMANCE;
+    process.env.MOCK_CONFORMANCE =
+      "```json\n" +
+      JSON.stringify({
+        findings: [],
+        refuted: [{ path: join(r.projectDir, "src/screens/Row.tsx"), symbol: "RowCard", why: "a row of data" }],
+        examined: [],
+      }) +
+      "\n```";
+    try {
+      const { loadBacklog, mergeLatest } = await import("../src/verbs/backlog.js");
+      const merged = await withMockClaude(() =>
+        mergeLatest(r, { scanSource: true, conformance: {} }),
+      );
+      expect(merged.conformance?.refuted).toBe(1);
+      expect(Object.values((await loadBacklog(r)).findings)).toHaveLength(0);
+    } finally {
+      if (before === undefined) delete process.env.MOCK_CONFORMANCE;
+      else process.env.MOCK_CONFORMANCE = before;
+    }
+  });
+
+  test("without the option nothing is read, and the scanner files alone", async () => {
+    const r = withReport("lookout-conf-off-");
+    write(r.projectDir, "src/screens/Row.tsx", `export function RowCard() { return <div><span/></div>; }\n`);
+    write(
+      r.projectDir,
+      "src/screens/Uses.tsx",
+      `import { Text } from "@acme/kit";\nexport const Uses = () => <Text>hi</Text>;\n`,
+    );
+
+    const { loadBacklog, mergeLatest } = await import("../src/verbs/backlog.js");
+    const merged = await withMockClaude(() => mergeLatest(r, { scanSource: true }));
+    expect(merged.conformance).toBeUndefined();
+    const filed = Object.values((await loadBacklog(r)).findings);
+    expect(filed).toHaveLength(1);
+    expect(filed[0]!.source?.foundBy).toBe("scan");
   });
 });
 

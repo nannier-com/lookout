@@ -467,6 +467,12 @@ async function firstIssue(parsed: Parsed, pre: ResolvedConfig): Promise<number> 
     // Everything this route turned up is filed. lookout captured and judged it
     // already, so dropping any of it would throw away work it has done and
     // report the route as healthier than it found it.
+    //
+    // No conformance read here on purpose. `--first` exists to find one issue
+    // as cheaply as possible, and a conformance sweep reads the application's
+    // source rather than this route, so it would spend the same money on every
+    // stop of the walk to answer a question that has nothing to do with which
+    // route was captured. A full `check` is where that question is asked.
     const merged = await mergeLatest(resolved, { judgeOutcome: outcome, scanSource: true });
 
     const found = merged.added + merged.reopened;
@@ -529,8 +535,31 @@ export async function check(parsed: Parsed): Promise<number> {
   let backlogNote = "";
   if (resolved.configPath) {
     const { mergeLatest, saveBacklog } = await import("./backlog.js");
-    const merged = await mergeLatest(resolved, { judgeOutcome: outcome, scanSource: true });
+    // Reading the application for hand-rolled controls, which is the half of
+    // the code channel no screenshot and no regex can reach. On by default,
+    // capped, and switched off with --no-conformance: a run that spends money
+    // with no way to say no is a run people stop making. Unchanged files are
+    // carried from the cache, so the cost falls to nearly nothing on a repeat.
+    const merged = await mergeLatest(resolved, {
+      judgeOutcome: outcome,
+      scanSource: true,
+      ...(parsed.flags["no-conformance"]
+        ? {}
+        : {
+            conformance: {
+              model: str(parsed.flags.model),
+              fileBudget: num(parsed.flags["max-conformance"]),
+            },
+          }),
+    });
     backlogNote = `backlog: ${merged.added} added, ${merged.reopened} reopened, ${merged.refreshed} refreshed`;
+    if (merged.conformance) {
+      const c = merged.conformance;
+      backlogNote +=
+        `; conformance: ${c.read} of ${c.considered} file(s) read (${c.cached} cached), ` +
+        `${c.found} hand-rolled control(s), ${c.refuted} suspicion(s) refuted` +
+        (c.unread > 0 ? `, ${c.unread} not read` : "");
+    }
 
     // Where each new issue belongs, in a project that has a design system. A
     // defect is found on a screen and fixed in a component, and those are

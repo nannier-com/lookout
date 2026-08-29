@@ -111,13 +111,14 @@ export async function ruleCodeCluster(
     only: files,
     model: opts.model,
   });
-  // A reader that never ran has not cleared anything. Passing here would close
-  // a defect because a subprocess failed, which is the one outcome this channel
-  // must never produce.
-  if (read.calls === 0 && read.considered > 0) {
+  // A file with no verdict has not been cleared. Passing here would close a
+  // defect because a subprocess failed or a reply skipped a file, which is the
+  // one outcome this channel must never produce. A cache hit is a verdict, so
+  // this asks what came back rather than whether a call was made.
+  if (read.unread.length > 0) {
     return {
       cleared: false,
-      note: "the conformance reader could not run, so this finding has not been re-read",
+      note: "the conformance reader could not re-read this file, so the finding stands",
       stillOpen: cluster.fingerprints.length,
       scanned: false,
       costUsd: read.costUsd,

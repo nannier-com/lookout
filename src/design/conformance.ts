@@ -32,6 +32,14 @@
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { relative } from "node:path";
+import {
+  emptyCache,
+  hashText,
+  loadCache,
+  readerIdentity,
+  saveCache,
+  type ConformanceCache,
+} from "./conformance-cache.js";
 import { extractJson, invokeClaude } from "../judge/engine.js";
 import { loadSkill, renderSkill } from "../skills/load.js";
 import { recordIncident } from "../skills/incidents.js";
@@ -69,8 +77,17 @@ export interface ConformanceResult {
   handRolls: ConformanceFinding[];
   /** Scanner suspicions the skill read and rejected. */
   refuted: Refutation[];
-  /** Files the skill actually accounted for. */
+  /** Files with a verdict this run, whether read fresh or carried from the cache. */
   examined: string[];
+  /**
+   * Files chosen for reading that came back with no verdict: a batch that
+   * failed, or a reply that left them out. Not clean, not read, and never
+   * cached, so the next run asks again. Ruling a fix on a file in this list is
+   * refused outright.
+   */
+  unread: string[];
+  /** Files carried from the cache because their bytes had not changed. */
+  cached: number;
   /** Files chosen for reading, whether or not the skill accounted for them. */
   considered: number;
   /** Claims thrown out because the file, the symbol or the export did not check out. */
@@ -87,6 +104,8 @@ interface Candidate {
   score: number;
   /** What the deterministic scan suspected here, if anything. */
   suspicions: HandRoll[];
+  /** The file's bytes as they were when it was chosen, for the cache key. */
+  hash: string;
 }
 
 /** Files that exist to be read by a machine, or to demonstrate raw markup. */
@@ -139,6 +158,7 @@ export async function conformanceCandidates(
       relPath: relative(repoRoot, file),
       score: raw + interactive * 3,
       suspicions: suspicionsByFile.get(file) ?? [],
+      hash: hashText(text),
     });
   }
 
@@ -244,6 +264,8 @@ export interface ConformanceOptions {
   fileBudget?: number;
   /** Read only these files, for ruling on one issue rather than sweeping. */
   only?: string[];
+  /** Set false to read every candidate fresh, ignoring and not writing the cache. */
+  cache?: boolean;
 }
 
 /**
@@ -263,6 +285,8 @@ export async function readConformance(
     handRolls: [],
     refuted: [],
     examined: [],
+    unread: [],
+    cached: 0,
     considered: 0,
     rejected: [],
     costUsd: 0,
@@ -283,7 +307,19 @@ export async function readConformance(
     // outright, which is what ruling on one issue does.
     for (const path of opts.only) {
       if (candidates.some((c) => c.path === path) || !existsSync(path)) continue;
-      candidates.push({ path, relPath: relative(repoRoot, path), score: 0, suspicions: [] });
+      let text = "";
+      try {
+        text = await readFile(path, "utf8");
+      } catch {
+        continue;
+      }
+      candidates.push({
+        path,
+        relPath: relative(repoRoot, path),
+        score: 0,
+        suspicions: [],
+        hash: hashText(text),
+      });
     }
   }
   if (candidates.length === 0) return empty;
@@ -293,8 +329,37 @@ export async function readConformance(
   const result: ConformanceResult = { ...empty, considered: candidates.length };
   const byPath = new Map(candidates.map((c) => [c.path, c]));
 
-  for (let i = 0; i < candidates.length; i += FILES_PER_BATCH) {
-    const batch = candidates.slice(i, i + FILES_PER_BATCH);
+  // What has already been read, and has not changed since. A file's bytes
+  // cannot have grown a hand-rolled control while staying the same bytes, so a
+  // hit is a verdict rather than a shortcut.
+  const identity = readerIdentity(skill.version, kit.exports);
+  const useCache = opts.cache !== false;
+  const cache: ConformanceCache = useCache
+    ? await loadCache(resolved, identity)
+    : emptyCache(identity);
+  const toRead: Candidate[] = [];
+  for (const c of candidates) {
+    const hit = cache.files[c.relPath];
+    if (useCache && hit && hit.hash === c.hash) {
+      result.handRolls.push(...hit.findings);
+      result.refuted.push(...hit.refuted);
+      result.examined.push(c.path);
+      result.cached++;
+      continue;
+    }
+    toRead.push(c);
+  }
+
+  for (let i = 0; i < toRead.length; i += FILES_PER_BATCH) {
+    const batch = toRead.slice(i, i + FILES_PER_BATCH);
+    // What this batch decided, per file, so the cache records verdicts rather
+    // than the absence of one.
+    const decided = new Map<string, { findings: ConformanceFinding[]; refuted: Refutation[] }>();
+    const entryFor = (relPath: string) => {
+      const e = decided.get(relPath) ?? { findings: [], refuted: [] };
+      decided.set(relPath, e);
+      return e;
+    };
     const prompt = renderSkill(skill.text, {
       project: resolved.project,
       kit: inventoryBrief(inv),
@@ -322,6 +387,7 @@ export async function readConformance(
         message: `conformance batch failed: ${e instanceof Error ? e.message : String(e)}`,
         project: resolved.project,
       });
+      for (const c of batch) result.unread.push(c.path);
       continue;
     }
     result.calls++;
@@ -339,6 +405,7 @@ export async function readConformance(
         detail: reply.text.slice(0, 400),
         project: resolved.project,
       });
+      for (const c of batch) result.unread.push(c.path);
       continue;
     }
 
@@ -373,26 +440,58 @@ export async function readConformance(
       }
       result.handRolls.push(checked.finding);
       result.examined.push(candidate.path);
+      entryFor(candidate.relPath).findings.push(checked.finding);
     }
 
     for (const raw of Array.isArray(parsed.refuted) ? parsed.refuted : []) {
       const r = raw as { path?: unknown; symbol?: unknown; why?: unknown };
       const candidate = byPath.get(typeof r.path === "string" ? r.path : "");
       if (!candidate || typeof r.symbol !== "string") continue;
-      result.refuted.push({
+      // A reply that files a control and refutes it in the same breath has said
+      // nothing. The finding is the assertive half and it stands; the
+      // contradiction is recorded, because a reader doing this often is a
+      // reader whose instructions need fixing.
+      if (
+        result.handRolls.some((h) => h.path === candidate.path && h.symbol === r.symbol)
+      ) {
+        result.rejected.push({
+          reason: `${r.symbol} was filed and refuted in the same reply`,
+          raw,
+        });
+        continue;
+      }
+      const refutation = {
         relPath: candidate.relPath,
         symbol: r.symbol,
         why: typeof r.why === "string" ? r.why : "",
-      });
+      };
+      result.refuted.push(refutation);
       result.examined.push(candidate.path);
+      entryFor(candidate.relPath).refuted.push(refutation);
     }
 
     for (const raw of Array.isArray(parsed.examined) ? parsed.examined : []) {
-      if (typeof raw === "string" && byPath.has(raw)) result.examined.push(raw);
+      const candidate = typeof raw === "string" ? byPath.get(raw) : undefined;
+      if (!candidate) continue;
+      result.examined.push(candidate.path);
+      entryFor(candidate.relPath);
+    }
+
+    // A file the reply accounted for nowhere has no verdict. Caching it as
+    // clean would turn silence into a durable clean bill of health, so it is
+    // recorded as unread and asked about again next run.
+    for (const c of batch) {
+      if (decided.has(c.relPath)) {
+        cache.files[c.relPath] = { hash: c.hash, ...decided.get(c.relPath)! };
+      } else {
+        result.unread.push(c.path);
+      }
     }
   }
 
   result.examined = [...new Set(result.examined)];
+  result.unread = [...new Set(result.unread)].filter((p) => !result.examined.includes(p));
+  if (useCache && result.calls > 0) await saveCache(resolved, cache);
   if (result.rejected.length > 0) {
     recordIncident({
       at: new Date().toISOString(),

@@ -101,11 +101,16 @@ if (mode === "placement") {
                 },
               ]
             : [],
-        refuted: [...promptText.matchAll(/scanner suspects: ([A-Za-z0-9]+) /g)].map((m) => ({
-          path: files.find((f) => promptText.includes(`- ${f}\n    scanner suspects: ${m[1]}`)) ?? first,
-          symbol: m[1],
-          why: "it is layout scaffolding, not a control",
-        })),
+        // Every suspicion except the one just filed: a reply that files a
+        // control and refutes it at once is incoherent, and the mock should
+        // model a reader that is not.
+        refuted: [...promptText.matchAll(/scanner suspects: ([A-Za-z0-9]+) /g)]
+          .filter((m) => m[1] !== symbol)
+          .map((m) => ({
+            path: files.find((f) => promptText.includes(`- ${f}\n    scanner suspects: ${m[1]}`)) ?? first,
+            symbol: m[1],
+            why: "it is layout scaffolding, not a control",
+          })),
         examined: files.slice(1),
       }) +
       "\n```";

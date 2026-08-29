@@ -298,7 +298,7 @@ describe("ruling a finding the skill found, not the scanner", () => {
     );
     expect(ruling.cleared).toBe(false);
     expect(ruling.scanned).toBe(false);
-    expect(ruling.note).toContain("could not run");
+    expect(ruling.note).toContain("could not re-read");
   });
 
   test("clears when the file is gone, without spending a model call", async () => {
