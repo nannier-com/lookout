@@ -48,7 +48,7 @@ async function invocation(): Promise<string> {
 export async function renderIssueDocument(
   resolved: ResolvedConfig,
   cluster: FixCluster,
-  record?: Pick<IssueRecord, "acceptance" | "causedBy">,
+  record?: Pick<IssueRecord, "acceptance" | "causedBy" | "placement">,
 ): Promise<{ markdown: string; label: string }> {
   const evDir = evidenceDir(resolved);
   const label = clusterLabel(cluster);
@@ -63,18 +63,41 @@ export async function renderIssueDocument(
   l.push(
     `defect:     ${cluster.category}${cluster.defects.length > 1 ? ` (${cluster.defects.length} rules)` : `/${cluster.attribute}`}`,
   );
-  l.push(`found by:   ${cluster.channel === "ai" ? `visual judge${cluster.verified ? ", adversarially verified" : ""}` : "deterministic check"}`);
+  l.push(
+    `found by:   ${
+      cluster.channel === "ai"
+        ? `visual judge${cluster.verified ? ", adversarially verified" : ""}`
+        : cluster.channel === "code"
+          ? "source scan"
+          : "deterministic check"
+    }`,
+  );
   l.push(`repository: ${resolved.projectDir}`);
-  l.push(`routes:     ${cluster.routes.join(", ")}`);
-  l.push(`affects:    ${cluster.shotCount} screenshot(s)`);
+  if (cluster.channel === "code") {
+    l.push(`file:       ${cluster.routes.join(", ")}`);
+  } else {
+    l.push(`routes:     ${cluster.routes.join(", ")}`);
+    l.push(`affects:    ${cluster.shotCount} screenshot(s)`);
+  }
   if (cluster.attemptsSpent > 0) l.push(`attempts:   ${cluster.attemptsSpent} already spent`);
   l.push("```", "");
 
   l.push(
-    "This is a visual defect lookout found in the running application, filed",
-    "against the screenshots below. lookout did not send you here; somebody read",
-    "it and decided to. Nothing about how you fix it is prescribed.",
-    "",
+    ...(cluster.channel === "code"
+      ? [
+          "This is a defect lookout found by reading the source, not by looking at the",
+          "running application: nothing about it is visible in a screenshot, which is",
+          "why it has none. lookout rules on it the same way it found it, by reading",
+          "the source again. lookout did not send you here; somebody read it and",
+          "decided to. Nothing about how you fix it is prescribed.",
+          "",
+        ]
+      : [
+          "This is a visual defect lookout found in the running application, filed",
+          "against the screenshots below. lookout did not send you here; somebody read",
+          "it and decided to. Nothing about how you fix it is prescribed.",
+          "",
+        ]),
   );
 
   // Rules before evidence. An agent that starts editing before it knows the
@@ -93,6 +116,53 @@ export async function renderIssueDocument(
       "They are not advisory. Where one conflicts with anything below, the rule",
       "wins and you say so. Where it forbids the obvious fix, find the one it",
       "allows rather than the one it forbids.",
+      "",
+    );
+  }
+
+  // Where before what. Somebody who reads the defect first has already started
+  // forming a plan to fix it on the screen they saw it on, and in a project
+  // with a design system that plan is usually wrong. This is also why it sits
+  // under the standing rules rather than above them: the rules say how to work
+  // here, this says where.
+  if (record?.placement) {
+    const p = record.placement;
+    const WHERE: Record<string, string> = {
+      "kit-component": `in ${p.kit} itself, the component, where it is fixed once for every caller`,
+      "app-composition": `in this application's use of ${p.kit}, not in the kit`,
+      tokens: "in the design tokens, which moves everything using them",
+      "kit-gap": `in ${p.kit}, by adding or extending what is missing, then consuming it`,
+      unclear: "not settled by the source; see the note below",
+    };
+    l.push("## Where this belongs", "");
+    l.push(`This project uses **${p.kit}**. ${WHERE[p.kind] ?? p.kind}.`, "");
+    if (p.primaryPath) {
+      l.push(`- **change** ${p.primaryPath}${p.symbol ? `  (${p.symbol})` : ""}`);
+    }
+    if (p.reason) l.push(`- **why there** ${p.reason}`);
+    if (p.otherCallers !== null && p.otherCallers > 0) {
+      l.push(
+        `- **other callers** ${p.otherCallers} other place(s) use this. A change here reaches all of them.`,
+      );
+    }
+    if (p.blastRadius) l.push(`- **blast radius** ${p.blastRadius}`);
+    for (const f of p.alsoRead) l.push(`- **read first** ${f}`);
+    if (p.notes) l.push(`- **unsettled** ${p.notes}`);
+    l.push("");
+
+    if (!p.kitEditable) {
+      l.push(
+        `${p.kit} is an installed dependency, so its source is not this repository's to`,
+        "edit. Do not patch it in node_modules: that is undone by the next install and",
+        "invisible to everyone else. Fix this application's use of it, and if the real",
+        "fix belongs in the kit, say so rather than working around it here.",
+        "",
+      );
+    }
+    l.push(
+      "lookout worked this out by reading the repository, not by looking at the",
+      "screenshots. It is where to start, not an instruction: if the code says",
+      "otherwise when you open it, the code is right.",
       "",
     );
   }
@@ -125,14 +195,27 @@ export async function renderIssueDocument(
     l.push("");
   }
 
-  l.push("## Look at these first", "");
-  const seen = new Set<string>();
-  for (const m of cluster.members) {
-    const ev = m.evidence[m.evidence.length - 1];
-    if (!ev || seen.has(ev.path)) continue;
-    seen.add(ev.path);
-    l.push(`- ${join(evDir, ev.path)}`);
-    l.push(`  route ${m.route}, ${m.formFactor}, ${m.scheme} scheme, state ${m.state}`);
+  if (cluster.channel === "code") {
+    l.push("## Where it is", "");
+    const places = new Set<string>();
+    for (const m of cluster.members) {
+      if (!m.source) continue;
+      const at = `- ${m.source.path}:${m.source.line}${m.source.symbol ? `  (${m.source.symbol})` : ""}`;
+      if (places.has(at)) continue;
+      places.add(at);
+      l.push(at);
+    }
+    l.push("");
+  } else {
+    l.push("## Look at these first", "");
+    const seen = new Set<string>();
+    for (const m of cluster.members) {
+      const ev = m.evidence[m.evidence.length - 1];
+      if (!ev || seen.has(ev.path)) continue;
+      seen.add(ev.path);
+      l.push(`- ${join(evDir, ev.path)}`);
+      l.push(`  route ${m.route}, ${m.formFactor}, ${m.scheme} scheme, state ${m.state}`);
+    }
   }
 
   // The one thing lookout does ask for, because it is the only thing it can
@@ -146,9 +229,18 @@ export async function renderIssueDocument(
     `${lookoutCmd} verify-fix --issue ${cluster.id} --commit <sha> --note "<root cause>"`,
     "```",
     "",
-    "It re-captures these routes, re-judges them, and either closes the finding",
-    "or leaves it open with a note saying what it still sees. Exit 0 means",
-    "confirmed, 1 means the defect is still there, 3 means it is out of attempts.",
+    ...(cluster.channel === "code"
+      ? [
+          "It re-reads the source and either closes the finding or leaves it open with",
+          "a note saying what the scan still sees. Nothing is re-photographed: this",
+          "defect was never visible in a screenshot.",
+        ]
+      : [
+          "It re-captures these routes, re-judges them, and either closes the finding",
+          "or leaves it open with a note saying what it still sees.",
+        ]),
+    "Exit 0 means confirmed, 1 means the defect is still there, 3 means it is out",
+    "of attempts.",
     "",
   );
 

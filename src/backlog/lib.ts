@@ -125,6 +125,37 @@ export interface IssueRecord {
    * which a person ticks one of these.
    */
   acceptance?: AcceptanceCriterion[];
+  /**
+   * Where the fix belongs, in a project that has a design system.
+   *
+   * Worked out once, when the issue is first filed, and kept. The issue folder
+   * is rewritten on every backlog save, so deriving this at render time would
+   * re-ask a model the same question on every adjudication; and the answer is
+   * about the shape of the codebase, which does not change because somebody
+   * marked a different issue by-design.
+   *
+   * Absent on issues filed before the project had a design system, and on
+   * projects that do not have one. Nothing downstream requires it.
+   */
+  placement?: IssuePlacement;
+}
+
+/** The stored form of a placement verdict. See src/design/placement.ts. */
+export interface IssuePlacement {
+  kind: "kit-component" | "app-composition" | "tokens" | "kit-gap" | "unclear";
+  /** The file to change. Absolute, and checked to exist when it was written. */
+  primaryPath: string | null;
+  symbol: string | null;
+  reason: string;
+  otherCallers: number | null;
+  blastRadius: string;
+  alsoRead: string[];
+  notes: string;
+  /** The kit this was reasoned against, so a stale placement is recognisable. */
+  kit: string;
+  /** Whether that kit is this repository's to edit. */
+  kitEditable: boolean;
+  at: string;
 }
 
 export interface Backlog {

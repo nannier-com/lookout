@@ -44,6 +44,7 @@ export const SKILL_NAMES = [
   "refute-finding",
   "verify-acceptance",
   "fact-check",
+  "design-placement",
   "improve-skills",
 ] as const;
 
@@ -53,6 +54,13 @@ export const SKILL_NAMES = [
  * change nothing can grade is the exact thing the gate exists to prevent.
  */
 const GATED_SKILLS = new Set(["visual-judge", "refute-finding"]);
+
+// design-placement is deliberately NOT gated. The frozen set is screenshots
+// replayed through the visual judge, and it cannot decide whether a fix belongs
+// in a component or in its caller: that answer lives in source the frozen set
+// does not contain. So an amendment to it is written down as a proposal for a
+// person to read, which is what this file already does for everything the gate
+// cannot grade.
 
 export function historyPath(resolved: ResolvedConfig): string {
   return join(lookoutDir(resolved), "skills", "history.jsonl");

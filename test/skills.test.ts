@@ -21,7 +21,13 @@ function amend(resolved: ResolvedConfig, name: string, text: string): void {
 
 describe("shipped skills", () => {
   test("every capability lookout has ships as a skill", async () => {
-    for (const name of ["visual-judge", "refute-finding", "verify-acceptance", "fact-check"]) {
+    for (const name of [
+      "visual-judge",
+      "refute-finding",
+      "verify-acceptance",
+      "fact-check",
+      "design-placement",
+    ]) {
       const skill = await loadSkill(null, name);
       expect(skill.name).toBe(name);
       expect(skill.description.length).toBeGreaterThan(20);

@@ -528,9 +528,28 @@ export async function check(parsed: Parsed): Promise<number> {
   // zero-config runs stay report-only (a backlog in a random cwd is noise).
   let backlogNote = "";
   if (resolved.configPath) {
-    const { mergeLatest } = await import("./backlog.js");
+    const { mergeLatest, saveBacklog } = await import("./backlog.js");
     const merged = await mergeLatest(resolved, { judgeOutcome: outcome, scanSource: true });
     backlogNote = `backlog: ${merged.added} added, ${merged.reopened} reopened, ${merged.refreshed} refreshed`;
+
+    // Where each new issue belongs, in a project that has a design system. A
+    // defect is found on a screen and fixed in a component, and those are
+    // rarely the same file, so the issue document says which before anybody
+    // opens it. Once per issue, ever: it is a fact about the codebase.
+    const { resolveInventory } = await import("../design/resolve.js");
+    const { placeNewIssues } = await import("../design/place-issues.js");
+    const inv = await resolveInventory(resolved);
+    if (inv.kits.length > 0) {
+      const run = await placeNewIssues(resolved, merged.backlog, inv, {
+        model: str(parsed.flags.model),
+      });
+      if (run.placed > 0 || run.skipped > 0) {
+        await saveBacklog(resolved, merged.backlog);
+        backlogNote +=
+          `; placement: ${run.placed} issue(s) located in ${inv.kits[0]!.name}` +
+          (run.skipped > 0 ? `, ${run.skipped} left for the next run` : "");
+      }
+    }
   }
 
   // One image showing everything judged, with the tiles that carry findings
