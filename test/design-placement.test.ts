@@ -85,7 +85,7 @@ describe("the design-placement skill", () => {
 
 describe("inventoryBrief", () => {
   const inv = (editable: boolean): DesignInventory => ({
-    schema: 1,
+    schema: 2,
     at: "now",
     project: "demo",
     kits: [
@@ -98,6 +98,7 @@ describe("inventoryBrief", () => {
         packageRoot: editable ? "/repo/packages/kit" : null,
         componentRoots: editable ? ["/repo/packages/kit/src/atoms"] : [],
         importPrefixes: ["@acme/kit"],
+        exports: [],
       },
     ],
     tokens: [],
@@ -205,7 +206,7 @@ describe("placing new issues in a run", () => {
     const { placeNewIssues } = await import("../src/design/place-issues.js");
     const r = tmpProject("lookout-placerun-");
     const inv: DesignInventory = {
-      schema: 1,
+      schema: 2,
       at: "now",
       project: "demo",
       kits: [
@@ -218,6 +219,7 @@ describe("placing new issues in a run", () => {
           packageRoot: "/repo/packages/kit",
           componentRoots: ["/repo/packages/kit/src/atoms"],
           importPrefixes: ["@acme/kit"],
+          exports: [],
         },
       ],
       tokens: [],
@@ -282,7 +284,7 @@ describe("placing new issues in a run", () => {
     const { placeNewIssues } = await import("../src/design/place-issues.js");
     const r = tmpProject("lookout-placenone-");
     const empty: DesignInventory = {
-      schema: 1, at: "now", project: "d", kits: [], tokens: [],
+      schema: 2, at: "now", project: "d", kits: [], tokens: [],
       appRoots: [], handRolls: [], adoption: null, notes: [],
     };
     const run = await placeNewIssues(r, { findings: {}, issues: {} } as never, empty);

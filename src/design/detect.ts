@@ -16,6 +16,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { KNOWN_KITS, TOKEN_MARKERS, type KnownKit } from "./registry.js";
+import { readKitExports } from "./exports.js";
 import type { DesignInventory, DetectedKit, HandRoll, TokenLayer } from "./inventory.js";
 import { nowIso } from "../util.js";
 import type { ResolvedConfig } from "../types.js";
@@ -226,6 +227,7 @@ async function selfKit(projectDir: string, pkg: PackageJson | null): Promise<Det
     packageRoot: projectDir,
     componentRoots: roots,
     importPrefixes: [pkg.name],
+    exports: [],
   };
 }
 
@@ -256,6 +258,7 @@ async function localKits(
       packageRoot: dir,
       componentRoots: roots,
       importPrefixes: [name],
+      exports: [],
     });
   }
   // Most-imported first: with two local packages, the one the app leans on is
@@ -296,6 +299,29 @@ const CONTROL_NAMES = [
 ];
 
 const RAW_ELEMENTS = /<(div|span|button|input|select|textarea|label|a|ul|li|p|h[1-6])[\s/>]/g;
+
+/**
+ * The kit component a hand-rolled control duplicates, when the kit provides
+ * one.
+ *
+ * Two answers, and the difference between them is the whole reason the kit is
+ * read rather than assumed. `Button` means the kit ships one and the
+ * application built a second: a duplicate. `null` means the kit was readable
+ * and has nothing like it: still a defect, because a control assembled out of
+ * raw elements beside a design system is a gap in that design system, but a
+ * different one, and saying "the kit provides Button" about a kit that does not
+ * would send somebody looking for an export that was never there.
+ *
+ * When the kit could not be read at all, the name match is the only evidence
+ * available and it is used, because a suspicion is what this scan produces.
+ */
+export function kitEquivalent(symbol: string, kits: DetectedKit[]): string | null {
+  const control = CONTROL_NAMES.find((c) => symbol === c || symbol.endsWith(c));
+  if (!control) return null;
+  const known = kits.flatMap((k) => k.exports);
+  if (known.length === 0) return control;
+  return known.find((e) => e === control) ?? null;
+}
 
 export async function scanHandRolls(
   appRoots: string[],
@@ -345,8 +371,10 @@ export async function scanHandRolls(
       ];
       for (const [i, m] of decls.entries()) {
         const symbol = m[1]!;
-        const control = CONTROL_NAMES.find((c) => symbol === c || symbol.endsWith(c));
-        if (!control) continue;
+        // Named like a control the kit is expected to own. Whether the kit
+        // actually owns it is a separate question, answered below.
+        if (!CONTROL_NAMES.some((c) => symbol === c || symbol.endsWith(c))) continue;
+        const control = kitEquivalent(symbol, kits);
         const start = m.index ?? 0;
         const end = decls[i + 1]?.index ?? text.length;
         const body = text.slice(start, end);
@@ -359,6 +387,7 @@ export async function scanHandRolls(
           elements: [...new Set(raw)].slice(0, 6),
           candidate: control,
           line: text.slice(0, start).split("\n").length,
+          foundBy: "scan",
         });
       }
     }
@@ -503,6 +532,7 @@ export async function detect(
       packageRoot: editable ? repoRoot : null,
       componentRoots: roots,
       importPrefixes: kit.importPrefixes ?? kit.packages,
+      exports: [],
       ...(kit.docs ? { docs: kit.docs } : {}),
     });
     // First match wins: the registry is ordered so a kit built on a primitive
@@ -518,6 +548,14 @@ export async function detect(
   if (own && !kits.some((k) => k.id === own.id)) kits.unshift(own);
 
   kits.push(...(await localKits(repoRoot, appImports)));
+
+  // What each kit actually provides, read from the kit. Done once the kit list
+  // is settled and before anything asks what a hand-rolled control duplicates,
+  // because that question has no honest answer until this is filled in.
+  const searchRoots = [...new Set([projectDir, repoRoot])];
+  for (const k of kits) {
+    k.exports = await readKitExports(k, { searchRoots });
+  }
 
   const tokens: TokenLayer[] = [];
   for (const t of TOKEN_MARKERS) {
@@ -555,7 +593,7 @@ export async function detect(
   }
 
   return {
-    schema: 1,
+    schema: 2,
     at: nowIso(),
     project,
     kits,

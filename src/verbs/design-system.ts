@@ -50,6 +50,16 @@ export function renderInventory(resolved: ResolvedConfig, inv: DesignInventory):
     if (k.packageRoot) l.push(row("  package root", k.packageRoot, 18));
     for (const c of k.componentRoots) l.push(row("  components", c, 18));
     if (k.importPrefixes.length > 0) l.push(row("  imported as", k.importPrefixes.join(", "), 18));
+    l.push(
+      row(
+        "  provides",
+        k.exports.length > 0
+          ? `${k.exports.length} component(s): ${k.exports.slice(0, 12).join(", ")}` +
+            (k.exports.length > 12 ? ", ..." : "")
+          : "not readable from here (an unreadable kit is unknown, not empty)",
+        18,
+      ),
+    );
     if (k.docs) l.push(row("  docs", k.docs, 18));
     l.push("");
   }
@@ -73,7 +83,13 @@ export function renderInventory(resolved: ResolvedConfig, inv: DesignInventory):
     l.push(`hand-rolled look-alikes: ${inv.handRolls.length}`);
     for (const h of inv.handRolls.slice(0, 20)) {
       l.push(`  ${h.symbol ?? "component"} at ${rel(h.path)}:${h.line}`);
-      l.push(`      built from <${h.elements.join(">, <")}>; the kit appears to provide ${h.candidate}`);
+      l.push(
+        `      built from <${h.elements.join(">, <")}>; ` +
+          (h.candidate
+            ? `the kit provides ${h.candidate}`
+            : "the kit ships no equivalent, so this is a gap in it") +
+          (h.foundBy === "skill" ? " (read by the conformance skill)" : ""),
+      );
     }
     if (inv.handRolls.length > 20) l.push(`  ... and ${inv.handRolls.length - 20} more`);
     l.push("");

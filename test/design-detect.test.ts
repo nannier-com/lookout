@@ -118,6 +118,7 @@ describe("scanHandRolls", () => {
       packageRoot: "/nowhere/packages/kit",
       componentRoots: ["/nowhere/packages/kit/src/atoms"],
       importPrefixes: ["@acme/kit"],
+      exports: [],
     },
   ];
 
@@ -158,7 +159,7 @@ describe("scanHandRolls", () => {
 describe("applyDeclaration", () => {
   function base(r: ResolvedConfig) {
     return {
-      schema: 1 as const,
+      schema: 2 as const,
       at: "now",
       project: r.project,
       kits: [],

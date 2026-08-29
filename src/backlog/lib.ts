@@ -47,6 +47,14 @@ export interface SourceRef {
   symbol: string | null;
   /** 1-based line of the declaration. */
   line: number;
+  /**
+   * Which oracle found it, and therefore which one has to agree it is gone.
+   * Absent on findings filed before the conformance skill existed, which the
+   * ruling reads as the scan, because the scan is all there was.
+   */
+  foundBy?: "scan" | "skill";
+  /** The conformance skill's account of the component, when a skill found it. */
+  note?: string;
 }
 
 export interface BacklogFinding {
@@ -370,8 +378,17 @@ export function handRollsToFindings(
       relPath: h.relPath,
       symbol: h.symbol,
       line: h.line,
+      foundBy: h.foundBy,
+      ...(h.note ? { note: h.note } : {}),
     };
     const what = h.symbol ?? "A component";
+    const raw = h.elements.length > 0 ? `raw <${h.elements.join(">, <")}> elements` : "raw elements";
+    // Two defects wear the same shape, and conflating them sends the fix to the
+    // wrong place. A duplicate has something in the kit to be replaced BY. A
+    // gap has nothing, so the work is to add it to the kit and consume it, and
+    // naming a component the kit does not export would send somebody hunting
+    // for an import that never existed.
+    const duplicate = h.candidate !== null;
     return {
       fingerprint: sourceFingerprintOf({
         target,
@@ -388,19 +405,32 @@ export function handRollsToFindings(
       category: "consistency" as Category,
       attribute: "hand-rolled",
       severity: "medium" as Severity,
-      title: `${what} is hand-rolled where ${kitName} provides ${h.candidate ?? "an equivalent"}`,
+      title: duplicate
+        ? `${what} is hand-rolled where ${kitName} provides ${h.candidate}`
+        : `${what} is hand-rolled out of raw elements beside ${kitName}`,
       problem:
-        `${what} in ${h.relPath} is built from raw <${h.elements.join(">, <")}> ` +
-        `elements, in a project that uses ${kitName}. ${kitName} appears to provide ` +
-        `${h.candidate ?? "an equivalent component"} already. A hand-rolled copy drifts from the kit ` +
-        `the moment either side changes, is invisible to the kit's own tests and ` +
-        `docs, and hides whatever the kit is missing that made hand-rolling it ` +
-        `seem necessary.`,
-      expected:
-        `The control is composed from ${kitName}. If ${kitName} does not cover this ` +
-        `case, the gap is filled IN ${kitName}, backwards-compatibly, and consumed ` +
-        `from there.`,
-      observed: `Built from raw elements at ${h.relPath}:${h.line}, with no ${kitName} import in the file.`,
+        `${what} in ${h.relPath} is built from ${raw}, in a project that uses ` +
+        `${kitName}. ` +
+        (duplicate
+          ? `${kitName} provides ${h.candidate} already. A hand-rolled copy drifts from the kit ` +
+            `the moment either side changes, is invisible to the kit's own tests and ` +
+            `docs, and hides whatever the kit is missing that made hand-rolling it ` +
+            `seem necessary.`
+          : `${kitName} does not appear to provide an equivalent, so this is a gap in the ` +
+            `kit rather than a duplicate of it. Left in the application it is a control ` +
+            `nobody else can reuse, held to none of the kit's rules, and the next screen ` +
+            `that needs one will build a third version of it.`) +
+        (h.note ? ` ${h.note}` : ""),
+      expected: duplicate
+        ? `The control is composed from ${kitName}. If ${kitName} does not cover this ` +
+          `case, the gap is filled IN ${kitName}, backwards-compatibly, and consumed ` +
+          `from there.`
+        : `The control is added to ${kitName} backwards-compatibly and consumed from ` +
+          `there, rather than living as raw elements in the application.`,
+      observed:
+        h.foundBy === "skill"
+          ? `Read in the source at ${h.relPath}:${h.line}, built from ${raw}.`
+          : `Built from raw elements at ${h.relPath}:${h.line}, with no ${kitName} import in the file.`,
       channel: "code" as Channel,
       // Read out of the source rather than inferred: either the file imports
       // the kit or it does not.
@@ -408,10 +438,15 @@ export function handRollsToFindings(
       // Nothing adversarially verifies a code finding; the scanner IS the
       // evidence, and it is re-run to rule on the fix.
       verified: false,
-      acceptance: [
-        `${what} in ${h.relPath} is composed from ${kitName} components, or the file no longer declares it.`,
-        `No raw-element control named ${what} remains in that file.`,
-      ],
+      acceptance: duplicate
+        ? [
+            `${what} in ${h.relPath} is composed from ${kitName} components, or the file no longer declares it.`,
+            `No raw-element control named ${what} remains in that file.`,
+          ]
+        : [
+            `${what} is provided by ${kitName} and consumed from there, or the file no longer declares it.`,
+            `No raw-element control named ${what} remains in ${h.relPath}.`,
+          ],
       // No screenshot: this was read, not photographed.
       evidence: [],
     };

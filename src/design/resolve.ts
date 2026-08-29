@@ -63,6 +63,10 @@ export function applyDeclaration(
     packageRoot: packageRoot ?? existing?.packageRoot ?? null,
     componentRoots: componentRoots.length > 0 ? componentRoots : (existing?.componentRoots ?? []),
     importPrefixes: decl.importPrefixes ?? existing?.importPrefixes ?? [],
+    // Carried, not re-read: this function is pure so `lookout design-system`
+    // can show a declaration and a scan side by side. `resolveInventory` reads
+    // the exports of a kit the declaration introduced.
+    exports: existing?.exports ?? [],
     ...(decl.docs ?? existing?.docs ? { docs: decl.docs ?? existing?.docs } : {}),
   };
 
@@ -102,5 +106,19 @@ export async function resolveInventory(
     if (opts.persist !== false) await saveInventory(resolved, inv);
   }
   const decl = resolved.config.designSystem;
-  return decl ? applyDeclaration(resolved, inv, decl) : inv;
+  if (!decl) return inv;
+
+  const declared = applyDeclaration(resolved, inv, decl);
+  // A declared kit detection never saw has no export list, and everything that
+  // asks what the kit provides would otherwise get silence and fall back to
+  // guessing by name. Reading it here costs one bounded directory walk, and
+  // only when a declaration named a kit the scan had not already read.
+  const kit = declared.kits[0];
+  if (kit && kit.exports.length === 0 && (kit.componentRoots.length > 0 || kit.packageRoot)) {
+    const { readKitExports } = await import("./exports.js");
+    kit.exports = await readKitExports(kit, {
+      searchRoots: [...new Set([resolved.projectDir, dirname(resolved.configPath ?? resolved.projectDir)])],
+    });
+  }
+  return declared;
 }

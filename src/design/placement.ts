@@ -58,6 +58,13 @@ export function inventoryBrief(inv: DesignInventory): string {
     if (k.packageRoot) l.push(`  package root: ${k.packageRoot}`);
     for (const c of k.componentRoots) l.push(`  components: ${c}`);
     if (k.importPrefixes.length) l.push(`  imported as: ${k.importPrefixes.join(", ")}`);
+    // What the kit actually ships, read from the kit. Without it a model asked
+    // where a fix belongs has to guess whether the component it wants exists.
+    if (k.exports.length > 0) {
+      l.push(`  provides: ${k.exports.slice(0, 80).join(", ")}${k.exports.length > 80 ? ", ..." : ""}`);
+    } else {
+      l.push("  provides: could not be read from here; do not assume what it exports");
+    }
     if (k.docs) l.push(`  docs: ${k.docs}`);
   }
   for (const t of inv.tokens) l.push(`TOKENS (${t.name}): ${t.files.join(", ")}`);
