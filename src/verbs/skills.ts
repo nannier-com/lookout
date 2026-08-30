@@ -36,7 +36,7 @@ import {
   type Violation,
 } from "../skills/regression.js";
 import { LookoutError, type ResolvedConfig } from "../types.js";
-import { nowIso, printJson, str, type Parsed } from "../util.js";
+import { lockHeld, nowIso, printJson, str, type Parsed } from "../util.js";
 
 /** Every skill lookout ships, in the order a run uses them. */
 export const SKILL_NAMES = [
@@ -69,6 +69,16 @@ const GATED_SKILLS = new Set(["visual-judge", "refute-finding"]);
 
 export function historyPath(resolved: ResolvedConfig): string {
   return join(lookoutDir(resolved), "skills", "history.jsonl");
+}
+
+/**
+ * Where `skills improve` says it is running.
+ *
+ * Beside the history, because both are lookout's record of what it did to its
+ * own instructions: one says what happened, this one says it is happening.
+ */
+export function improveLockPath(resolved: ResolvedConfig): string {
+  return join(lookoutDir(resolved), "skills", "improve.lock");
 }
 
 interface HistoryEntry {
@@ -209,6 +219,146 @@ async function restoreLayer(resolved: ResolvedConfig, name: string, before: stri
   else await writeFile(p, before);
 }
 
+/**
+ * Read this project's signals, amend a skill, and keep the amendment only if
+ * the frozen set still holds.
+ *
+ * Its own function because it is the one subcommand that writes, and the one
+ * that has to be held under a lock while it does.
+ */
+async function improve(resolved: ResolvedConfig, model: string): Promise<number> {
+  const signals = await gatherSignals(resolved);
+  if (signals.length === 0) {
+    console.log("nothing to learn from yet: no refutations, adjudications or blocked issues on record.");
+    return 0;
+  }
+  const grouped = bySkill(signals);
+  console.log(
+    `${signals.length} signal(s) across ${grouped.size} skill(s): ` +
+      [...grouped].map(([name, s]) => `${name} ${s.length}`).join(", "),
+  );
+
+  // The gate first: an amendment written with nothing able to grade it is not
+  // applied, so there is no point asking for one until this is known.
+  let set = await loadRegressionSet(resolved);
+  if (!set) {
+    const backlog = await loadBacklog(resolved);
+    set = await freezeRegressionSet(resolved, backlog, nowIso());
+  }
+
+  const { amendment, costUsd } = await askForAmendment(resolved, signals, model);
+
+  if (amendment.newSkill) {
+    const { name, description, body } = amendment.newSkill;
+    // lookout owns the frontmatter and the amendment slot, so a skill it
+    // writes is always one it can load and later amend.
+    await writeLayer(resolved, name, `${body.trimEnd()}\n\n{{amendments}}\n`, 1, description);
+    await record(resolved, {
+      at: nowIso(),
+      skill: name,
+      action: "proposed",
+      summary: amendment.summary,
+      evidence: amendment.evidence,
+    });
+    console.log(`new skill written: ${projectSkillPath(resolved, name)}`);
+    console.log(`  ${amendment.summary}`);
+    console.log("  nothing invokes it yet: wiring a new capability to a verb is a code change.");
+    return 0;
+  }
+
+  if (!amendment.amendment) {
+    await record(resolved, {
+      at: nowIso(),
+      skill: amendment.skill,
+      action: "no-change",
+      summary: amendment.summary,
+    });
+    console.log(`no amendment warranted: ${amendment.summary}`);
+    return 0;
+  }
+
+  const current = await loadSkill(resolved, amendment.skill);
+  const existingBody = current.amendmentPath
+    ? (await readFile(current.amendmentPath, "utf8")).replace(/^---[\s\S]*?\n---\n/, "")
+    : "";
+  const nextVersion = current.version + 1;
+  const merged = `${existingBody.trimEnd()}\n\n## ${nowIso().slice(0, 10)}: ${amendment.summary}\n\n${amendment.amendment}\n`;
+
+  const gradeable = usableCases(resolved, set).length;
+  if (!GATED_SKILLS.has(amendment.skill) || gradeable === 0) {
+    const why =
+      gradeable === 0
+        ? "there is nothing frozen to grade this against (run `lookout skills freeze`)"
+        : `the frozen set cannot exercise ${amendment.skill}`;
+    const p = join(lookoutDir(resolved), "skills", amendment.skill, "PROPOSED.md");
+    await mkdir(dirname(p), { recursive: true });
+    await writeFile(p, merged);
+    await record(resolved, {
+      at: nowIso(),
+      skill: amendment.skill,
+      action: "proposed",
+      summary: amendment.summary,
+      evidence: amendment.evidence,
+    });
+    console.log(`proposed, not applied: ${why}.`);
+    console.log(`  ${p}`);
+    return 0;
+  }
+
+  const before = await writeLayer(
+    resolved,
+    amendment.skill,
+    merged,
+    nextVersion,
+    `${resolved.project}'s own rules for ${amendment.skill}`,
+  );
+
+  console.log(`replaying ${gradeable} frozen screenshot(s) against the candidate...`);
+  let violations: Violation[];
+  let replayCost = 0;
+  try {
+    const outcome = await replayRegression(resolved, set, model);
+    violations = outcome.violations;
+    replayCost = outcome.costUsd;
+  } catch (e) {
+    await restoreLayer(resolved, amendment.skill, before);
+    throw new LookoutError(
+      `the replay could not run, so the amendment was rolled back: ${(e as Error).message}`,
+    );
+  }
+
+  if (violations.length > 0) {
+    await restoreLayer(resolved, amendment.skill, before);
+    await record(resolved, {
+      at: nowIso(),
+      skill: amendment.skill,
+      action: "rolled-back",
+      summary: amendment.summary,
+      evidence: amendment.evidence,
+      violations,
+    });
+    console.log(`rolled back: the candidate broke ${violations.length} settled verdict(s).`);
+    for (const v of violations) console.log(`  [${v.kind}] ${v.shotId} ${v.category}: ${v.why}`);
+    console.log(`  the amendment was: ${amendment.summary}`);
+    console.log(`  ($${(costUsd + replayCost).toFixed(3)})`);
+    return 1;
+  }
+
+  await record(resolved, {
+    at: nowIso(),
+    skill: amendment.skill,
+    action: "applied",
+    summary: amendment.summary,
+    version: nextVersion,
+    evidence: amendment.evidence,
+  });
+  console.log(`applied to ${amendment.skill} (v${nextVersion}): ${amendment.summary}`);
+  console.log(`  ${projectSkillPath(resolved, amendment.skill)}`);
+  console.log(`  the frozen set still holds. Cached judge verdicts fall out at the new version.`);
+  console.log(`  ($${(costUsd + replayCost).toFixed(3)})`);
+  return 0;
+}
+
 export async function skills(parsed: Parsed): Promise<number> {
   const sub = parsed.positionals[0] ?? "list";
   const resolved = await loadConfig({
@@ -283,136 +433,26 @@ export async function skills(parsed: Parsed): Promise<number> {
   }
 
   if (sub === "improve") {
-    const signals = await gatherSignals(resolved);
-    if (signals.length === 0) {
-      console.log("nothing to learn from yet: no refutations, adjudications or blocked issues on record.");
-      return 0;
-    }
-    const grouped = bySkill(signals);
-    console.log(
-      `${signals.length} signal(s) across ${grouped.size} skill(s): ` +
-        [...grouped].map(([name, s]) => `${name} ${s.length}`).join(", "),
-    );
-
-    // The gate first: an amendment written with nothing able to grade it is not
-    // applied, so there is no point asking for one until this is known.
-    let set = await loadRegressionSet(resolved);
-    if (!set) {
-      const backlog = await loadBacklog(resolved);
-      set = await freezeRegressionSet(resolved, backlog, nowIso());
-    }
-
-    const { amendment, costUsd } = await askForAmendment(resolved, signals, model);
-
-    if (amendment.newSkill) {
-      const { name, description, body } = amendment.newSkill;
-      // lookout owns the frontmatter and the amendment slot, so a skill it
-      // writes is always one it can load and later amend.
-      await writeLayer(resolved, name, `${body.trimEnd()}\n\n{{amendments}}\n`, 1, description);
-      await record(resolved, {
-        at: nowIso(),
-        skill: name,
-        action: "proposed",
-        summary: amendment.summary,
-        evidence: amendment.evidence,
-      });
-      console.log(`new skill written: ${projectSkillPath(resolved, name)}`);
-      console.log(`  ${amendment.summary}`);
-      console.log("  nothing invokes it yet: wiring a new capability to a verb is a code change.");
-      return 0;
-    }
-
-    if (!amendment.amendment) {
-      await record(resolved, {
-        at: nowIso(),
-        skill: amendment.skill,
-        action: "no-change",
-        summary: amendment.summary,
-      });
-      console.log(`no amendment warranted: ${amendment.summary}`);
-      return 0;
-    }
-
-    const current = await loadSkill(resolved, amendment.skill);
-    const existingBody = current.amendmentPath
-      ? (await readFile(current.amendmentPath, "utf8")).replace(/^---[\s\S]*?\n---\n/, "")
-      : "";
-    const nextVersion = current.version + 1;
-    const merged = `${existingBody.trimEnd()}\n\n## ${nowIso().slice(0, 10)}: ${amendment.summary}\n\n${amendment.amendment}\n`;
-
-    const gradeable = usableCases(resolved, set).length;
-    if (!GATED_SKILLS.has(amendment.skill) || gradeable === 0) {
-      const why =
-        gradeable === 0
-          ? "there is nothing frozen to grade this against (run `lookout skills freeze`)"
-          : `the frozen set cannot exercise ${amendment.skill}`;
-      const p = join(lookoutDir(resolved), "skills", amendment.skill, "PROPOSED.md");
-      await mkdir(dirname(p), { recursive: true });
-      await writeFile(p, merged);
-      await record(resolved, {
-        at: nowIso(),
-        skill: amendment.skill,
-        action: "proposed",
-        summary: amendment.summary,
-        evidence: amendment.evidence,
-      });
-      console.log(`proposed, not applied: ${why}.`);
-      console.log(`  ${p}`);
-      return 0;
-    }
-
-    const before = await writeLayer(
-      resolved,
-      amendment.skill,
-      merged,
-      nextVersion,
-      `${resolved.project}'s own rules for ${amendment.skill}`,
-    );
-
-    console.log(`replaying ${gradeable} frozen screenshot(s) against the candidate...`);
-    let violations: Violation[];
-    let replayCost = 0;
-    try {
-      const outcome = await replayRegression(resolved, set, model);
-      violations = outcome.violations;
-      replayCost = outcome.costUsd;
-    } catch (e) {
-      await restoreLayer(resolved, amendment.skill, before);
+    // One at a time. An amendment is written by replacing this project's skill
+    // layer and rolled back by restoring whatever was there before, so a second
+    // improve running over the top of the first would restore the first's
+    // "before" and quietly delete an amendment that had already passed the
+    // gate. It is also the lock the page reads to say lookout is learning
+    // right now.
+    const lock = improveLockPath(resolved);
+    if (lockHeld(lock)) {
       throw new LookoutError(
-        `the replay could not run, so the amendment was rolled back: ${(e as Error).message}`,
+        "another skills improve is already running",
+        `if it died, remove ${lock}`,
       );
     }
-
-    if (violations.length > 0) {
-      await restoreLayer(resolved, amendment.skill, before);
-      await record(resolved, {
-        at: nowIso(),
-        skill: amendment.skill,
-        action: "rolled-back",
-        summary: amendment.summary,
-        evidence: amendment.evidence,
-        violations,
-      });
-      console.log(`rolled back: the candidate broke ${violations.length} settled verdict(s).`);
-      for (const v of violations) console.log(`  [${v.kind}] ${v.shotId} ${v.category}: ${v.why}`);
-      console.log(`  the amendment was: ${amendment.summary}`);
-      console.log(`  ($${(costUsd + replayCost).toFixed(3)})`);
-      return 1;
+    await mkdir(dirname(lock), { recursive: true });
+    await writeFile(lock, nowIso());
+    try {
+      return await improve(resolved, model);
+    } finally {
+      await rm(lock, { force: true });
     }
-
-    await record(resolved, {
-      at: nowIso(),
-      skill: amendment.skill,
-      action: "applied",
-      summary: amendment.summary,
-      version: nextVersion,
-      evidence: amendment.evidence,
-    });
-    console.log(`applied to ${amendment.skill} (v${nextVersion}): ${amendment.summary}`);
-    console.log(`  ${projectSkillPath(resolved, amendment.skill)}`);
-    console.log(`  the frozen set still holds. Cached judge verdicts fall out at the new version.`);
-    console.log(`  ($${(costUsd + replayCost).toFixed(3)})`);
-    return 0;
   }
 
   throw new LookoutError(

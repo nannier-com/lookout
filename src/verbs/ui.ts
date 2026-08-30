@@ -32,7 +32,9 @@ import {
 } from "./ui-settings.js";
 import { readEvents, summarise } from "../report/events.js";
 import { buildBoard, severityTally, tally } from "../report/board.js";
+import { buildLearning, learningBadge, learningKey, type Learning } from "../report/learning.js";
 import { launchHandoff, toolsAvailable } from "../report/handoff.js";
+import { LEARNING_CSS, LEARNING_HTML, LEARNING_JS } from "./ui-learning.js";
 import { execFileAsync, num, str, type Parsed } from "../util.js";
 import type { ResolvedConfig } from "../types.js";
 
@@ -87,6 +89,25 @@ function diskKey(resolved: ResolvedConfig): string {
 
 function lookoutRoot(resolved: ResolvedConfig): string {
   return join(evidenceDir(resolved), "..");
+}
+
+/**
+ * What lookout has changed about itself, held the way the board is held.
+ *
+ * Assembling it reads the skill files, the amendment history, the frozen set,
+ * the machine-wide incident log and a git log of lookout's own checkout. The
+ * page polls, so the answer is kept until one of those moves. Both readers
+ * share the cache: the area itself serves this object, and the rail's dot is
+ * one line folded out of the same one.
+ */
+let learningCache: { key: string; value: Learning } | null = null;
+
+async function learningNow(resolved: ResolvedConfig): Promise<Learning> {
+  const key = resolved.projectDir + "|" + learningKey(resolved);
+  if (learningCache?.key === key) return learningCache.value;
+  const value = await buildLearning(resolved);
+  learningCache = { key, value };
+  return value;
 }
 
 /** Read a JSON request body, capped so a stray POST cannot fill memory. */
@@ -363,6 +384,11 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
       "|" +
       diskKey(resolved) +
       "|" +
+      // The rail's dot rides on this payload, so a heal starting or an
+      // amendment landing has to invalidate it: without this the cached body
+      // would keep saying lookout is idle while it is rewriting itself.
+      learningKey(resolved) +
+      "|" +
       checkIsRunning() +
       "|" +
       (lastFailure ? `${lastFailure.code}:${lastFailure.message}` : "");
@@ -399,6 +425,9 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
             issues: tally(board),
             checkRunning: checkIsRunning(),
             findings: severityTally(outstanding),
+            // One line about lookout working on lookout, so the rail can say so
+            // from whichever area is open.
+            learning: learningBadge(await learningNow(resolved)),
           },
           events: events.slice(-400),
         });
@@ -477,6 +506,22 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
         }
       })();
     });
+    return;
+  }
+
+  // What lookout has changed about itself: its own instructions, and its own
+  // source. Its own endpoint rather than part of the status payload, because it
+  // is only worth reading while that area is open.
+  if (url.pathname === "/api/learning") {
+    void (async () => {
+      try {
+        json(res, 200, await learningNow(resolved));
+      } catch (err) {
+        // An unreadable record must not take the page down, the same way a
+        // malformed backlog does not.
+        json(res, 500, { error: String(err) });
+      }
+    })();
     return;
   }
 
@@ -639,7 +684,7 @@ export const PAGE = `<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>lookout</title>
 <style>
-:root{color-scheme:light dark;
+:root{color-scheme:light dark;--rail:56px;
 --bg:#f6f7f9;--panel:#fff;--sunk:#f0f1f4;--ink:#15171c;--dim:#5f636d;--faint:#8b909b;--line:#e2e4e9;
 --crit:#b4232b;--high:#c2410c;--med:#a16207;--low:#4b5563;--ok:#15803d;--accent:#4338ca;
 --ver:#7c3aed;--go:#177d43;--shadow:0 1px 2px rgba(16,18,22,.06),0 4px 12px rgba(16,18,22,.05)}
@@ -648,9 +693,31 @@ export const PAGE = `<!doctype html>
 --crit:#f87171;--high:#fb923c;--med:#fbbf24;--low:#9ca3af;--ok:#4ade80;--accent:#a5b4fc;
 --ver:#c4b5fd;--go:#22c55e;--shadow:0 1px 2px rgba(0,0,0,.4)}}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);
+body{margin:0;padding-left:var(--rail);background:var(--bg);color:var(--ink);
 font:14px/1.55 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
 -webkit-font-smoothing:antialiased}
+
+/* --- the rail: which of lookout's two subjects you are looking at ------- */
+/* Two areas, so two icons rather than two words. The rail is somewhere to be
+   rather than a menu to read, and each name lives in the accessible label and
+   the tooltip, which is where a screen reader and a hover can both reach it. */
+.rail{position:fixed;left:0;top:0;bottom:0;width:var(--rail);z-index:10;
+background:var(--panel);border-right:1px solid var(--line);display:flex;
+flex-direction:column;align-items:center;gap:6px;padding:12px 0}
+.railb{position:relative;width:38px;height:38px;border-radius:10px;padding:0;
+border:1px solid transparent;background:none;color:var(--faint);cursor:pointer;
+display:flex;align-items:center;justify-content:center}
+.railb svg{display:block}
+.railb:hover{color:var(--ink);background:var(--sunk)}
+.railb:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.railb[aria-current="page"]{color:var(--accent);background:var(--sunk);border-color:var(--line)}
+/* The only thing the rail says on its own: lookout is working on itself, or
+   something it wrote is waiting to be read. */
+.rdot{position:absolute;top:5px;right:5px;width:7px;height:7px;border-radius:50%;
+background:var(--med)}
+.rdot.live{background:var(--ver);animation:pulse2 1.4s infinite}
+.rdot[hidden]{display:none}
+@media(max-width:520px){:root{--rail:46px}.railb{width:34px;height:34px}}
 
 /* --- navbar: identity, run state, and the filters ---------------------- */
 header{position:sticky;top:0;z-index:9;background:var(--panel);
@@ -703,6 +770,9 @@ user-select:all}
 
 /* The filters live in the navbar: they are how you move around the page. */
 .filters{display:flex;gap:7px;flex-wrap:wrap;align-items:stretch;padding-bottom:10px}
+/* An author display rule beats [hidden]{display:none}, so hiding the filters
+   with the board has to be said explicitly. */
+.filters[hidden]{display:none}
 .stat{border:1px solid transparent;border-radius:9px;padding:4px 10px;min-width:78px;
 background:none;font:inherit;color:inherit;text-align:left;line-height:1.2}
 .stat b{display:block;font-size:17px;font-weight:660;font-variant-numeric:tabular-nums}
@@ -936,7 +1006,24 @@ clip:rect(0 0 0 0);white-space:nowrap;border:0}
 .problem{margin:4px 0 0;font-size:12.5px;line-height:1.5;color:var(--dim)}
 .evi h4 .n{font-weight:500;letter-spacing:0;text-transform:none;color:var(--dim)}
 .empty{color:var(--faint);font-style:italic;font-size:13px}
+${LEARNING_CSS}
 </style></head><body>
+<nav class="rail" aria-label="Areas">
+  <button type="button" class="railb" data-view="issues" aria-current="page"
+    aria-label="Issues" title="Issues: what lookout found in the application">
+    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none"
+      stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/>
+      <path d="M6.5 7.5h4M6.5 16.5h4"/></svg></button>
+  <button type="button" class="railb" data-view="learning" aria-current="false"
+    aria-label="What lookout has changed about itself"
+    title="lookout on lookout: its own instructions, and its own source">
+    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none"
+      stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M11 3.2 12.9 8.1 17.8 10 12.9 11.9 11 16.8 9.1 11.9 4.2 10 9.1 8.1Z"/>
+      <path d="M18 15.2 18.8 17.2 20.8 18 18.8 18.8 18 20.8 17.2 18.8 15.2 18 17.2 17.2Z"/></svg>
+    <i class="rdot" id="railDot" hidden></i></button>
+</nav>
 <header>
   <div class="navtop">
     <h1><span class="dot"></span><span id="ttl">lookout</span></h1>
@@ -973,10 +1060,13 @@ clip:rect(0 0 0 0);white-space:nowrap;border:0}
   </div>
 </header>
 <main>
+<div id="viewIssues">
 <div class="runnote" id="runnote" hidden></div>
 <div class="filterbar" id="filterbar" hidden></div>
 <section id="issues"><h2>Issues <span class="n" id="bn"></span></h2>
   <div class="board" id="board"></div></section>
+</div>
+${LEARNING_HTML}
 </main>
 <script>
 const STALE_MS = 10 * 60 * 1000;
@@ -1588,9 +1678,45 @@ async function tick(){
     }
   }
 
+  // The rail reports lookout working on itself from whichever area is open.
+  // The area itself only refreshes while it is the one being read: it costs a
+  // dozen file reads and a git log, and nobody is looking at it.
+  paintRail(s.learning);
+  if (view === "learning") loadLearning();
+
   ticks();
 }
 
+// Which area the rail has selected. A view, not a place: a reload comes back
+// to the issues, because that is what the page is normally open for.
+let view = "issues";
+
+function setView(next){
+  if (view === next) return;
+  view = next;
+  el("viewIssues").hidden = view !== "issues";
+  el("learning").hidden = view !== "learning";
+  // The headline numbers are the board's filters. They go with it.
+  el("stats").hidden = view !== "issues";
+  for (const b of document.querySelectorAll("[data-view]")) {
+    b.setAttribute("aria-current", b.dataset.view === view ? "page" : "false");
+  }
+  if (view === "learning") loadLearning();
+}
+
+// The rail's dot: violet and pulsing while lookout is changing itself, amber
+// while something it wrote is waiting for somebody to read it, gone otherwise.
+function paintRail(b){
+  const dot = el("railDot");
+  const running = !!(b && b.running);
+  const waiting = !!(b && b.proposed);
+  dot.hidden = !running && !waiting;
+  dot.className = running ? "rdot live" : "rdot";
+  dot.title = running
+    ? "lookout is working on itself right now"
+    : waiting ? "an amendment lookout wrote is waiting to be read" : "";
+}
+${LEARNING_JS}
 // Delegated, because the filter row is rebuilt whenever its numbers move.
 document.addEventListener("click", e => {
   // The clear control is styled as a tile, so it must be taken out first: it
@@ -1600,6 +1726,8 @@ document.addEventListener("click", e => {
     setFilter(filter.kind, filter.value, filter.label);
     return;
   }
+  const area = e.target.closest("[data-view]");
+  if (area) { setView(area.dataset.view); return; }
   const swap = e.target.closest("[data-tool]");
   if (swap) {
     tool = swap.dataset.tool;

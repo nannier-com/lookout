@@ -3,7 +3,7 @@
  */
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 
@@ -87,6 +87,25 @@ export function sha256(buf: Buffer | Uint8Array): string {
 
 export function shortHash(buf: Buffer | Uint8Array): string {
   return sha256(buf).slice(0, 16);
+}
+
+/**
+ * How long a lock file stays believable before it is treated as abandoned.
+ *
+ * A lock here is a file whose mtime says when its holder last claimed it.
+ * There is no way to ask whether the process that wrote it is still alive, and
+ * a lock that outlives a crash would wedge the verb it guards forever, so age
+ * is the only answer available: past this, whoever is asking may take it.
+ */
+export const LOCK_STALE_MS = 30 * 60_000;
+
+/** Is somebody holding this lock right now? Missing means no. */
+export function lockHeld(path: string, now = Date.now()): boolean {
+  try {
+    return now - statSync(path).mtimeMs < LOCK_STALE_MS;
+  } catch {
+    return false;
+  }
 }
 
 export function nowIso(): string {

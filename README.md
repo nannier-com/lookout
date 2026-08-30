@@ -53,7 +53,7 @@ lookout targets               # resolve + probe the configured targets
 | `self-heal` | fix what lookout keeps getting wrong, in lookout's own source |
 | `init`    | scaffold `.lookout/config.ts` |
 | `status`  | what the run in flight is doing, folded out of the event log; exit 1 while a run is going, so an agent can poll it |
-| `ui`      | a local page rendering that same log live, with thumbnails, findings and verdicts, for a person to watch |
+| `ui`      | a local page rendering that same log live, with thumbnails, findings and verdicts, plus a second area for what lookout has changed about itself |
 | `protocol`| the operating contract, printed by lookout itself, for whichever agent is driving it |
 | `doctor`  | verify prerequisites |
 
@@ -79,6 +79,25 @@ Both are readers. Either can watch a run started by anything, in any terminal.
 contact sheet, a view's dark and light captures side by side and defect-carrying
 tiles marked, so a session can see what lookout saw for the cost of one read.
 Full-resolution paths are printed beside it for close reading.
+
+## Watching lookout change itself
+
+`lookout ui` has two areas, switched from the icon rail down the left edge. The
+first is the issues: what lookout found in the application. The second is
+lookout on lookout, where `skills improve` and `self-heal` become something you
+can read rather than files you have to know to open:
+
+- **its instructions**: every skill with the version this project judges at,
+  which ones this project has amended, any amendment written down as a proposal
+  because nothing could grade it, the frozen screenshots that gate the next one,
+  and every amendment applied, rolled back or proposed, a rollback carrying the
+  settled verdict that killed it
+- **its own code**: the failures lookout keeps hitting on this machine, the
+  heals a gate reverted with the gates that failed and the diff kept on disk,
+  and the commits that stuck
+
+The rail's dot says when either is happening right now, from whichever area is
+open: both verbs hold a lock file while they run, and the page reads it.
 
 ## Design systems
 
@@ -406,7 +425,8 @@ Every gate passing commits the change alone with a patch changeset, and does not
 push: a local commit is one `git revert` away.
 
 It refuses to run on an installed package (no source, no repository), over a
-dirty checkout, or while another heal holds the lock.
+dirty checkout, or while another heal holds the lock. What it has done, and
+what it tried and lost, is on the second area of `lookout ui`.
 
 ### Where things land
 

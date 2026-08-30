@@ -17,14 +17,14 @@
  * push is somebody else's problem to undo.
  */
 import { mkdir, rm, writeFile } from "node:fs/promises";
-import { existsSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { loadSkill, renderSkill } from "../skills/load.js";
 import { clusterIncidents, lookoutHome, readIncidents, recordIncident } from "../skills/incidents.js";
 import { extractJson, invokeClaude } from "../judge/engine.js";
 import { LookoutError } from "../types.js";
-import { execFileAsync, nowIso, printJson, str, type Parsed } from "../util.js";
+import { execFileAsync, lockHeld, LOCK_STALE_MS, nowIso, printJson, str, type Parsed } from "../util.js";
 
 /** What the healer may do: read and edit its own source, and nothing else. */
 const ALLOWED_TOOLS = ["Read", "Edit", "Write", "Glob", "Grep"];
@@ -83,24 +83,19 @@ function attemptDir(stamp: string): string {
   return join(lookoutHome(), "self-heal", stamp);
 }
 
-/** How long a lock stays believable before it is treated as abandoned. */
-export const LOCK_STALE_MS = 30 * 60_000;
-
 export function lockPath(): string {
   return join(lookoutHome(), "self-heal.lock");
 }
 
 /**
- * Is another self-heal already running? Two of them in one checkout would
- * revert each other's work and commit the result.
+ * Whether another self-heal is already running, and how long its claim stands.
+ *
+ * Two of them in one checkout would revert each other's work and commit the
+ * result. The mechanism is shared with `skills improve`, which guards its own
+ * writes the same way, so it lives in util and is re-exported here: this is
+ * where it was first needed and where its callers look for it.
  */
-export function lockHeld(path: string, now = Date.now()): boolean {
-  try {
-    return now - statSync(path).mtimeMs < LOCK_STALE_MS;
-  } catch {
-    return false;
-  }
-}
+export { LOCK_STALE_MS, lockHeld };
 
 export async function selfHeal(parsed: Parsed): Promise<number> {
   const lock = lockPath();
