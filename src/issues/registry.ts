@@ -77,6 +77,13 @@ export function reconcileIssues(
         a.fingerprint.localeCompare(b.fingerprint),
     );
     record.acceptance = composeAcceptance(members, record.acceptance ?? []);
+
+    // An archived issue whose defect came back is live work again. Leaving it
+    // filed away would hide a defect lookout is currently re-finding, which is
+    // the one thing an archive must never do.
+    if (record.archived && members.some((m) => m.status === "open")) {
+      delete record.archived;
+    }
   }
   return minted;
 }
@@ -102,4 +109,54 @@ export function issuesOf(backlog: Backlog, opts: ClusterOptions = {}): FixCluste
 /** One issue by its six-digit id. */
 export function findIssue(backlog: Backlog, id: string, opts: ClusterOptions = {}): FixCluster | undefined {
   return issuesOf(backlog, opts).find((c) => c.id === id);
+}
+
+/** What happened when somebody asked to file an issue away, or bring it back. */
+export type ArchiveOutcome =
+  | { ok: true; record: IssueRecord; reason: "fixed" | "intentional" }
+  | { ok: false; why: string };
+
+/** The findings behind one issue record. */
+function membersOf(backlog: Backlog, record: IssueRecord): BacklogFinding[] {
+  return Object.values(backlog.findings).filter((f) => clusterKeyOf(f) === record.key);
+}
+
+/**
+ * File an issue away.
+ *
+ * Not a verdict on the defect: lookout reached that already, and nothing here
+ * touches a finding's status. This is a person saying they have seen the
+ * outcome and want it off the board, so the only thing it refuses is archiving
+ * work that is still open. Hiding a live defect is the one failure mode an
+ * archive has, and it is worth one guard even though the button that calls this
+ * is only drawn on settled issues.
+ *
+ * Idempotent: archiving an archived issue is what somebody double-clicking
+ * means, not an error.
+ */
+export function archiveIssue(backlog: Backlog, id: string, now: string): ArchiveOutcome {
+  const record = issueById(backlog, id);
+  if (!record) return { ok: false, why: `no issue ${id}` };
+  if (record.archived) return { ok: true, record, reason: record.archived.reason };
+
+  const members = membersOf(backlog, record);
+  if (members.length === 0) return { ok: false, why: `issue ${id} has no findings` };
+  if (members.some((m) => m.status === "open")) {
+    return { ok: false, why: `issue ${id} is still open; lookout has not ruled the defect gone` };
+  }
+
+  // Why it is being filed away, kept so the board never describes an issue
+  // somebody fixed as one somebody decided was intentional.
+  const reason = members.some((m) => m.status === "fixed") ? "fixed" : "intentional";
+  record.archived = { at: now, reason };
+  return { ok: true, record, reason };
+}
+
+/** Put an archived issue back on the board. The undo for the button above. */
+export function unarchiveIssue(backlog: Backlog, id: string): ArchiveOutcome {
+  const record = issueById(backlog, id);
+  if (!record) return { ok: false, why: `no issue ${id}` };
+  const reason = record.archived?.reason ?? "fixed";
+  delete record.archived;
+  return { ok: true, record, reason };
 }

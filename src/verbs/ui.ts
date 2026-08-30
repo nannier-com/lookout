@@ -441,6 +441,45 @@ function handle(req: IncomingMessage, res: ServerResponse): void {
     return;
   }
 
+  // Filing an issue away, and putting it back. The page's only write to the
+  // record, and a POST for the same reason `/api/launch` is one: it changes
+  // something on disk, and lookout only ever does that because somebody asked.
+  if (url.pathname === "/api/archive" && req.method === "POST") {
+    let body = "";
+    req.on("data", (c) => {
+      body += c;
+      if (body.length > 4096) req.destroy();
+    });
+    req.on("end", () => {
+      void (async () => {
+        try {
+          const { issue, archived } = JSON.parse(body || "{}") as {
+            issue?: string;
+            archived?: boolean;
+          };
+          if (!issue) throw new Error("no issue given");
+          const { loadBacklog, saveBacklog } = await import("./backlog.js");
+          const { archiveIssue, unarchiveIssue } = await import("../issues/registry.js");
+          const backlog = await loadBacklog(resolved);
+          const outcome =
+            archived === false
+              ? unarchiveIssue(backlog, issue)
+              : archiveIssue(backlog, issue, new Date().toISOString());
+          if (!outcome.ok) throw new Error(outcome.why);
+          // The save is what moves the folder: the record says which side the
+          // issue belongs on and materialising it puts the folder there.
+          await saveBacklog(resolved, backlog);
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ issue, archived: archived !== false, reason: outcome.reason }));
+        } catch (err) {
+          res.writeHead(400, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: (err as Error).message }));
+        }
+      })();
+    });
+    return;
+  }
+
   if (url.pathname === "/api/tools") {
     void (async () => {
       const tools = await toolsAvailable(resolved);
@@ -648,6 +687,16 @@ border:1px solid var(--line);background:none;color:var(--dim);cursor:pointer;lin
 .launch:focus-visible{outline:2px solid var(--go);outline-offset:2px}
 .launch[disabled]{opacity:.55;cursor:default}
 .launch.busy .go{animation:pulse2 1s infinite}
+/* Filing an issue away. Same shape as the launch control so the row does not
+   jump between cards, and deliberately not green: this is not "go", it is the
+   quiet act of clearing something that is already finished. */
+.filed{display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border-radius:8px;
+border:1px solid var(--line);background:none;color:var(--dim);cursor:pointer;
+font:inherit;font-size:11.5px;line-height:1}
+.filed svg{display:block}
+.filed:hover{border-color:var(--dim);background:var(--sunk);color:var(--ink)}
+.filed:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.filed[disabled]{opacity:.55;cursor:default}
 .launched{font-size:11.5px;color:var(--dim);word-break:break-all}
 .launched code{font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--ink);
 user-select:all}
@@ -1189,8 +1238,52 @@ function whatLine(b){
     return '<div class="what">lookout ran out of attempts' + n + '. This one needs a person.</div>';
   }
   if (b.status === "done") return '<div class="what">lookout confirmed the defect is gone.</div>';
-  if (b.status === "archived") return '<div class="what">Adjudicated as intentional.</div>';
+  if (b.status === "archived") {
+    // Two different things wear this status, and calling a fix somebody filed
+    // away "intentional" would credit them with a decision they never made.
+    return '<div class="what">'
+      + (b.archived && b.archived.reason === "fixed"
+          ? "Fixed, and filed away."
+          : "Adjudicated as intentional.")
+      + '</div>';
+  }
   return '<div class="what faint">Open. Nothing has been ruled on yet.</div>';
+}
+
+/**
+ * The one control a card carries.
+ *
+ * A done issue has nothing to hand to a fix session, so offering to open it in
+ * one is offering the wrong thing: what is left to do with a confirmed fix is
+ * put it away. An archived issue gets the way back, because an archive with no
+ * undo is a trapdoor.
+ */
+function cardAction(b){
+  const box = '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" fill="none"'
+    + ' stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'
+    + '<path d="M3 6.5h18v3.2H3z"/><path d="M4.8 9.7V19h14.4V9.7"/><path d="M10 13.4h4"/></svg>';
+  const back = '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" fill="none"'
+    + ' stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'
+    + '<path d="M4 12a8 8 0 1 0 2.5-5.8"/><path d="M4 4v4h4"/></svg>';
+
+  if (b.status === "done") {
+    return '<button type="button" class="filed" data-archive="' + esc(b.id) + '"'
+      + ' title="File this issue away: it leaves the board and its folder moves to'
+      + ' the archive. It comes back on its own if the defect returns.">'
+      + box + 'Archive</button>';
+  }
+  if (b.status === "archived") {
+    return '<button type="button" class="filed" data-archive="' + esc(b.id) + '"'
+      + ' data-restore="1" title="Put this issue back on the board">'
+      + back + 'Restore</button>';
+  }
+  return '<button type="button" class="launch" data-launch="' + esc(b.id) + '"'
+    + ' aria-label="Open in ' + esc(toolLabel()) + '"'
+    + ' title="Open this issue in ' + esc(toolLabel()) + '">'
+    + toolMark()
+    + '<svg class="go" viewBox="0 0 24 24" width="11" height="11" aria-hidden="true">'
+    + '<path fill="currentColor" d="M8 5.2 19 12 8 18.8Z"/></svg>'
+    + '</button>';
 }
 
 function card(b){
@@ -1204,13 +1297,7 @@ function card(b){
     + '<div class="top"><span class="pill">' + esc(b.status) + '</span>'
     + '<span class="issueid" title="issue id: verify-fix --issue ' + esc(b.id) + '">'
     + esc(b.id) + '</span>' + seen + '</div>'
-    + '<div class="meta"><button type="button" class="launch" data-launch="' + esc(b.id) + '"'
-    + ' aria-label="Open in ' + esc(toolLabel()) + '"'
-    + ' title="Open this issue in ' + esc(toolLabel()) + '">'
-    + toolMark()
-    + '<svg class="go" viewBox="0 0 24 24" width="11" height="11" aria-hidden="true">'
-    + '<path fill="currentColor" d="M8 5.2 19 12 8 18.8Z"/></svg>'
-    + '</button>'
+    + '<div class="meta">' + cardAction(b)
     + '<span class="launched" data-launched="' + esc(b.id) + '"></span></div>'
     + '<h3 class="title">' + esc(b.label) + '</h3>'
     + whatLine(b)
@@ -1480,6 +1567,7 @@ async function tick(){
   const sig = JSON.stringify([filter, issues.map(b => [b.id, b.status, b.attempt, b.verdict,
     b.shots.length, (b.before || []).length, (b.after || []).length,
     b.lastSeenAt, (b.timeline || []).length, b.fix && b.fix.commit,
+    b.archived && b.archived.reason,
     (b.acceptance || []).map(c => c.id + c.verdict).join()])]);
   const feedTops = {};
   for (const f of document.querySelectorAll("[data-feed]")) feedTops[f.dataset.feed] = f.scrollTop;
@@ -1540,11 +1628,34 @@ document.addEventListener("click", e => {
   }
   const go = e.target.closest("[data-launch]");
   if (go) { launch(go.dataset.launch, go); return; }
+  const file = e.target.closest("[data-archive]");
+  if (file) { archive(file.dataset.archive, file, !file.dataset.restore); return; }
   const tile = e.target.closest("button.stat");
   if (tile && !tile.disabled && tile.dataset.kind) {
     setFilter(tile.dataset.kind, tile.dataset.value, tile.dataset.label);
   }
 });
+
+async function archive(issue, btn, archived){
+  const out = document.querySelector('[data-launched="' + CSS.escape(issue) + '"]');
+  btn.disabled = true;
+  try {
+    const r = await fetch("/api/archive", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ issue: issue, archived: archived }),
+    });
+    const j = await r.json();
+    if (j.error) { out.textContent = j.error; btn.disabled = false; return; }
+    // The board repaints from /api/status on its own tick, and the backlog was
+    // just written, so the card will move on the next poll without this having
+    // to reach into it.
+    out.textContent = archived ? "filed away" : "back on the board";
+  } catch (err) {
+    out.textContent = String(err);
+    btn.disabled = false;
+  }
+}
 
 async function launch(issue, btn){
   const out = document.querySelector('[data-launched="' + CSS.escape(issue) + '"]');

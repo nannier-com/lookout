@@ -128,6 +128,19 @@ export interface IssueRecord {
    */
   causedBy?: { issue: string; commit: string | null; runId: string; at: string };
   /**
+   * Filed away by hand, once there was nothing left to do about it.
+   *
+   * Distinct from every status a finding carries, because it is not a verdict
+   * about the defect: lookout already ruled on that. It is a person saying
+   * they have seen the outcome and want it off the board. `reason` keeps which
+   * outcome it was, so an issue archived after a fix is never described as one
+   * somebody decided was intentional.
+   *
+   * Cleared automatically if the defect comes back: a reopened finding is live
+   * work again, and work nobody can see is work nobody does.
+   */
+  archived?: { at: string; reason: "fixed" | "intentional" };
+  /**
    * What would prove this issue fixed. Composed from its findings when the
    * issue is reconciled, and ruled only by `verify-fix`: there is no path by
    * which a person ticks one of these.

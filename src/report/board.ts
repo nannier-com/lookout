@@ -27,6 +27,7 @@ import type { AcceptanceCriterion } from "../issues/acceptance.js";
 import { clusterLabel } from "../fix/brief.js";
 import { loadState, type ClusterState } from "../fix/state.js";
 import { loadBacklog } from "../verbs/backlog.js";
+import type { IssueRecord } from "../backlog/lib.js";
 import { wasPhotographed } from "../backlog/lib.js";
 import type { ResolvedConfig } from "../types.js";
 import { readEvents, type LookoutEvent } from "./events.js";
@@ -46,7 +47,11 @@ export type IssueStatus =
   | "blocked"
   /** lookout confirmed the defect is gone. */
   | "done"
-  /** Adjudicated as intentional, kept as record rather than as work. */
+  /**
+   * Off the board and kept as record rather than as work: either adjudicated
+   * intentional, or filed away by hand once lookout had ruled the defect gone.
+   * `BoardEntry.archived` says which, because they are not the same thing.
+   */
   | "archived";
 
 /**
@@ -149,6 +154,12 @@ export interface BoardEntry {
     cleared: boolean;
     at: string | null;
   } | null;
+  /**
+   * Filed away, and why. `fixed` is somebody clearing a confirmed fix off the
+   * board; `intentional` is the older meaning, an adjudication that the defect
+   * was never one. Null while the issue is still work.
+   */
+  archived: { at: string; reason: "fixed" | "intentional" } | null;
 }
 
 /** Screenshots an issue was filed against, newest per member, both path forms. */
@@ -223,7 +234,15 @@ function asBoardShot(
  * who is working on it, because lookout does not dispatch work and has no way
  * to know.
  */
-function durableStatus(c: FixCluster, state: ClusterState): IssueStatus {
+function durableStatus(
+  c: FixCluster,
+  state: ClusterState,
+  record: IssueRecord | undefined,
+): IssueStatus {
+  // Filed away by hand outranks every derived state below, because it is the
+  // one somebody chose. It cannot hide live work: the reconcile that runs on
+  // every save clears the flag the moment a finding reopens.
+  if (record?.archived) return "archived";
   // Precedence is by how much attention it still wants: anything still open is
   // live work, then work lookout gave up on, then work it confirmed fixed, and
   // last the findings somebody adjudicated as intentional.
@@ -365,6 +384,7 @@ export async function buildBoard(
   const durable = await Promise.all(
     clusters.map(async (c): Promise<BoardEntry> => {
       const state = await loadState(resolved, c.id);
+      const record = backlog.issues?.[c.id];
       const frames = await loadFrames(resolved, c.id);
       const seen = lastSeenAt(resolved, c, state);
       const lastAttempt = state.attempts[state.attempts.length - 1];
@@ -386,13 +406,20 @@ export async function buildBoard(
         before: frames.before.map((f) => asBoardShot(resolved, f)),
         after: frames.after.map((f) => asBoardShot(resolved, f)),
         lastSeenAt: seen,
-        status: durableStatus(c, state),
+        status: durableStatus(c, state, record),
         timeline: durableTimeline(state, seen),
-        acceptance: backlog.issues?.[c.id]?.acceptance ?? [],
+        acceptance: record?.acceptance ?? [],
         attempt: c.attemptsSpent,
         verdict: lastAttempt?.verdict ?? null,
         judgeNote: lastAttempt?.judgeNote ?? null,
         fix: fixOf(c, state, forge),
+        archived: record?.archived
+          ? { at: record.archived.at, reason: record.archived.reason }
+          : // An issue everything was waived on is archived in the older sense,
+            // and the card should still be able to say which kind it is.
+            durableStatus(c, state, record) === "archived"
+            ? { at: seen ?? "", reason: "intentional" as const }
+            : null,
       };
     }),
   );

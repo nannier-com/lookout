@@ -26,7 +26,13 @@ import { wasPhotographed, type Backlog, type BacklogFinding, type IssueRecord } 
 import type { FixCluster } from "../fix/cluster.js";
 import { clusterLabel } from "../fix/brief.js";
 import { issuesOf } from "./registry.js";
-import { flatShotName, issueDir, issueImgDir, ISSUE_DOC_FILE, ISSUE_RECORD_FILE } from "./paths.js";
+import {
+  flatShotName,
+  issueDirFor,
+  issueImgDir,
+  ISSUE_DOC_FILE,
+  ISSUE_RECORD_FILE,
+} from "./paths.js";
 import { renderIssueDocument } from "./document.js";
 import type { ResolvedConfig } from "../types.js";
 
@@ -160,7 +166,17 @@ export async function materializeIssue(
   cluster: FixCluster,
   record: IssueRecord,
 ): Promise<string> {
-  const dir = issueDir(resolved, record.id);
+  // Where the folder belongs is the record's call, and the folder follows it
+  // here rather than at the moment somebody clicks archive: one mechanism, run
+  // on every save, so a record and its folder cannot drift apart.
+  const dir = issueDirFor(resolved, record.id, !!record.archived);
+  const other = issueDirFor(resolved, record.id, !record.archived);
+  if (existsSync(other) && !existsSync(dir)) {
+    await mkdir(join(dir, ".."), { recursive: true });
+    // A move rather than a copy: two folders for one issue would be two
+    // answers to "where is this", and state.json lives in only one of them.
+    await rename(other, dir).catch(() => {});
+  }
   await mkdir(dir, { recursive: true });
   await migrateLegacyLayout(dir);
   const shots = await syncShots(resolved, record.id, cluster);
