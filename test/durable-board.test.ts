@@ -10,7 +10,9 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 import { buildBoard, severityTally, tally } from "../src/report/board.js";
+import { forgetForges } from "../src/report/forge.js";
 import { EventLog } from "../src/report/events.js";
 import type { BacklogFinding } from "../src/backlog/lib.js";
 import { statePath, type ClusterState } from "../src/fix/state.js";
@@ -270,5 +272,71 @@ describe("an issue carries its own defects and its own severity", () => {
     expect(severityTally(outstanding)).toEqual({
       critical: 1, high: 2, medium: 0, low: 0, total: 3,
     });
+  });
+});
+
+// The commit a fix landed in, as something a person can open. lookout has
+// always recorded the sha; a card that only prints it makes the reader go and
+// find the diff themselves.
+describe("the commit behind an issue", () => {
+  function gitProject(remote?: string): ResolvedConfig {
+    const r = project();
+    execFileSync("git", ["init", "-q"], { cwd: r.projectDir });
+    if (remote) execFileSync("git", ["remote", "add", "origin", remote], { cwd: r.projectDir });
+    forgetForges();
+    return r;
+  }
+
+  test("a ruled fix links to the commit on the project's own forge", async () => {
+    const r = gitProject("git@github.com:acme/app.git");
+    writeBacklog(r, [
+      finding({ status: "fixed", fixedIn: { commit: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678", runId: "v1" } }),
+    ]);
+    const board = await buildBoard(r);
+    expect(board[0]!.status).toBe("done");
+    const fix = board[0]!.fix!;
+    expect(fix.cleared).toBe(true);
+    expect(fix.short).toBe("a1b2c3d4");
+    expect(fix.host).toBe("github.com");
+    expect(fix.url).toBe("https://github.com/acme/app/commit/a1b2c3d4e5f60718293a4b5c6d7e8f9012345678");
+  });
+
+  test("a reported commit is carried too, and marked as not yet ruled on", async () => {
+    const r = gitProject("git@github.com:acme/app.git");
+    writeBacklog(r, [finding({ fixAttempts: 1 })]);
+    const id = await idOf(r);
+    writeState(r, {
+      id,
+      attempts: [
+        {
+          n: 1,
+          dispatchedAt: "2026-01-01T09:00:00.000Z",
+          reported: { commit: "deadbee", note: "raised the contrast" },
+          verdict: "still-open",
+        },
+      ],
+    } as ClusterState);
+    const fix = (await buildBoard(r))[0]!.fix!;
+    // Still a claim: lookout has not agreed the defect is gone, and the card
+    // must not say "fixed in" about it.
+    expect(fix.cleared).toBe(false);
+    expect(fix.url).toBe("https://github.com/acme/app/commit/deadbee");
+  });
+
+  test("a checkout with no remote still shows the sha, with nowhere to send you", async () => {
+    const r = gitProject();
+    writeBacklog(r, [
+      finding({ status: "fixed", fixedIn: { commit: "a1b2c3d4e5f6071829", runId: "v1" } }),
+    ]);
+    const fix = (await buildBoard(r))[0]!.fix!;
+    expect(fix.short).toBe("a1b2c3d4");
+    expect(fix.url).toBeNull();
+    expect(fix.host).toBeNull();
+  });
+
+  test("an issue nobody has claimed a fix for carries no commit at all", async () => {
+    const r = gitProject("git@github.com:acme/app.git");
+    writeBacklog(r, [finding()]);
+    expect((await buildBoard(r))[0]!.fix).toBeNull();
   });
 });

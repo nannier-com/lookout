@@ -30,6 +30,7 @@ import { loadBacklog } from "../verbs/backlog.js";
 import { wasPhotographed } from "../backlog/lib.js";
 import type { ResolvedConfig } from "../types.js";
 import { readEvents, type LookoutEvent } from "./events.js";
+import { commitUrl, forgeOf } from "./forge.js";
 
 /**
  * Where an issue stands. Every state is one lookout established itself: the
@@ -119,6 +120,24 @@ export interface BoardEntry {
   attempt: number;
   verdict: string | null;
   judgeNote: string | null;
+  /**
+   * The commit this issue was fixed in, or the one a fix was last claimed at,
+   * with somewhere to read it.
+   *
+   * `cleared` is the difference between the two, and it is not cosmetic: a
+   * commit lookout ruled on is a fact, and a commit somebody reported is a
+   * claim that is still open. The url is null when the repository has no
+   * remote lookout could turn into a web address, which is a normal state for
+   * a checkout and not an error.
+   */
+  fix: {
+    commit: string;
+    short: string;
+    url: string | null;
+    host: string | null;
+    cleared: boolean;
+    at: string | null;
+  } | null;
 }
 
 /** Screenshots an issue was filed against, newest per member, both path forms. */
@@ -141,6 +160,32 @@ function shotsOf(resolved: ResolvedConfig, c: FixCluster): BoardShot[] {
     });
   }
   return out;
+}
+
+/**
+ * The commit behind this issue, if anything has claimed one.
+ *
+ * A ruled fix outranks a reported one: `fixedIn` is written by `verify-fix`
+ * when it agreed the defect was gone, and the attempt log holds whatever the
+ * last fixer said, ruled or not.
+ */
+function fixOf(
+  c: FixCluster,
+  state: ClusterState,
+  forge: Awaited<ReturnType<typeof forgeOf>>,
+): BoardEntry["fix"] {
+  const ruled = c.members.find((m) => m.fixedIn?.commit)?.fixedIn?.commit ?? null;
+  const attempt = [...state.attempts].reverse().find((a) => a.reported?.commit);
+  const commit = ruled ?? attempt?.reported?.commit ?? null;
+  if (!commit) return null;
+  return {
+    commit,
+    short: commit.slice(0, 8),
+    url: forge ? commitUrl(forge, commit) : null,
+    host: forge?.host ?? null,
+    cleared: !!ruled,
+    at: attempt?.dispatchedAt ?? null,
+  };
 }
 
 /**
@@ -286,6 +331,10 @@ export async function buildBoard(
   // No attempt cap: an issue that exhausted its attempts is blocked, and
   // blocked work is exactly what somebody looking at this needs to see.
   const clusters = issuesOf(backlog);
+  // Read once for the whole board rather than per card, and memoised beyond
+  // that: this is the project's remote, and it does not change while a page is
+  // open.
+  const forge = await forgeOf(resolved.projectDir);
 
   const durable = await Promise.all(
     clusters.map(async (c): Promise<BoardEntry> => {
@@ -314,6 +363,7 @@ export async function buildBoard(
         attempt: c.attemptsSpent,
         verdict: lastAttempt?.verdict ?? null,
         judgeNote: lastAttempt?.judgeNote ?? null,
+        fix: fixOf(c, state, forge),
       };
     }),
   );

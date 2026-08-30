@@ -797,6 +797,18 @@ overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 border:1px solid var(--line)}
 .note b{color:var(--ink);font-weight:600}
 
+/* The commit a fix landed in. A link when the repository has a web home, and
+   the same sentence in plain text when it does not, because the sha is worth
+   reading either way. */
+.commit{font-size:12px;color:var(--dim);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.commit code{font:11.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--ink);
+background:var(--sunk);border:1px solid var(--line);border-radius:6px;padding:2px 6px}
+.commit a{color:var(--accent);text-decoration:none;display:inline-flex;align-items:center;gap:5px}
+.commit a:hover code{border-color:var(--accent)}
+.commit a:hover{text-decoration:underline}
+.commit .host{color:var(--faint);font-size:11px}
+.commit svg{display:block;opacity:.75}
+
 /* lookout's own record of an issue. */
 .feed{background:var(--sunk);border:1px solid var(--line);border-radius:8px;
 max-height:150px;overflow-y:auto;scrollbar-width:thin}
@@ -1085,6 +1097,31 @@ function acceptance(b){
     + ' met</span></h4><ul class="accept" role="list">' + rows + '</ul></div>';
 }
 
+// The commit behind this issue, linked where there is somewhere to link to.
+//
+// The wording carries the difference lookout cares about: a commit it ruled on
+// cleared the defect, and a commit somebody reported is still a claim. Saying
+// "fixed in" about the second one would put lookout's name behind a verdict it
+// has not reached.
+function commitLine(b){
+  const f = b.fix;
+  if (!f) return "";
+  // "Claimed at" rather than "a fix was reported at": the line above already
+  // says a fix was reported, and repeating it pushes the sha, which is the only
+  // new thing here, to the end of a sentence nobody re-reads.
+  const said = f.cleared ? "Fixed in" : "Claimed at";
+  const sha = '<code>' + esc(f.short) + '</code>';
+  const arrow = '<svg viewBox="0 0 24 24" width="11" height="11" aria-hidden="true">'
+    + '<path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"'
+    + ' stroke-linejoin="round" d="M7 17 17 7M8 7h9v9"/></svg>';
+  const body = f.url
+    ? '<a href="' + esc(f.url) + '" target="_blank" rel="noreferrer noopener"'
+      + ' title="open ' + esc(f.commit) + ' on ' + esc(f.host || "the remote") + '">'
+      + sha + arrow + '</a><span class="host">' + esc(f.host || "") + '</span>'
+    : sha + '<span class="host">no remote to link to</span>';
+  return '<div class="commit">' + said + ' ' + body + '</div>';
+}
+
 function whatLine(b){
   if (b.status === "verifying") return '<div class="what">lookout is re-judging this now.</div>';
   const n = b.attempt ? ' after ' + esc(b.attempt) + (b.attempt === 1 ? ' attempt' : ' attempts') : '';
@@ -1120,6 +1157,7 @@ function card(b){
     + '<span class="launched" data-launched="' + esc(b.id) + '"></span></div>'
     + '<h3 class="title">' + esc(b.label) + '</h3>'
     + whatLine(b)
+    + commitLine(b)
     + '<div class="meta"><span class="chip sev ' + esc(b.severity) + '">' + esc(b.severity) + '</span>'
     + '<span class="chip">' + esc(b.category) + '</span>' + routes + attempt + '</div>'
     + defects(b)
@@ -1373,7 +1411,7 @@ async function tick(){
   // criterion without changing anything else is exactly the moment the card
   // has to repaint, and leaving them out left it showing the old marks.
   const sig = JSON.stringify([filter, issues.map(b => [b.id, b.status, b.attempt, b.verdict,
-    b.shots.length, b.lastSeenAt, (b.timeline || []).length,
+    b.shots.length, b.lastSeenAt, (b.timeline || []).length, b.fix && b.fix.commit,
     (b.acceptance || []).map(c => c.id + c.verdict).join()])]);
   const feedTops = {};
   for (const f of document.querySelectorAll("[data-feed]")) feedTops[f.dataset.feed] = f.scrollTop;

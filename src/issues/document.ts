@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { evidenceDir } from "../config.js";
 import { issueDir } from "./paths.js";
+import { commitUrl, forgeOf } from "../report/forge.js";
 import type { FixCluster } from "../fix/cluster.js";
 import { allRuleFiles } from "../fix/rules.js";
 import { clusterLabel } from "../fix/brief.js";
@@ -221,6 +222,21 @@ export async function renderIssueDocument(
 
   // The one thing lookout does ask for, because it is the only thing it can
   // answer: do not take your own word for it.
+  // The commit that closed it, once one has. A document for an issue nobody has
+  // fixed yet has nothing to say here and says nothing; a document for a fixed
+  // one is a record, and the diff is the most useful thing in it.
+  const fixedIn = cluster.members.find((m) => m.fixedIn?.commit)?.fixedIn?.commit;
+  if (fixedIn) {
+    const forge = await forgeOf(resolved.projectDir);
+    const url = forge ? commitUrl(forge, fixedIn) : null;
+    l.push("## The fix", "");
+    l.push(
+      `lookout confirmed this defect gone in \`${fixedIn}\`.`,
+      ...(url ? ["", url] : ["", "The repository has no remote to read that commit on."]),
+      "",
+    );
+  }
+
   l.push("## When you think it is fixed", "");
   l.push(
     "lookout is the only thing that can say the defect is actually gone. Ask it:",
