@@ -31,6 +31,7 @@ import { wasPhotographed } from "../backlog/lib.js";
 import type { ResolvedConfig } from "../types.js";
 import { readEvents, type LookoutEvent } from "./events.js";
 import { commitUrl, forgeOf } from "./forge.js";
+import { loadFrames } from "../issues/frames.js";
 
 /**
  * Where an issue stands. Every state is one lookout established itself: the
@@ -106,6 +107,16 @@ export interface BoardEntry {
   defects: { attribute: string; severity: string; title: string; problem: string }[];
   /** The screenshots this issue was filed against. */
   shots: BoardShot[];
+  /**
+   * The frames frozen either side of a fix.
+   *
+   * Empty until a `verify-fix` has run, and `after` stays empty until one
+   * passed. They are not derivable from `shots`: the evidence store overwrites
+   * a view in place, so by the time an issue is done its shots ARE the fixed
+   * screen, and the defect only still exists in these.
+   */
+  before: BoardShot[];
+  after: BoardShot[];
   /** When lookout last saw this, or null when it cannot tell. */
   lastSeenAt: string | null;
   status: IssueStatus;
@@ -185,6 +196,21 @@ function fixOf(
     host: forge?.host ?? null,
     cleared: !!ruled,
     at: attempt?.dispatchedAt ?? null,
+  };
+}
+
+/** A frozen frame, in the two path forms the page needs. */
+function asBoardShot(
+  resolved: ResolvedConfig,
+  f: { path: string; route: string; formFactor: string; scheme: string; state?: string },
+): BoardShot {
+  return {
+    path: f.path,
+    absPath: join(evidenceDir(resolved), f.path),
+    route: f.route,
+    formFactor: f.formFactor,
+    scheme: f.scheme,
+    ...(f.state ? { state: f.state } : {}),
   };
 }
 
@@ -339,6 +365,7 @@ export async function buildBoard(
   const durable = await Promise.all(
     clusters.map(async (c): Promise<BoardEntry> => {
       const state = await loadState(resolved, c.id);
+      const frames = await loadFrames(resolved, c.id);
       const seen = lastSeenAt(resolved, c, state);
       const lastAttempt = state.attempts[state.attempts.length - 1];
       return {
@@ -356,6 +383,8 @@ export async function buildBoard(
           problem: d.problem,
         })),
         shots: shotsOf(resolved, c),
+        before: frames.before.map((f) => asBoardShot(resolved, f)),
+        after: frames.after.map((f) => asBoardShot(resolved, f)),
         lastSeenAt: seen,
         status: durableStatus(c, state),
         timeline: durableTimeline(state, seen),

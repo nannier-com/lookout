@@ -41,6 +41,7 @@ import {
 import { loadReport } from "../capture/store.js";
 import { loadBacklog, mergeLatest, saveBacklog } from "./backlog.js";
 import { runCheck, DEFAULT_MAX_ATTEMPTS } from "./check.js";
+import { freezeFrames } from "../issues/frames.js";
 import { runContactSheet } from "./capture.js";
 import { sheetNote } from "../capture/sheet.js";
 import { LookoutError, type ResolvedConfig } from "../types.js";
@@ -336,6 +337,13 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
   // changed something" from "the judge said something different today".
   const priorReport = await loadReport(preResolved);
   const priorHashes = baselineHashes(priorReport?.shots ?? [], Object.values(before.findings));
+
+  // The last moment the defect still exists in a file. The capture below writes
+  // each view back to the path it came from, so a frame not copied aside now is
+  // a frame nothing can show afterwards. Written once per issue: a third
+  // attempt still compares against the defect as it was filed.
+  await freezeFrames(preResolved, cluster, "before");
+
   // 1. Re-capture and re-judge only this cluster's own routes.
   const scope = clusterScope(cluster);
   const { outcome, resolved, shotsById } = await runCheck({
@@ -512,6 +520,9 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
   });
 
   if (verdict === "passed") {
+    // The only moment lookout is willing to say this screen is fixed, and
+    // therefore the only frame worth keeping as the after.
+    await freezeFrames(resolved, cluster, "after");
     for (const fp of cluster.fingerprints) {
       if (backlog.findings[fp]) {
         setStatus(backlog, fp, "fixed", { commit: reportedCommit, runId: runIdNow, now: nowIso() });

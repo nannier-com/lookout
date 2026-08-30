@@ -793,6 +793,28 @@ border:1px solid var(--line);border-radius:7px;background:var(--sunk)}
 .tile:hover img{border-color:var(--accent)}
 .tile span{display:block;font-size:10.5px;color:var(--faint);margin-top:4px;
 overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Before and after, as pairs rather than as two lists: the comparison is the
+   whole point, and a reader should not have to match a phone shot in one strip
+   against a phone shot in another. */
+.pairs{display:flex;gap:12px;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin}
+.pairs::-webkit-scrollbar{height:6px}
+.pairs::-webkit-scrollbar-thumb{background:var(--line);border-radius:99px}
+.pair{flex:0 0 auto;display:flex;flex-direction:column;gap:4px}
+.pair .frames{display:flex;gap:6px;align-items:flex-start}
+.pair .side{position:relative}
+/* Bottom-left, not top-left: a thumbnail is cropped to the top of the page, so
+   the top-left corner is the screen's own heading and a badge sitting there
+   covers the first thing a reader looks at. */
+.pair .side b{position:absolute;left:5px;bottom:5px;font-size:9px;font-weight:700;
+text-transform:uppercase;letter-spacing:.06em;padding:2px 5px;border-radius:5px;
+background:rgba(0,0,0,.72);color:#fff;pointer-events:none;line-height:1.5}
+.pair .side.after b{background:var(--ok);color:#04170c}
+.pair .lbl{font-size:10.5px;color:var(--faint);overflow:hidden;text-overflow:ellipsis;
+white-space:nowrap;max-width:270px}
+.pair .missing{width:132px;height:106px;border:1px dashed var(--line);border-radius:7px;
+display:flex;align-items:center;justify-content:center;font-size:10.5px;color:var(--faint);
+text-align:center;padding:0 8px;line-height:1.35}
+
 .note{font-size:12.5px;color:var(--dim);background:var(--sunk);border-radius:7px;padding:7px 9px;
 border:1px solid var(--line)}
 .note b{color:var(--ink);font-weight:600}
@@ -1029,6 +1051,41 @@ function strip(label, shots){
   return '<div class="evi"><h4>' + esc(label) + '</h4><div class="strip">' + tiles + '</div></div>';
 }
 
+/**
+ * The defect and what replaced it, one pair per view.
+ *
+ * Paired on route, form factor and scheme, because a comparison the reader has
+ * to assemble themselves out of two strips is not a comparison. A view with
+ * only one side still shows: the missing half says which side is missing rather
+ * than silently dropping the frame, since "there is no after for the phone" is
+ * itself worth seeing.
+ */
+function fixStrip(b){
+  const before = b.before || [], after = b.after || [];
+  if (!before.length && !after.length) return "";
+  const key = s => [s.route, s.formFactor, s.scheme, s.state || ""].join("|");
+  const afterBy = new Map(after.map(s => [key(s), s]));
+  const seen = new Set();
+  const pairs = [];
+  for (const s of before) { pairs.push([s, afterBy.get(key(s)) || null]); seen.add(key(s)); }
+  for (const s of after) if (!seen.has(key(s))) pairs.push([null, s]);
+
+  const half = (s, side) => s
+    ? '<a class="tile side ' + side + '" href="/evidence/' + enc(s.path) + '" target="_blank"'
+      + ' title="' + esc(s.absPath) + '">'
+      + '<img loading="lazy" src="/thumb/' + enc(s.path) + '?w=264" alt=""/>'
+      + '<b>' + side + '</b></a>'
+    : '<div class="missing">no ' + side + ' frame</div>';
+
+  const body = pairs.map(([bf, af]) => {
+    const s = bf || af;
+    const label = [s.formFactor, s.scheme].filter(Boolean).join(" \u00b7 ") || s.route;
+    return '<div class="pair"><div class="frames">' + half(bf, "before") + half(af, "after")
+      + '</div><div class="lbl">' + esc(label) + '</div></div>';
+  }).join("");
+  return '<div class="evi"><h4>The fix</h4><div class="pairs">' + body + '</div></div>';
+}
+
 // What lookout has recorded about this issue, oldest first.
 function feed(b){
   const steps = b.timeline || [];
@@ -1162,7 +1219,17 @@ function card(b){
     + '<span class="chip">' + esc(b.category) + '</span>' + routes + attempt + '</div>'
     + defects(b)
     + acceptance(b)
-    + strip("Where lookout saw it", b.shots)
+    // Once a fix has been ruled on, the frozen pair IS the evidence, and the
+    // live strip beneath it would be the same view a second time. Before any
+    // ruling, the strip is all there is. The label follows the truth in both
+    // cases: after a pass, the store's copy of these views is the fixed screen,
+    // so calling it "where lookout saw it" would be describing a picture of the
+    // opposite of the defect.
+    + ((b.after || []).length || (b.before || []).length
+        ? fixStrip(b)
+        : strip(b.status === "done" || b.status === "archived"
+            ? "These views as they are now"
+            : "Where lookout saw it", b.shots))
     + judge + feed(b) + paths(b)
     + '</article>';
 }
@@ -1411,7 +1478,8 @@ async function tick(){
   // criterion without changing anything else is exactly the moment the card
   // has to repaint, and leaving them out left it showing the old marks.
   const sig = JSON.stringify([filter, issues.map(b => [b.id, b.status, b.attempt, b.verdict,
-    b.shots.length, b.lastSeenAt, (b.timeline || []).length, b.fix && b.fix.commit,
+    b.shots.length, (b.before || []).length, (b.after || []).length,
+    b.lastSeenAt, (b.timeline || []).length, b.fix && b.fix.commit,
     (b.acceptance || []).map(c => c.id + c.verdict).join()])]);
   const feedTops = {};
   for (const f of document.querySelectorAll("[data-feed]")) feedTops[f.dataset.feed] = f.scrollTop;
