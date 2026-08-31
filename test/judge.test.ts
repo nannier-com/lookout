@@ -324,7 +324,7 @@ describe("judgeBatch through the mock binary", () => {
 
 describe("ledger", () => {
   const identity = (over: Partial<Parameters<typeof judgeIdentity>[0]> = {}) =>
-    judgeIdentity({ version: 3, rubricText: "R", refuteText: "F", model: "sonnet", ...over });
+    judgeIdentity({ version: 3, rubricText: "R", refuteText: "F", handoffText: "H", model: "sonnet", ...over });
 
   test("key includes hash, judge skill version, prompt hash, and model", () => {
     const id = identity();

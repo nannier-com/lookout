@@ -247,6 +247,14 @@ export interface ShotRecord {
   animated: boolean;
   /** Absolute path of this route's design hand-off image, when one is configured. */
   design?: string;
+  /**
+   * sha256 of that image's bytes at capture time, "missing" when the
+   * configured file was absent. A judge input: it enters the view group's
+   * ledger hash, so swapping the hand-off re-judges the views that point at
+   * it. Absent exactly when `design` is absent, so design-free groups keep
+   * their existing hashes.
+   */
+  designHash?: string;
   capturedAt: string;
   runId: string;
   deterministicFindings: DeterministicFinding[];

@@ -12,6 +12,7 @@
  * The engine fails loud per route (recorded in run.failures) and continues;
  * a silent mislabeled capture is the one unforgivable failure mode.
  */
+import { existsSync, readFileSync } from "node:fs";
 import { chromium, type Browser, type Locator, type Page } from "playwright";
 import {
   DEFAULT_VIEWPORTS,
@@ -204,6 +205,16 @@ async function captureRoute(
   page: Page,
   ctx: RouteCtx,
 ): Promise<void> {
+  // The hand-off image is a judge input: its bytes enter the view group's
+  // ledger hash, so a swapped design re-judges the views that point at it.
+  // A configured-but-missing file stamps "missing", a value, so it still
+  // differs from having no design at all.
+  const designHash = route.design
+    ? existsSync(route.design)
+      ? sha256(readFileSync(route.design))
+      : "missing"
+    : undefined;
+
   const states: [string, StateRecipe | null][] = [["rest", null]];
   if (ctx.states === "all") {
     for (const name of route.states) {
@@ -290,6 +301,7 @@ async function captureRoute(
           height: meta.height ?? 0,
           animated,
           design: route.design,
+          ...(designHash ? { designHash } : {}),
           capturedAt: nowIso(),
           runId: ctx.runId,
           deterministicFindings: findings,

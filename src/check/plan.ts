@@ -66,6 +66,7 @@ export async function planJudging(
     version: rubric.version,
     rubricText: rubric.text,
     refuteText: refute.text,
+    handoffText: rubric.handoff,
     model,
   });
   for (const group of groupShots(shots).values()) {

@@ -50,9 +50,11 @@ export interface Ledger {
 const NOTE =
   "lookout judge cache. Key = <viewGroupHash>@v<judgeSkillVersion>@<promptHash>@<model>, where a view " +
   "group is one target+platform+route+state across every form factor and scheme, so comparative " +
-  "findings never cache apart, and promptHash covers the judging and refuting instructions as they " +
-  "were composed for that run. Editing a rubric, a neverFile line or either skill re-judges whatever " +
-  "it could have changed; nothing has to be bumped by hand.";
+  "findings never cache apart. groupHash covers each member's pixels plus its design hand-off image's " +
+  "bytes, and promptHash covers the judging, refuting and hand-off instructions as composed for that " +
+  "run. Editing a rubric, a neverFile line, handoff.md, either skill, or a design PNG re-judges " +
+  "whatever it could have changed; nothing has to be bumped by hand. The prior-findings block is " +
+  "excluded on purpose: it is a naming aid, and adjudications are enforced at merge.";
 
 export function ledgerPath(resolved: ResolvedConfig): string {
   return join(lookoutDir(resolved), "ledger.json");
@@ -61,10 +63,15 @@ export function ledgerPath(resolved: ResolvedConfig): string {
 /**
  * Hash of a whole view group: every member's pixel hash, sorted by shot id so
  * capture order cannot perturb it. One member changing changes the group hash.
+ *
+ * A member carrying a design reference contributes the hand-off image's hash
+ * too: the judge compares the build against that image, so swapping the file
+ * is a changed input even when the app's pixels held still. Conditional on
+ * purpose, so groups without designs keep the hashes they have always had.
  */
 export function groupHash(shots: ShotRecord[]): string {
   const parts = shots
-    .map((s) => `${s.id}@${s.hash}`)
+    .map((s) => (s.designHash ? `${s.id}@${s.hash}@d:${s.designHash}` : `${s.id}@${s.hash}`))
     .sort()
     .join("\n");
   return sha256(new TextEncoder().encode(parts));
@@ -96,11 +103,25 @@ export function judgeIdentity(opts: {
   version: number;
   rubricText: string;
   refuteText: string;
+  /**
+   * handoff.md as composed for this run. Injected into the prompt only for
+   * design-bearing batches, but hashed for every key: a split identity would
+   * complicate the key for the rare event of a lookout release editing it,
+   * and that release arguably owes a broad re-judge anyway.
+   */
+  handoffText: string;
   model: string;
 }): JudgeIdentity {
   // NUL-separated: a prompt is markdown and never holds one, so no two texts
-  // can slide across the boundary and hash the same as a different pair.
-  const joined = `${opts.rubricText}\u0000${opts.refuteText}`;
+  // can slide across the boundary and hash the same as a different tuple.
+  //
+  // The prior-findings block ("ALREADY FILED") is excluded from this key on
+  // purpose. It is a naming aid, not a verdict input: cache hits are
+  // name-stable verbatim by construction, and by-design adjudications are
+  // enforced at merge, never in the prompt, so keying on it would thrash the
+  // whole cache on every adjudication for a benefit the cache already
+  // provides more strongly than the prompt does.
+  const joined = `${opts.rubricText}\u0000${opts.refuteText}\u0000${opts.handoffText}`;
   return {
     version: opts.version,
     promptHash: sha256(new TextEncoder().encode(joined)).slice(0, 12),
