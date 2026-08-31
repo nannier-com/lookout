@@ -65,7 +65,6 @@ export default tseslint.config(
   ...Object.entries({
     "src/design/conformance.ts": 422,
     "src/design/detect.ts": 403,
-    "src/judge/engine.ts": 306,
   }).map(([file, max]) => ({
     files: [file],
     rules: { "max-lines": ["error", { max, skipBlankLines: true, skipComments: true }] },

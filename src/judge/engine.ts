@@ -7,25 +7,13 @@
  * tool); lookout passes paths plus a manifest and demands a strict JSON
  * reply, retrying once with a harder instruction when parsing fails.
  */
-import { execFile } from "node:child_process";
 import { LookoutError, type Severity, type ShotRecord } from "../types.js";
 import { renderSkill } from "../skills/load.js";
 import { recordIncident } from "../skills/incidents.js";
 import { CATEGORIES, SEVERITIES, type Category } from "./rubric.js";
 
-export interface JudgeInvocation {
-  prompt: string;
-  cwd: string;
-  model: string;
-  timeoutMs?: number;
-  /**
-   * What the subprocess may do. Read-only by default, which is what every
-   * judging path wants: an oracle that can edit is not an oracle. `self-heal`
-   * is the one caller that widens it, and it still withholds Bash, because
-   * lookout runs the gates itself rather than trusting the reply.
-   */
-  allowedTools?: string[];
-}
+import { extractJson, invokeClaude } from "./claude.js";
+import { kebab } from "./grouping.js";
 
 export interface AiFinding {
   shotId: string;
@@ -60,90 +48,6 @@ export interface JudgeBatchResult {
   durationMs: number;
 }
 
-/**
- * The claude binary: overridable for nonstandard install paths and for test
- * doubles. The judge otherwise assumes `claude` on PATH, logged in (run
- * `claude` interactively once; `lookout doctor --handshake` verifies).
- */
-export function claudeBin(): string {
-  return process.env.LOOKOUT_CLAUDE_BIN ?? "claude";
-}
-
-/** One `claude -p` round-trip returning the reply text. */
-export function invokeClaude(inv: JudgeInvocation): Promise<{ text: string; costUsd?: number }> {
-  const args = [
-    "-p",
-    inv.prompt,
-    "--output-format",
-    "json",
-    "--allowedTools",
-    (inv.allowedTools ?? ["Read"]).join(","),
-    "--model",
-    inv.model,
-  ];
-  return new Promise((resolve, reject) => {
-    execFile(
-      claudeBin(),
-      args,
-      { cwd: inv.cwd, timeout: inv.timeoutMs ?? 10 * 60_000, maxBuffer: 64 * 1024 * 1024 },
-      (err, stdout, stderr) => {
-        if (err) {
-          reject(
-            new LookoutError(
-              `claude -p failed: ${err.message.slice(0, 300)}`,
-              stderr ? `stderr: ${stderr.slice(0, 300)}` : "is Claude Code logged in? run `claude` once interactively",
-            ),
-          );
-          return;
-        }
-        try {
-          const parsed = JSON.parse(stdout) as {
-            result?: string;
-            total_cost_usd?: number;
-            is_error?: boolean;
-            subtype?: string;
-          };
-          if (typeof parsed.result !== "string") {
-            reject(new LookoutError(`claude -p returned no result (subtype: ${parsed.subtype ?? "?"})`));
-            return;
-          }
-          if (parsed.is_error) {
-            reject(
-              new LookoutError(
-                `claude -p errored: ${parsed.result.slice(0, 200)}`,
-                /not logged in/i.test(parsed.result)
-                  ? "run `claude` in a terminal once and complete /login, then retry (verify with `lookout doctor --handshake`)"
-                  : undefined,
-              ),
-            );
-            return;
-          }
-          resolve({ text: parsed.result, costUsd: parsed.total_cost_usd });
-        } catch {
-          reject(new LookoutError(`claude -p produced unparseable output: ${stdout.slice(0, 300)}`));
-        }
-      },
-    );
-  });
-}
-
-/** Extract the last fenced json block (or a bare object) from a reply. */
-export function extractJson(text: string): unknown {
-  const fences = [...text.matchAll(/```(?:json)?\s*\n([\s\S]*?)```/g)];
-  const candidate = fences.length > 0 ? fences[fences.length - 1]![1]! : text;
-  const start = candidate.indexOf("{");
-  const end = candidate.lastIndexOf("}");
-  if (start === -1 || end <= start) throw new Error("no JSON object in reply");
-  return JSON.parse(candidate.slice(start, end + 1));
-}
-
-/**
- * The judge prompt: the visual-judge skill, filled with this batch's data.
- *
- * Everything the model is told to think lives in the skill file; everything
- * here is fact about the evidence.
- */
-/** A defect already open against one of the views being judged. */
 export interface PriorFinding {
   shotId: string;
   category: string;
@@ -370,50 +274,8 @@ export async function judgeBatch(
   };
 }
 
-function kebab(s: string): string {
-  return (
-    s
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "general"
-  );
-}
-
-/** Pack shots into judge batches: same target+route stays together, max size. */
-/** The view a shot belongs to: everything the rubric compares across. */
-export function viewGroupId(shot: ShotRecord): string {
-  return `${shot.target}|${shot.platform}|${shot.route}|${shot.state}`;
-}
-
-/** Partition shots into view groups, preserving encounter order. */
-export function groupShots(shots: ShotRecord[]): Map<string, ShotRecord[]> {
-  const groups = new Map<string, ShotRecord[]>();
-  for (const s of shots) {
-    const id = viewGroupId(s);
-    const arr = groups.get(id) ?? [];
-    arr.push(s);
-    groups.set(id, arr);
-  }
-  return groups;
-}
-
-/**
- * One judge call per VIEW GROUP: the same unit the rubric compares within, and
- * the same unit the ledger caches.
- *
- * This used to pack several small groups into one call to save subprocesses,
- * which quietly broke the cache. The rubric asks for one finding per distinct
- * defect, filed on the most representative shot, with the other affected shots
- * named in the prose. When two groups shared a batch and shared a defect, the
- * judge filed it against one of them and the contract then put the other
- * group's shots in `cleanShotIds`, so that view was recorded clean and a later
- * scoped re-check served "clean" from cache while the defect stood. Keeping the
- * prompt unit and the ledger unit identical is what makes a cached verdict mean
- * anything.
- *
- * A group is never split either: a comparison needs both sides in one context.
- */
-export function batchShots(shots: ShotRecord[]): ShotRecord[][] {
-  return [...groupShots(shots).values()];
-}
+// The subprocess contract and the grouping rules live beside this file; they
+// are re-exported because this is the module every caller has always asked for
+// them from.
+export { claudeBin, extractJson, invokeClaude, type JudgeInvocation } from "./claude.js";
+export { batchShots, groupShots, viewGroupId } from "./grouping.js";
