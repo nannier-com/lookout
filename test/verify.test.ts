@@ -64,12 +64,18 @@ afterEach(() => {
 });
 
 describe("what earns a second opinion", () => {
-  test("serious findings, as before", () => {
-    expect(needsRefuting(finding({ severity: "critical" }))).toBe(true);
-    expect(needsRefuting(finding({ severity: "high" }))).toBe(true);
-  });
-
-  test("design-quality findings at any severity, because they are the arguable ones", () => {
+  // Every AI finding, deliberately. The old boundary (critical/high, plus six
+  // "quality band" categories at any severity) contradicted the rubric's own
+  // ladder: it defines low as "a named principle broken", which makes every
+  // low finding a principle claim, and it left design-parity, color-scheme
+  // and responsive, the comparative categories the refuter was re-plumbed
+  // for, unrefuted at medium and low. The marginal cost is zero extra calls:
+  // the refuter already runs once per judged batch, and the boundary only
+  // decided which findings rode along.
+  test("every severity, every category", () => {
+    for (const severity of ["critical", "high", "medium", "low"] as const) {
+      expect(needsRefuting(finding({ severity }))).toBe(true);
+    }
     for (const category of [
       "hierarchy",
       "composition",
@@ -77,15 +83,15 @@ describe("what earns a second opinion", () => {
       "typography",
       "alignment",
       "consistency",
+      "design-parity",
+      "color-scheme",
+      "responsive",
+      "content",
+      "render-failure",
+      "a11y",
     ]) {
       expect(needsRefuting(finding({ category, severity: "low" } as Partial<AiFinding>))).toBe(true);
     }
-  });
-
-  test("a minor claim about something plainly broken still does not need one", () => {
-    // It is either in the image or it is not, and a cheap pass adds nothing.
-    expect(needsRefuting(finding({ category: "content", severity: "low" }))).toBe(false);
-    expect(needsRefuting(finding({ category: "render-failure", severity: "medium" }))).toBe(false);
   });
 });
 

@@ -18,24 +18,24 @@ import { renderSkill } from "../skills/load.js";
 import { extractJson, invokeClaude, groupShots, viewGroupId, type AiFinding } from "./engine.js";
 
 /**
- * Categories whose findings rest on a named principle rather than on something
- * visibly broken. These are the judge's most valuable output and its most
- * refutable: "no clear entry point for the eye" is a real defect when it is
- * true and taste dressed up as a principle when it is not, and only a second
- * look can tell the difference.
+ * Whether a finding is worth a refuting pass. Every AI finding is.
+ *
+ * There used to be a boundary here: critical and high always, plus six
+ * design-quality categories at any severity, on the theory that a minor
+ * claim about something plainly broken needed no second look. The rubric's
+ * own ladder contradicted it: low is defined as "a named principle broken",
+ * which makes every low finding exactly the arguable kind, and the boundary
+ * left design-parity ("you judged the hand-off the better of the two") and
+ * the comparative categories color-scheme and responsive, the ones the
+ * refuter was given whole-view evidence FOR, unrefuted at medium and low.
+ *
+ * Widening costs no extra subprocess: the refuter already runs once per
+ * judged batch, and this predicate only decided which findings rode along.
+ * The function stays because it is the single choke point, and the place the
+ * next boundary argument belongs if one ever returns.
  */
-const QUALITY_BAND = new Set([
-  "hierarchy",
-  "composition",
-  "spacing",
-  "typography",
-  "alignment",
-  "consistency",
-]);
-
-/** Whether a finding is worth a refuting pass: serious, or easily argued. */
-export function needsRefuting(f: AiFinding): boolean {
-  return f.severity === "critical" || f.severity === "high" || QUALITY_BAND.has(f.category);
+export function needsRefuting(_f: AiFinding): boolean {
+  return true;
 }
 
 export interface VerifiedFinding extends AiFinding {
