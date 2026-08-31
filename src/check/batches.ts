@@ -155,10 +155,15 @@ export async function judgeInBatches(args: {
           costUsd += v.costUsd ?? 0;
         } catch (e) {
           // The refuter failing is not grounds for dropping what the judge
-          // found. The findings stand unverified, and the group is left out of
-          // the cache so a later run can still refute them.
+          // found, and not grounds for re-buying the judge's work either. The
+          // findings stand unverified and the group caches WITH them: the
+          // judge's verdict is real, only the refutation is missing, and
+          // refute-on-read (check/reverify.ts) repairs exactly that on the
+          // next run without a second judge call. This used to leave the
+          // group uncacheable, which re-judged everything to re-ask the
+          // refuter's question, while a --no-verify run cached the same state
+          // durably; one debt, one treatment now.
           batchFindings = res.findings.map((f) => ({ ...f, verified: false }));
-          for (const s of batch) uncacheable.add(s.id);
           const message = e instanceof Error ? e.message : String(e);
           log(`  batch ${i + 1}/${batches.length}: verifier failed (${message}); findings unverified`);
           emit("error", `verifier failed on batch ${i + 1}: ${message}`, {}, "error");

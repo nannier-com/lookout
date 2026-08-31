@@ -200,8 +200,15 @@ if (mode === "placement") {
     }) +
     "\n```";
 } else if (mode === "verify") {
+  // MOCK_VERIFY_FAIL crashes only the refuter, so the judge-succeeds,
+  // refuter-fails path is reachable with one binary serving both roles.
+  if (process.env.MOCK_VERIFY_FAIL) process.exit(1);
   const indices = [...promptText.matchAll(/^#(\d+) /gm)].map((m) => Number(m[1]));
-  result =
+  // MOCK_VERIFY overrides the whole verdicts object, for tests that need a
+  // refutation the default confirm-index-0 shape cannot express.
+  result = process.env.MOCK_VERIFY
+    ? "```json\n" + process.env.MOCK_VERIFY + "\n```"
+    :
     "```json\n" +
     JSON.stringify({
       verdicts: indices.map((i) => ({

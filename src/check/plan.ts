@@ -36,7 +36,11 @@ export interface JudgePlan {
   identity: JudgeIdentity;
   /** Shots with no usable verdict on record, which this run will judge. */
   toJudge: ShotRecord[];
-  /** Verdicts read back from the ledger, already trustworthy. */
+  /**
+   * Verdicts read back from the ledger. Their refutation state is whatever
+   * was stored: a --no-verify run and the never-refuted band arrive with
+   * verified false, and refute-on-read is the pass that repairs them.
+   */
   cachedFindings: (VerifiedFinding & { cached: boolean })[];
   cached: number;
   /** What lookout already has open on these views, so one defect stays one issue. */

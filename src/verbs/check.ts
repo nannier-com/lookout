@@ -19,6 +19,7 @@
 import { join } from "node:path";
 import { evidenceDir, loadConfig } from "../config.js";
 import { judgeInBatches, type RunCheckOptions } from "../check/batches.js";
+import { reverifyCached } from "../check/reverify.js";
 import { recordOutcome, type CheckOutcome } from "../check/outcome.js";
 import { planJudging } from "../check/plan.js";
 import { resolveScope } from "../check/scope.js";
@@ -60,6 +61,17 @@ export async function runCheck(
     if (!quiet) console.log(line);
   };
 
+  // Refute-on-read before the fresh batches: cached groups holding findings
+  // the refuter never saw (a --no-verify run, a refuter that failed) get the
+  // adversarial pass now, capped, and the ledger entry is repaired in place.
+  const repairs = await reverifyCached({
+    resolved: scope.resolved,
+    plan,
+    shotsById: scope.shotsById,
+    parsed,
+    log,
+  });
+
   const pass = await judgeInBatches({
     resolved: scope.resolved,
     plan,
@@ -68,6 +80,8 @@ export async function runCheck(
     log,
     opts,
   });
+  pass.refuted.push(...repairs.refuted);
+  pass.costUsd += repairs.costUsd;
   const outcome = await recordOutcome({ resolved: scope.resolved, scope, plan, pass, log });
   return { outcome, resolved: scope.resolved, shotsById: scope.shotsById, toJudge: plan.toJudge };
 }
