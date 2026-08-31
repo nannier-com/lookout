@@ -224,6 +224,27 @@ describe("every issue gets a picture of its own defect", () => {
     expect(readFileSync(preFile(r), "utf8")).toBe("the defect");
   });
 
+  test("freezes a view the issue only gained later, and leaves the first alone", async () => {
+    const r = project();
+    shotFile(r, "web/app/settings--desktop-dark.png", "the defect on desktop");
+    await ensureBeforeFrames(r, cluster([member()]));
+
+    // The same defect turns up on the phone, so a member joins the cluster. Its
+    // own frame is this view's filing moment, whatever the issue has spent.
+    shotFile(r, "web/app/settings--phone-dark.png", "the defect on phone");
+    shotFile(r, "web/app/settings--desktop-dark.png", "re-captured later");
+    const set = await ensureBeforeFrames(
+      r,
+      cluster([member(), member({ formFactor: "phone" as BacklogFinding["formFactor"] })]),
+    );
+
+    expect(set.before.map((f) => f.formFactor).sort()).toEqual(["desktop", "phone"]);
+    expect(readFileSync(preFile(r), "utf8")).toBe("the defect on desktop");
+    expect(
+      readFileSync(join(framesDir(r, "246813"), "before", "web-app-settings--phone-dark.png"), "utf8"),
+    ).toBe("the defect on phone");
+  });
+
   test("does not backfill an issue that has already spent an attempt", async () => {
     const r = project();
     // Something has claimed to change this screen since the finding was filed,

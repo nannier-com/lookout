@@ -103,14 +103,19 @@ async function saveFrames(
 /**
  * Copy this issue's current frames aside as one side of the comparison.
  *
- * `before` is written once and then left alone: an issue re-verified three
- * times still shows the defect as it was filed. `after` is rewritten every time
- * it is taken, because the only thing worth keeping there is the frame that
- * actually cleared the issue.
+ * `before` is written once PER VIEW. A view already frozen keeps the pixels it
+ * was filed against, so an issue re-verified three times still shows the defect
+ * as filed rather than as the last attempt left it; a view the cluster only
+ * gained later is frozen now, at the save that filed the finding on it, which
+ * is that view's own filing moment. Freezing once per ISSUE instead would leave
+ * every later view with no picture at all, and the card draws what is frozen.
  *
- * Returns what was frozen, which is empty when there was nothing to copy: a
- * code-channel issue has no screenshots at all, and a frame whose file has been
- * cleaned out of the evidence store cannot be frozen after the fact.
+ * `after` is rewritten whole every time it is taken, because the only thing
+ * worth keeping there is the frame that actually cleared the issue.
+ *
+ * Returns the side as it now stands, which is empty when there was nothing to
+ * copy: a code-channel issue has no screenshots at all, and a frame whose file
+ * has been cleaned out of the evidence store cannot be frozen after the fact.
  */
 export async function freezeFrames(
   resolved: ResolvedConfig,
@@ -118,7 +123,8 @@ export async function freezeFrames(
   side: FrameSide,
 ): Promise<Frame[]> {
   const existing = await loadFrames(resolved, cluster.id);
-  if (side === "before" && existing.before.length > 0) return existing.before;
+  const kept = side === "before" ? existing.before : [];
+  const frozen = new Set(kept.map((f) => f.path));
 
   const evDir = evidenceDir(resolved);
   const dir = join(framesDir(resolved, cluster.id), side);
@@ -129,10 +135,12 @@ export async function freezeFrames(
   for (const m of cluster.members) {
     const ev = m.evidence[m.evidence.length - 1];
     if (!ev || !wasPhotographed(m) || seen.has(ev.path)) continue;
+    const file = flatShotName(ev.path);
+    const rel = join(framesRel(cluster.id), side, file);
+    if (frozen.has(rel)) continue;
     const src = join(evDir, ev.path);
     if (!existsSync(src)) continue;
     seen.add(ev.path);
-    const file = flatShotName(ev.path);
     await mkdir(dir, { recursive: true });
     try {
       await copyFile(src, join(dir, file));
@@ -142,7 +150,7 @@ export async function freezeFrames(
       continue;
     }
     frames.push({
-      path: join(framesRel(cluster.id), side, file),
+      path: rel,
       route: m.route,
       formFactor: m.formFactor ?? "",
       scheme: m.scheme ?? "",
@@ -151,9 +159,10 @@ export async function freezeFrames(
     });
   }
 
-  if (frames.length === 0) return [];
-  await saveFrames(resolved, cluster.id, { ...existing, schema: 1, [side]: frames });
-  return frames;
+  if (frames.length === 0) return kept;
+  const merged = [...kept, ...frames];
+  await saveFrames(resolved, cluster.id, { ...existing, schema: 1, [side]: merged });
+  return merged;
 }
 
 /**
@@ -165,18 +174,24 @@ export async function freezeFrames(
  * findings were judged from, so the files it copies are the defect's own
  * pixels, and it is a no-op from the second save onwards.
  *
- * An issue that has already spent a fix attempt is left alone. Its frames in
- * the store are of unknown vintage: something has claimed to change that screen
- * since the finding was filed, so copying them now would file a picture of
- * somebody's fix under a label that says "the defect". Those issues report no
- * pre-fix frame instead, which is true, and `backlog check` lists them.
+ * One case is skipped, and only one: an issue that has nothing frozen at all
+ * AND has already spent a fix attempt. That is the retroactive case, an issue
+ * filed before lookout froze anything, and its frames in the store are of
+ * unknown vintage, because something has claimed to change that screen since.
+ * Copying them now would file a picture of somebody's fix under a label saying
+ * "the defect". Those issues report no pre-fix frame, which is true, and
+ * `backlog check` lists them.
+ *
+ * An issue that IS frozen keeps taking new views as it gains them, whatever it
+ * has spent, because a view's first frame is the pixels its own finding was
+ * filed against however late in the issue's life that finding arrived.
  */
 export async function ensureBeforeFrames(
   resolved: ResolvedConfig,
   cluster: FixCluster,
 ): Promise<FrameSet> {
   const existing = await loadFrames(resolved, cluster.id);
-  if (existing.before.length > 0 || cluster.attemptsSpent > 0) return existing;
+  if (existing.before.length === 0 && cluster.attemptsSpent > 0) return existing;
   const before = await freezeFrames(resolved, cluster, "before");
   return before.length > 0 ? { ...existing, before } : existing;
 }
