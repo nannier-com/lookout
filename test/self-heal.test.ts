@@ -179,3 +179,69 @@ describe("a change that passes every gate", () => {
     expect(changeset).not.toContain("minor");
   });
 });
+
+// The forfeit and the pick: a reply that breaks the contract loses its
+// edits, and the prompt carries exactly one incident group.
+describe("the reply contract is load-bearing", () => {
+  test("an unparseable healer reply is reverted, recorded, and exits 1", async () => {
+    const dir = checkout();
+    const h = home();
+    recordIncident({ at: new Date().toISOString(), kind: "crash", message: "boom in module 7", verb: "check" });
+    process.env.LOOKOUT_CHECKOUT = dir;
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    process.env.MOCK_HEAL_FILE = join(dir, "src", "healed.ts");
+    process.env.MOCK_HEAL_GARBAGE = "1";
+    try {
+      const code = await selfHeal({ positionals: [], flags: {} });
+      expect(code).toBe(1);
+      // The edit is gone, nothing was committed, and the failure is durable.
+      expect(existsSync(join(dir, "src", "healed.ts"))).toBe(false);
+      const log = execFileSync("git", ["log", "--oneline"], { cwd: dir }).toString();
+      expect(log.trim().split("\n")).toHaveLength(1);
+      expect(readFileSync(incidentsPath(), "utf8")).toContain("healer-unparseable");
+      // The raw reply is kept for a person.
+      const attempts = readdirSync(join(h, "self-heal"));
+      expect(attempts).toHaveLength(1);
+      expect(readFileSync(join(h, "self-heal", attempts[0]!, "raw-reply.txt"), "utf8")).toContain("trust me");
+    } finally {
+      delete process.env.MOCK_HEAL_GARBAGE;
+    }
+  });
+
+  test("the prompt carries exactly one incident group, the heaviest active one", async () => {
+    const dir = checkout(true);
+    home();
+    for (let i = 0; i < 3; i++) {
+      recordIncident({ at: new Date().toISOString(), kind: "crash", message: `heavy bug ${i}`, verb: "check" });
+    }
+    recordIncident({ at: new Date().toISOString(), kind: "judge-unparseable", message: "light bug", verb: "check" });
+    process.env.LOOKOUT_CHECKOUT = dir;
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    process.env.MOCK_HEAL_FILE = join(dir, "src", "healed.ts");
+    const argvFile = join(dir, "argv.jsonl");
+    process.env.MOCK_ARGV_FILE = argvFile;
+    try {
+      expect(await selfHeal({ positionals: [], flags: {} })).toBe(0);
+      const prompt = (JSON.parse(readFileSync(argvFile, "utf8").trim().split("\n")[0]!) as string[])[1]!;
+      expect(prompt.match(/^\d+\. \[/gm)).toHaveLength(1);
+      expect(prompt).toContain("heavy bug");
+      expect(prompt).not.toContain("light bug");
+    } finally {
+      delete process.env.MOCK_ARGV_FILE;
+    }
+  });
+
+  test("a committed heal is marked, so the settled group stops being offered", async () => {
+    const dir = checkout(true);
+    const h = home();
+    recordIncident({ at: new Date().toISOString(), kind: "crash", message: "boom in module 7", verb: "check" });
+    process.env.LOOKOUT_CHECKOUT = dir;
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    process.env.MOCK_HEAL_FILE = join(dir, "src", "healed.ts");
+    expect(await selfHeal({ positionals: [], flags: {} })).toBe(0);
+    expect(readFileSync(join(h, "heals.jsonl"), "utf8")).toContain("boom in module N");
+    // No new occurrences since the heal: the next run finds nothing active.
+    const again = await selfHeal({ positionals: [], flags: {} });
+    expect(again).toBe(0);
+  });
+});

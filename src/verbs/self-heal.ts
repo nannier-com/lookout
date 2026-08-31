@@ -21,7 +21,16 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { loadSkill, renderSkill } from "../skills/load.js";
-import { clusterIncidents, lookoutHome, readIncidents, recordIncident } from "../skills/incidents.js";
+import { lookoutHome, readIncidents, recordIncident, shapeOf } from "../skills/incidents.js";
+import {
+  activeGroups,
+  compactIncidents,
+  discoverReplayProjects,
+  pickGroup,
+  readHeals,
+  recordHeal,
+  type ActiveGroup,
+} from "../skills/heal-select.js";
 import { extractJson, invokeClaude } from "../judge/engine.js";
 import { LookoutError } from "../types.js";
 import { execFileAsync, lockHeld, LOCK_STALE_MS, nowIso, printJson, str, type Parsed } from "../util.js";
@@ -108,10 +117,30 @@ export async function selfHeal(parsed: Parsed): Promise<number> {
   await mkdir(lookoutHome(), { recursive: true });
   await writeFile(lock, nowIso());
   try {
+    // The one writer allowed to rewrite the append-only log: old entries
+    // leave once the file is big enough to matter.
+    const compacted = compactIncidents();
+    if (compacted > 0) console.log(`incident log: compacted ${compacted} entr(ies) older than 90 days`);
     return await heal(parsed);
   } finally {
     await rm(lock, { force: true });
   }
+}
+
+/** The one group, with enough of its occurrences to see the pattern. */
+function describeGroup(g: ActiveGroup, incidents: Parameters<typeof activeGroups>[0]): string {
+  const occurrences = incidents
+    .filter((i) => i.kind === g.kind && shapeOf(i.message) === g.message)
+    .slice(-5);
+  return [
+    `1. [${g.kind}] seen ${g.count}x in the window: ${g.message}` +
+      (g.recurred ? "  (healed before; it came back)" : ""),
+    ...occurrences.map(
+      (i) =>
+        `   - ${i.at}${i.verb ? ` during \`lookout ${i.verb}\`` : ""}` +
+        (i.detail ? `: ${i.detail.slice(0, 400)}` : ""),
+    ),
+  ].join("\n");
 }
 
 async function heal(parsed: Parsed): Promise<number> {
@@ -134,9 +163,21 @@ async function heal(parsed: Parsed): Promise<number> {
   }
 
   const incidents = readIncidents();
-  const groups = clusterIncidents(incidents);
+  const groups = activeGroups(incidents, readHeals());
   if (groups.length === 0) {
-    console.log("nothing to heal: no incidents recorded.");
+    console.log("nothing to heal: no active incidents in the window.");
+    return 0;
+  }
+
+  // lookout picks the group, not the model. One group per run was a sentence
+  // in the prompt before; a rule only the prompt enforces is not a rule, and
+  // the deterministic pick is also what makes the healed-marker mechanical.
+  const { picked, skipped } = pickGroup(groups);
+  for (const s of skipped) {
+    console.log(`  skipping [${s.group.kind}] ${s.group.message.slice(0, 80)}: ${s.why}`);
+  }
+  if (!picked) {
+    console.log("nothing this run can heal: every active group needs a person.");
     return 0;
   }
 
@@ -147,18 +188,14 @@ async function heal(parsed: Parsed): Promise<number> {
   const skill = await loadSkill(null, "self-heal");
   const prompt = renderSkill(skill.text, {
     checkout,
-    incidents: groups
-      .slice(0, 12)
-      .map(
-        (g, i) =>
-          `${i + 1}. [${g.kind}] seen ${g.count}x: ${g.message}\n` +
-          `   latest: ${g.latest.at}${g.latest.verb ? ` during \`lookout ${g.latest.verb}\`` : ""}` +
-          (g.latest.detail ? `\n   detail: ${g.latest.detail.slice(0, 600)}` : ""),
-      )
-      .join("\n"),
+    incidents: describeGroup(picked, incidents),
   });
 
-  console.log(`${groups.length} incident group(s) on record; healing in ${checkout}`);
+  console.log(
+    `${groups.length} active group(s); healing the heaviest` +
+      (picked.recurred ? " (healed before, and it came back)" : "") +
+      ` in ${checkout}`,
+  );
   const res = await invokeClaude({
     prompt,
     cwd: checkout,
@@ -171,7 +208,28 @@ async function heal(parsed: Parsed): Promise<number> {
   try {
     report = extractJson(res.text) as typeof report;
   } catch {
-    report = { summary: res.text.slice(0, 300), changed: true };
+    // The report is load-bearing here: the changeset text, the commit
+    // message and the healed-marker all derive from it, and this is the
+    // most dangerous subprocess in the codebase. An editor that cannot
+    // follow the reply contract does not get its edits committed under
+    // fabricated provenance; the attempt is kept for a person, the tree is
+    // reverted, and the failure is an incident like any other.
+    const dir = attemptDir(stamp);
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "attempt.diff"), await git(checkout, ["diff"]));
+    await writeFile(join(dir, "raw-reply.txt"), res.text);
+    await git(checkout, ["checkout", "--", "."]);
+    await git(checkout, ["clean", "-fd"]);
+    recordIncident({
+      at: nowIso(),
+      kind: "healer-unparseable",
+      verb: "self-heal",
+      message: "healer reply was not parseable JSON; the attempt was reverted",
+      detail: res.text.slice(0, 600),
+      project: checkout,
+    });
+    console.log(`reverted: the healer's reply was not the contract. The attempt is kept at ${dir}`);
+    return 1;
   }
 
   const changed = await git(checkout, ["status", "--porcelain"]);
@@ -187,15 +245,27 @@ async function heal(parsed: Parsed): Promise<number> {
   if (gates.at(-1)!.ok) gates.push(await runGate(checkout, "test", "bun", ["test"]));
   if (gates.at(-1)!.ok) gates.push(await runGate(checkout, "build", "bun", ["run", "build"]));
 
-  // The judge itself, graded against verdicts that were settled before any of
-  // this ran. Only possible when a project is named, because the frozen set
-  // belongs to a project rather than to lookout.
-  const projectDir = str(parsed.flags.project);
-  if (projectDir && gates.at(-1)!.ok) {
+  // The judge itself, graded against verdicts that were settled before any
+  // of this ran. --project names the frozen set to replay; without it,
+  // lookout finds up to two recent projects that hold one, because a gate
+  // the protocol calls part of the bar should not be an opt-in flag. When
+  // none exists anywhere, the commit says so instead of implying it ran.
+  const named = str(parsed.flags.project);
+  if (named && !existsSync(named)) {
+    throw new LookoutError(`--project ${named} does not exist`, "a bad path would fail the gate and revert a possibly good heal");
+  }
+  const replayDirs = gates.at(-1)!.ok
+    ? named
+      ? [named]
+      : await discoverReplayProjects(incidents)
+    : [];
+  for (const dir of replayDirs) {
+    if (!gates.at(-1)!.ok) break;
     gates.push(
-      await runGate(projectDir, "regression replay", "bun", [join(checkout, "dist", "cli.js"), "skills", "replay"]),
+      await runGate(dir, `regression replay (${dir})`, "bun", [join(checkout, "dist", "cli.js"), "skills", "replay"]),
     );
   }
+  const replayRan = gates.some((g) => g.name.startsWith("regression replay"));
 
   const failed = gates.filter((g) => !g.ok);
   for (const g of gates) console.log(`  ${g.ok ? "pass" : "FAIL"}  ${g.name}`);
@@ -218,7 +288,9 @@ async function heal(parsed: Parsed): Promise<number> {
       kind: "self-heal-rollback",
       verb: "self-heal",
       message: `self-heal reverted: ${failed.map((g) => g.name).join(", ")} failed`,
-      detail: report.summary,
+      // The target group's shape rides along so repeated failures on one
+      // group are countable, which is what "needs a person" is made of.
+      detail: `target: ${picked.message} | ${report.summary ?? ""}`,
       project: checkout,
     });
     console.log(`\nreverted. ${failed.length} gate(s) failed; the attempt is kept at ${dir}`);
@@ -232,11 +304,16 @@ async function heal(parsed: Parsed): Promise<number> {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 50);
+  // The directory has to exist before the write: a checkout without it threw
+  // AFTER every gate passed, leaving the healed tree dirty, which then
+  // tripped the clean-tree precondition on the next run.
+  await mkdir(join(checkout, ".changeset"), { recursive: true });
   await writeFile(
     join(checkout, ".changeset", `self-heal-${slug || stamp}.md`),
     `---\n"@nannier-com/lookout": patch\n---\n\n${report.summary ?? "Fixed a failure lookout kept hitting."}\n\n` +
       `${report.cause ?? ""}\n\nFound by \`lookout self-heal\` in the incident log, and kept only because the type ` +
-      `check, the linter, the tests${projectDir ? ", the build and a replay of the frozen regression set" : " and the build"} all passed after it.\n`,
+      `check, the linter, the tests${replayRan ? ", the build and a replay of the frozen regression set" : " and the build"} all passed after it.` +
+      `${replayRan ? "" : " No project with a usable frozen set was found, so the judge itself was not replayed."}\n`,
   );
 
   await git(checkout, ["add", "-A"]);
@@ -245,9 +322,12 @@ async function heal(parsed: Parsed): Promise<number> {
     "-m",
     `fix: ${report.summary ?? "heal a recurring failure"}\n\n${report.cause ?? ""}\n\n` +
       `Found by \`lookout self-heal\` reading the incident log. Every gate passed before this was kept: ` +
-      `${gates.map((g) => g.name).join(", ")}. Not pushed: that is a person's call.`,
+      `${gates.map((g) => g.name).join(", ")}.` +
+      `${replayRan ? "" : " The frozen-set replay did not run: no project holding one was found."}` +
+      ` Not pushed: that is a person's call.`,
   ]);
   const after = await git(checkout, ["rev-parse", "--short", "HEAD"]);
+  recordHeal({ at: nowIso(), kind: picked.kind, shape: picked.message, commit: after });
 
   const payload = {
     healed: true,

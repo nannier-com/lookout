@@ -142,6 +142,12 @@ if (mode === "placement") {
 } else if (mode === "heal") {
   const file = process.env.MOCK_HEAL_FILE;
   if (file) writeFileSync(file, "// written by the mock healer\n");
+  // MOCK_HEAL_GARBAGE: edits are made, then the reply breaks the contract.
+  // The forfeit path (revert, incident, exit 1) is only reachable this way.
+  if (process.env.MOCK_HEAL_GARBAGE) {
+    console.log(JSON.stringify({ result: "I fixed it, trust me, no json today" }));
+    process.exit(0);
+  }
   result =
     "```json\n" +
     JSON.stringify({
