@@ -116,11 +116,29 @@ describe("what the frozen set claims", () => {
     expect(entry.case.mustFile.map((c) => c.category)).toEqual(["color-scheme"]);
   });
 
-  test("an unverified or minor finding settles nothing", () => {
+  test("a verified medium becomes a must-file too, now the refuter reaches it", () => {
+    // Every AI finding gets the refuting pass since the boundary was removed,
+    // so a confirmed medium is a claim the frozen set can actually hold.
     const b = emptyBacklog("demo", "t");
-    const f = finding({ status: "open", reason: null, verified: false, severity: "low" });
+    const f = finding({ status: "open", reason: null, verified: true, severity: "medium" });
     b.findings[f.fingerprint] = f;
+    const entry = claimsByShot(b).get("web/app/root/rest/desktop/dark")!;
+    expect(entry.case.mustFile).toHaveLength(1);
+  });
+
+  test("an unverified finding settles nothing, and neither does a verified low", () => {
+    // Lows stay out on purpose: they are the most judge-variant claims and the
+    // least costly to miss, and the frozen set is a gate that fails amendments
+    // on replay misses. Admitting them would make the improve gate flaky in
+    // exchange for protecting the cheapest findings.
+    const b = emptyBacklog("demo", "t");
+    const unverified = finding({ status: "open", reason: null, verified: false, severity: "low" });
+    b.findings[unverified.fingerprint] = unverified;
     expect(claimsByShot(b).size).toBe(0);
+    const b2 = emptyBacklog("demo", "t");
+    const low = finding({ status: "open", reason: null, verified: true, severity: "low" });
+    b2.findings[low.fingerprint] = low;
+    expect(claimsByShot(b2).size).toBe(0);
   });
 });
 

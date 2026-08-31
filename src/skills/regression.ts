@@ -137,7 +137,12 @@ export function claimsByShot(backlog: Backlog): Map<string, { case: Omit<Regress
   for (const f of Object.values(backlog.findings)) {
     if (f.status === "by-design" && f.reason) {
       add(f, "mustNotFile", f.reason);
-    } else if (f.verified && (f.severity === "critical" || f.severity === "high")) {
+    } else if (f.verified && f.severity !== "low") {
+      // Everything the refuter confirms except lows. Since the refuting pass
+      // reaches every severity, a confirmed medium is a claim the set can
+      // hold; lows stay out because they are the most judge-variant and the
+      // least costly to miss, and a gate that fails amendments on replay
+      // misses cannot afford flaky claims about the cheapest findings.
       add(f, "mustFile", `confirmed by the adversarial verifier: ${f.title}`);
     }
   }
