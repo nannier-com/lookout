@@ -1,5 +1,5 @@
 /**
- * The board, built from what is durably on disk.
+ * The board: what work exists, and what is happening to it this second.
  *
  * The board used to be a fold over the event log alone, which was wrong in a
  * way that only showed up after a restart: `events.jsonl` is narration, and
@@ -10,358 +10,39 @@
  *
  * The durable answer was always sitting next to it. `backlog.json` is the
  * adjudicated record of every finding, clustering is deterministic, and each
- * cluster's attempts and fix sessions are kept in `issues/<id>/state.json`. So the
- * board is derived from those, and the event log is demoted to what it actually
- * is: an overlay saying what is happening *right now*, on top of a board that
- * exists whether or not a run is in flight.
+ * cluster's attempts and fix sessions are kept in `issues/<id>/state.json`. So
+ * the board is derived from those, and the event log is demoted to what it
+ * actually is: an overlay saying what is happening *right now*, on top of a
+ * board that exists whether or not a run is in flight.
  *
- * The rule this encodes: outstanding work is state, not narration.
+ * The rule this encodes: outstanding work is state, not narration. It is also
+ * why this is three files. `board-types` is the contract the page draws against,
+ * `board-durable` reads the state, `board-live` reads the narration, and what is
+ * left here is the join, plus the two tallies that count what came out.
  */
-import { statSync } from "node:fs";
-import { join } from "node:path";
-import { evidenceDir } from "../config.js";
-import { issueDir } from "../issues/paths.js";
-import type { FixCluster } from "../fix/cluster.js";
 import { issuesOf } from "../issues/registry.js";
-import type { AcceptanceCriterion } from "../issues/acceptance.js";
 import { clusterLabel } from "../fix/brief.js";
-import { loadState, type ClusterState } from "../fix/state.js";
 import { loadBacklog } from "../verbs/backlog.js";
-import type { IssueRecord } from "../backlog/lib.js";
-import { wasPhotographed } from "../backlog/lib.js";
-import type { ResolvedConfig } from "../types.js";
-import { readEvents, type LookoutEvent } from "./events.js";
-import { commitUrl, forgeOf } from "./forge.js";
 import { loadFrames } from "../issues/frames.js";
+import { loadState } from "../fix/state.js";
+import { forgeOf } from "./forge.js";
+import { readEvents, type LookoutEvent } from "./events.js";
+import { issueDir } from "../issues/paths.js";
+import {
+  asBoardShot,
+  durableStatus,
+  durableTimeline,
+  fixOf,
+  lastSeenAt,
+  shotsOf,
+} from "./board-durable.js";
+import { liveVerify } from "./board-live.js";
+import type { ResolvedConfig } from "../types.js";
+import { ORDER_BY_ATTENTION, type BoardEntry } from "./board-types.js";
 
-/**
- * Where an issue stands. Every state is one lookout established itself: the
- * backlog says open, blocked, fixed or waived, and `verify-fix` says what it
- * saw last time it was asked to rule. Nothing here tracks who is working on
- * it, because lookout does not dispatch work and cannot know.
- */
-export type IssueStatus =
-  | "open"
-  | "verifying"
-  | "still-open"
-  | "blocked"
-  /** lookout confirmed the defect is gone. */
-  | "done"
-  /**
-   * Off the board and kept as record rather than as work: either adjudicated
-   * intentional, or filed away by hand once lookout had ruled the defect gone.
-   * `BoardEntry.archived` says which, because they are not the same thing.
-   */
-  | "archived";
-
-/**
- * Read top to bottom, this is "what needs a person now" before "what is already
- * dealt with". Blocked sits above done and archived because lookout gave up on
- * it and the defect is still there.
- */
-export const ORDER_BY_ATTENTION: Record<IssueStatus, number> = {
-  verifying: 0,
-  "still-open": 1,
-  open: 2,
-  blocked: 3,
-  done: 4,
-  archived: 5,
-};
-
-/**
- * A screenshot, as the page needs it.
- *
- * Both forms of the path are carried on purpose. `path` is evidence-relative
- * because that is what the server serves thumbnails from; `absPath` is what
- * gets shown and copied, because whoever picks this issue up needs a path they
- * can open without knowing where lookout keeps its evidence.
- */
-export interface BoardShot {
-  path: string;
-  absPath: string;
-  route: string;
-  formFactor: string;
-  scheme: string;
-  state?: string;
-}
-
-/** One line in lookout's record of an issue. */
-export interface BoardStep {
-  at: string;
-  kind: "found" | "claimed" | "verify" | "verdict";
-  text: string;
-}
-
-export interface BoardEntry {
-  /** Six digits. What the card shows, and what `--issue` takes. */
-  id: string;
-  /** The derived key behind it, for anyone debugging why two things grouped. */
-  key: string;
-  /** The issue's folder, absolute: everything about it is in there. */
-  dir: string;
-  label: string;
-  routes: string[];
-  severity: string;
-  category: string;
-  /**
-   * Every distinct defect grouped under this root cause, worst first, with the
-   * judge's own words. This used to live in a separate findings list, which
-   * showed the same screenshot and the same severity next to a pointer back
-   * here: two cards for one thing.
-   */
-  defects: { attribute: string; severity: string; title: string; problem: string }[];
-  /** The screenshots this issue was filed against. */
-  shots: BoardShot[];
-  /**
-   * The frames frozen either side of a fix.
-   *
-   * Empty until a `verify-fix` has run, and `after` stays empty until one
-   * passed. They are not derivable from `shots`: the evidence store overwrites
-   * a view in place, so by the time an issue is done its shots ARE the fixed
-   * screen, and the defect only still exists in these.
-   */
-  before: BoardShot[];
-  after: BoardShot[];
-  /** When lookout last saw this, or null when it cannot tell. */
-  lastSeenAt: string | null;
-  status: IssueStatus;
-  /** Everything lookout has recorded about it, oldest first. */
-  timeline: BoardStep[];
-  /**
-   * What would prove this issue fixed, and where each one stands. Only lookout
-   * writes these verdicts; the page renders them read-only.
-   */
-  acceptance: AcceptanceCriterion[];
-  /** Attempts spent asking lookout to rule on a claimed fix. */
-  attempt: number;
-  verdict: string | null;
-  judgeNote: string | null;
-  /**
-   * The commit this issue was fixed in, or the one a fix was last claimed at,
-   * with somewhere to read it.
-   *
-   * `cleared` is the difference between the two, and it is not cosmetic: a
-   * commit lookout ruled on is a fact, and a commit somebody reported is a
-   * claim that is still open. The url is null when the repository has no
-   * remote lookout could turn into a web address, which is a normal state for
-   * a checkout and not an error.
-   */
-  fix: {
-    commit: string;
-    short: string;
-    url: string | null;
-    host: string | null;
-    cleared: boolean;
-    at: string | null;
-  } | null;
-  /**
-   * Filed away, and why. `fixed` is somebody clearing a confirmed fix off the
-   * board; `intentional` is the older meaning, an adjudication that the defect
-   * was never one. Null while the issue is still work.
-   */
-  archived: { at: string; reason: "fixed" | "intentional" } | null;
-}
-
-/** Screenshots an issue was filed against, newest per member, both path forms. */
-function shotsOf(resolved: ResolvedConfig, c: FixCluster): BoardShot[] {
-  const evDir = evidenceDir(resolved);
-  const seen = new Set<string>();
-  const out: BoardShot[] = [];
-  for (const m of c.members) {
-    const ev = m.evidence[m.evidence.length - 1];
-    // A board tile IS a screenshot; a code-channel member has none to show.
-    if (!ev || seen.has(ev.path) || !wasPhotographed(m)) continue;
-    seen.add(ev.path);
-    out.push({
-      path: ev.path,
-      absPath: join(evDir, ev.path),
-      route: m.route,
-      formFactor: m.formFactor,
-      scheme: m.scheme,
-      state: m.state,
-    });
-  }
-  return out;
-}
-
-/**
- * The commit behind this issue, if anything has claimed one.
- *
- * A ruled fix outranks a reported one: `fixedIn` is written by `verify-fix`
- * when it agreed the defect was gone, and the attempt log holds whatever the
- * last fixer said, ruled or not.
- */
-function fixOf(
-  c: FixCluster,
-  state: ClusterState,
-  forge: Awaited<ReturnType<typeof forgeOf>>,
-): BoardEntry["fix"] {
-  const ruled = c.members.find((m) => m.fixedIn?.commit)?.fixedIn?.commit ?? null;
-  const attempt = [...state.attempts].reverse().find((a) => a.reported?.commit);
-  const commit = ruled ?? attempt?.reported?.commit ?? null;
-  if (!commit) return null;
-  return {
-    commit,
-    short: commit.slice(0, 8),
-    url: forge ? commitUrl(forge, commit) : null,
-    host: forge?.host ?? null,
-    cleared: !!ruled,
-    at: attempt?.dispatchedAt ?? null,
-  };
-}
-
-/** A frozen frame, in the two path forms the page needs. */
-function asBoardShot(
-  resolved: ResolvedConfig,
-  f: { path: string; route: string; formFactor: string; scheme: string; state?: string },
-): BoardShot {
-  return {
-    path: f.path,
-    absPath: join(evidenceDir(resolved), f.path),
-    route: f.route,
-    formFactor: f.formFactor,
-    scheme: f.scheme,
-    ...(f.state ? { state: f.state } : {}),
-  };
-}
-
-/**
- * Where an issue stands.
- *
- * Every state here is something lookout itself established: the backlog says
- * whether the finding is open, blocked, fixed or waived, and `verify-fix` says
- * what happened the last time somebody asked it to rule. Nothing here tracks
- * who is working on it, because lookout does not dispatch work and has no way
- * to know.
- */
-function durableStatus(
-  c: FixCluster,
-  state: ClusterState,
-  record: IssueRecord | undefined,
-): IssueStatus {
-  // Filed away by hand outranks every derived state below, because it is the
-  // one somebody chose. It cannot hide live work: the reconcile that runs on
-  // every save clears the flag the moment a finding reopens.
-  if (record?.archived) return "archived";
-  // Precedence is by how much attention it still wants: anything still open is
-  // live work, then work lookout gave up on, then work it confirmed fixed, and
-  // last the findings somebody adjudicated as intentional.
-  const hasOpen = c.members.some((m) => m.status === "open");
-  if (!hasOpen) {
-    if (c.members.some((m) => m.status === "blocked")) return "blocked";
-    if (c.members.some((m) => m.status === "fixed")) return "done";
-    return "archived";
-  }
-  const lastAttempt = state.attempts[state.attempts.length - 1];
-  if (lastAttempt?.verdict === "still-open") return "still-open";
-  if (lastAttempt?.verdict === "blocked") return "blocked";
-  return "open";
-}
-
-/**
- * What lookout has recorded about this issue: when it first saw it, and every
- * time it was asked to rule on a claimed fix.
- */
-function durableTimeline(state: ClusterState, foundAt: string | null): BoardStep[] {
-  const steps: BoardStep[] = foundAt
-    ? [{ at: foundAt, kind: "found", text: "lookout filed this issue" }]
-    : [];
-  for (const a of state.attempts) {
-    if (a.reported?.commit || a.reported?.note) {
-      steps.push({
-        at: a.dispatchedAt,
-        kind: "claimed",
-        text:
-          "a fix was reported" +
-          (a.reported.commit ? ` at ${a.reported.commit}` : "") +
-          (a.reported.note ? `: ${a.reported.note}` : ""),
-      });
-    }
-    // What the fix surfaced elsewhere, said plainly and without blame: these
-    // are their own issues, and this one is not answerable for them.
-    if (a.spawned && a.spawned.length > 0) {
-      steps.push({
-        at: a.dispatchedAt,
-        kind: "found",
-        text:
-          a.spawned.length === 1
-            ? `fixing this surfaced issue ${a.spawned[0]}`
-            : `fixing this surfaced issues ${a.spawned.join(", ")}`,
-      });
-    }
-    if (!a.verdict) continue;
-    steps.push({
-      at: a.dispatchedAt,
-      kind: "verdict",
-      text: `lookout ruled it ${a.verdict}` + (a.judgeNote ? `: ${a.judgeNote}` : ""),
-    });
-  }
-  return steps.sort((x, y) => x.at.localeCompare(y.at));
-}
-
-/**
- * When lookout last saw this issue: the mtime of the newest screenshot it was
- * filed against. There is no dispatch to date it by any more, and "last seen"
- * is the honest thing anyway, since a finding is only as current as the capture
- * that produced it.
- */
-function lastSeenAt(resolved: ResolvedConfig, c: FixCluster, state: ClusterState): string | null {
-  const evDir = evidenceDir(resolved);
-  let newest: number | null = null;
-  for (const m of c.members) {
-    const ev = m.evidence[m.evidence.length - 1];
-    if (!ev) continue;
-    try {
-      const t = statSync(join(evDir, ev.path)).mtimeMs;
-      if (newest === null || t > newest) newest = t;
-    } catch {
-      // A screenshot that has been cleaned up does not date the issue.
-    }
-  }
-  if (newest !== null) return new Date(newest).toISOString();
-  return state.attempts[0]?.dispatchedAt ?? null;
-}
-
-/**
- * The issue a `verify-fix` is judging this second, if one is, and everything
- * that run has said about it so far.
- *
- * Read from the events directly rather than from a fold, because a log
- * truncated by a plain `check` carries nothing else to attach to. The run is in
- * flight while its run-start has no matching run-end.
- */
-function liveVerify(events: LookoutEvent[]): { cluster: string | null; steps: BoardStep[] } {
-  let cluster: string | null = null;
-  let runId: string | null = null;
-  let steps: BoardStep[] = [];
-  for (const e of events) {
-    if (e.kind === "run-start" && e.data?.verb === "verify-fix") {
-      cluster = typeof e.data.issue === "string" ? e.data.issue : null;
-      runId = e.runId;
-      steps = [{ at: e.at, kind: "verify", text: "lookout started re-judging this" }];
-      continue;
-    }
-    if (e.runId !== runId) continue;
-    if (e.kind === "run-end") {
-      cluster = null;
-      runId = null;
-      steps = [];
-      continue;
-    }
-    // The feed tails a run in progress, so anything it says belongs on it.
-    if (e.kind === "phase") steps.push({ at: e.at, kind: "verify", text: e.message });
-    else if (e.kind === "shot") {
-      steps.push({ at: e.at, kind: "verify", text: `re-captured ${e.message}` });
-    } else if (e.kind === "finding") {
-      steps.push({ at: e.at, kind: "verdict", text: `still sees ${e.message}` });
-    } else if (e.kind === "verdict") {
-      steps.push({ at: e.at, kind: "verdict", text: e.message });
-    } else if (e.kind === "error") {
-      steps.push({ at: e.at, kind: "verdict", text: e.message });
-    }
-  }
-  return { cluster, steps };
-}
+// The contract lives next door, but this is where every caller looks for it.
+export type { BoardEntry, BoardShot, BoardStep, IssueStatus } from "./board-types.js";
+export { ORDER_BY_ATTENTION };
 
 /**
  * Outstanding work, from disk, with anything the run in flight knows laid over

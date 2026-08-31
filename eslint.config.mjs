@@ -67,7 +67,6 @@ export default tseslint.config(
     "src/design/conformance.ts": 422,
     "src/design/detect.ts": 403,
     "src/judge/engine.ts": 306,
-    "src/report/board.ts": 315,
     "src/verbs/skills.ts": 367,
     "src/verbs/verify-fix.ts": 325,
   }).map(([file, max]) => ({
