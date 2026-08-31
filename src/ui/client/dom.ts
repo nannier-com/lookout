@@ -66,6 +66,19 @@ export function slot(selector: string): HTMLElement {
   return document.querySelector<HTMLElement>(selector) ?? document.createElement("span");
 }
 
+/**
+ * The element a click landed on, or the nearest one matching.
+ *
+ * Every listener on this page is delegated, because the regions they cover are
+ * rebuilt under them several times a minute. An event target is not necessarily
+ * an element (it can be the document, or a node with no ancestors left), so
+ * this is the one place that check is made.
+ */
+export function hit(e: Event, selector: string): HTMLElement | null {
+  const target = e.target;
+  return target instanceof Element ? target.closest<HTMLElement>(selector) : null;
+}
+
 /** Encode a path for a URL without turning its separators into %2F. */
 export const enc = (p: string): string => String(p).split("/").map(encodeURIComponent).join("/");
 
