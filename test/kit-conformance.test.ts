@@ -310,13 +310,20 @@ describe("not paying twice for the same file", () => {
 
   test("a cache written by a different reader is discarded whole", async () => {
     const r = appWithKit("lookout-conf-identity-");
-    const a = readerIdentity(1, ["Button", "Card"]);
-    const b = readerIdentity(2, ["Button", "Card"]);
-    const c = readerIdentity(1, ["Button", "Card", "Sheet"]);
+    const skill = { version: 1, text: "read the file" };
+    const a = readerIdentity(skill, "sonnet", ["Button", "Card"]);
+    const b = readerIdentity({ ...skill, version: 2 }, "sonnet", ["Button", "Card"]);
+    const c = readerIdentity(skill, "sonnet", ["Button", "Card", "Sheet"]);
     expect(a).not.toBe(b);
     expect(a).not.toBe(c);
+    // The judge ledger's lesson, applied here: the composed text moves the
+    // identity even when nobody bumped a version (a project amendment with no
+    // version field changes the prompt), and so does the model, because a
+    // verdict is that model's verdict.
+    expect(readerIdentity({ ...skill, text: "read the file, and its tests" }, "sonnet", ["Button", "Card"])).not.toBe(a);
+    expect(readerIdentity(skill, "opus", ["Button", "Card"])).not.toBe(a);
     // Export order is not a change; what the kit provides is a set.
-    expect(readerIdentity(1, ["Card", "Button"])).toBe(a);
+    expect(readerIdentity(skill, "sonnet", ["Card", "Button"])).toBe(a);
 
     await saveCache(r, {
       schema: 1,

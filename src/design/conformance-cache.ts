@@ -8,11 +8,14 @@
  * previous verdict is still the verdict.
  *
  * Keyed on the file's own bytes plus an identity for everything that could
- * change the answer without the file changing: the skill's version, including
- * whatever this project has amended into it, and the kit's export list, because
+ * change the answer without the file changing: the composed skill text (a
+ * project amendment with no version field changes the prompt and nothing
+ * else), the skill's version (kept for humans reading the file), the model
+ * (a verdict is that model's verdict), and the kit's export list, because
  * what the kit provides is half of every finding here. Move any of those and
  * every cached verdict is dropped, which is the same bargain the judge ledger
- * makes with the rubric.
+ * makes with the rubric; the ledger learned the hard way that a version-only
+ * key leaves the prompt and the model free to move under it.
  *
  * A cache miss costs a model call. A stale hit would cost a wrong answer, so
  * everything here fails toward the miss.
@@ -45,8 +48,14 @@ export function hashText(text: string): string {
 }
 
 /** Everything that changes the answer without changing the file. */
-export function readerIdentity(skillVersion: number, kitExports: string[]): string {
-  return hashText(`v${skillVersion}|${[...kitExports].sort().join(",")}`);
+export function readerIdentity(
+  skill: { version: number; text: string },
+  model: string,
+  kitExports: string[],
+): string {
+  return hashText(
+    `v${skill.version}|p:${hashText(skill.text)}|m:${model}|x:${[...kitExports].sort().join(",")}`,
+  );
 }
 
 export function cachePath(resolved: ResolvedConfig): string {

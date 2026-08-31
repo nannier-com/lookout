@@ -125,7 +125,7 @@ export async function readConformance(
   // What has already been read, and has not changed since. A file's bytes
   // cannot have grown a hand-rolled control while staying the same bytes, so a
   // hit is a verdict rather than a shortcut.
-  const identity = readerIdentity(skill.version, kit.exports);
+  const identity = readerIdentity(skill, model, kit.exports);
   const useCache = opts.cache !== false;
   const cache: ConformanceCache = useCache
     ? await loadCache(resolved, identity)
