@@ -163,3 +163,24 @@ export function requireUp(statuses: TargetStatus[]): void {
     "lookout never starts services itself; start the app, then re-run",
   );
 }
+
+
+/**
+ * Whether a stored shot still describes something the current config asks
+ * for. The capture report accumulates across runs and replaces only same-id
+ * shots, so a route or state removed from the config would otherwise be
+ * judged (and its findings refreshed) forever. Web only: native target
+ * resolution is a different shape, and a conservative predicate that never
+ * prunes a native shot beats one that guesses.
+ */
+export function shotInConfig(
+  shot: { platform: string; target: string; route: string; state: string },
+  targets: ResolvedTarget[],
+): boolean {
+  if (shot.platform !== "web") return true;
+  const t = targets.find((x) => x.def.name === shot.target);
+  if (!t) return false;
+  const r = t.routes.find((x) => x.path === shot.route);
+  if (!r) return false;
+  return shot.state === "rest" || r.states.includes(shot.state);
+}

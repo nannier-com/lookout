@@ -69,7 +69,16 @@ export async function mergeRun(
   resolved: ResolvedConfig,
   run: RunRecord,
   shots: ShotRecord[],
-): Promise<CaptureReport> {
+  opts: {
+    /**
+     * The full config's targets, passed only by an UNSCOPED capture: web
+     * shots no longer describing a configured route/state are dropped from
+     * the report. A scoped capture cannot see the whole config's intent, so
+     * it never prunes.
+     */
+    pruneNotIn?: import("../targets.js").ResolvedTarget[];
+  } = {},
+): Promise<{ report: CaptureReport; pruned: number }> {
   const existing = (await loadReport(resolved)) ?? {
     version: 1 as const,
     project: resolved.project,
@@ -79,19 +88,27 @@ export async function mergeRun(
     shots: [],
   };
   const ids = new Set(shots.map((s) => s.id));
+  let kept = [...existing.shots.filter((s) => !ids.has(s.id)), ...shots];
+  let pruned = 0;
+  if (opts.pruneNotIn) {
+    const { shotInConfig } = await import("../targets.js");
+    const before = kept.length;
+    kept = kept.filter((s) => shotInConfig(s, opts.pruneNotIn!));
+    pruned = before - kept.length;
+  }
   const report: CaptureReport = {
     ...existing,
     project: resolved.project,
     updatedAt: nowIso(),
     runs: [...existing.runs.slice(-19), run], // keep the last 20 runs of history
-    shots: [...existing.shots.filter((s) => !ids.has(s.id)), ...shots],
+    shots: kept,
   };
   const p = reportPath(resolved);
   await mkdir(dirname(p), { recursive: true });
   const tmp = `${p}.tmp`;
   await writeFile(tmp, JSON.stringify(report, null, 2));
   await rename(tmp, p);
-  return report;
+  return { report, pruned };
 }
 
 export async function writeShotFile(

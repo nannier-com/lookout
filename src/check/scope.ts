@@ -9,6 +9,8 @@
  * about an application nobody looked at.
  */
 import { loadConfig } from "../config.js";
+import { resolveTargets, shotInConfig } from "../targets.js";
+import { emit } from "../report/events.js";
 import { loadReport } from "../capture/store.js";
 import { runCapture } from "../verbs/capture.js";
 import { LookoutError, type ResolvedConfig, type ShotRecord } from "../types.js";
@@ -39,10 +41,22 @@ export async function resolveScope(parsed: Parsed): Promise<CheckScope> {
     );
   }
 
-  // 2. Scope selection mirrors capture's flags.
+  // 2. Scope selection mirrors capture's flags, pinned to the CURRENT
+  // config: the report accumulates across runs, so shots of routes or states
+  // no longer configured would otherwise stay in judging scope forever,
+  // paying capture and refreshing findings about screens nobody can reach.
+  const configured = resolveTargets(resolved.config, undefined, undefined, resolved.configPath);
   const onlyTargets = list(parsed.flags.targets);
   const onlyRoutes = list(parsed.flags.routes);
-  const shots = report.shots.filter(
+  const inConfig = report.shots.filter((s) => shotInConfig(s, configured));
+  const dropped = report.shots.filter((s) => s.platform === "web").length -
+    inConfig.filter((s) => s.platform === "web").length;
+  if (dropped > 0) {
+    emit("note", `${dropped} stored shot(s) are for routes or states no longer configured; left out of scope`, {
+      dropped,
+    });
+  }
+  const shots = inConfig.filter(
     (s) =>
       s.platform === "web" &&
       (!onlyTargets || onlyTargets.includes(s.target)) &&

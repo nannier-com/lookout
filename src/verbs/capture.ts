@@ -108,7 +108,19 @@ export async function runCapture(parsed: Parsed): Promise<{
     const web = await captureWeb(resolved, targets, opts);
     run = web.run;
     shots = web.shots;
-    await mergeRun(resolved, web.run, web.shots);
+    // An unscoped capture sees the config's whole intent, so it is the one
+    // moment stored shots for since-removed routes or states can be retired.
+    const unscoped = !parsed.flags.targets && !parsed.flags.routes;
+    const { pruned } = await mergeRun(resolved, web.run, web.shots, {
+      ...(unscoped
+        ? { pruneNotIn: resolveTargets(resolved.config, undefined, undefined, resolved.configPath) }
+        : {}),
+    });
+    if (pruned > 0) {
+      const line = `pruned ${pruned} shot(s) for routes or states no longer configured`;
+      if (!quiet) console.log(line);
+      emit("note", line, { pruned });
+    }
   }
 
   const nativePlatforms = platforms.filter((p): p is "ios" | "android" => p !== "web");
