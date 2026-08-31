@@ -1,5 +1,16 @@
 # @nannier-com/lookout
 
+## 0.31.3
+
+### Patch Changes
+
+- c0d06be: The README catches up with the trigger redesign: the learning section
+  documents the automatic improve trigger and its off switches, the watermark,
+  and `--propose`; the self-heal section documents the deterministic group
+  pick, heal markers, the reply-contract forfeit, and the discovered replay
+  gate; and the "never truncated" claim about the incident log now names the
+  one compaction that rewrites it.
+
 ## 0.31.2
 
 ### Patch Changes
