@@ -77,12 +77,16 @@ async function shots(label: string): Promise<void> {
   await view(browser, out, "board-light", "light", 1440, 950, nothing, problems);
   await view(browser, out, "board-narrow", "light", 430, 900, nothing, problems);
   await view(browser, out, "board-filtered", "dark", 1440, 950, (p) => p.click('button.stat[data-value="archived"]'), problems);
+  // The settled issue, which is the only card carrying both halves of a pre and
+  // post fix pair. It is filtered off the default board, so without this view
+  // the comparison the page exists to show is never captured.
+  await view(browser, out, "board-done", "dark", 1440, 950, (p) => p.click('button.stat[data-value="done"]'), problems);
   await view(browser, out, "settings-open", "dark", 1440, 950, (p) => p.click("#cog"), problems);
   await view(browser, out, "learning-dark", "dark", 1440, 950, (p) => p.click('[data-view="learning"]'), problems);
   await view(browser, out, "learning-light", "light", 1440, 950, (p) => p.click('[data-view="learning"]'), problems);
   await view(browser, out, "learning-narrow", "dark", 430, 900, (p) => p.click('[data-view="learning"]'), problems);
   await browser.close();
-  console.log(`${label}: 8 views in ${out}`);
+  console.log(`${label}: ${readdirSync(out).filter((n) => n.endsWith(".png")).length} views in ${out}`);
   console.log(problems.length ? `PROBLEMS:\n${problems.join("\n")}` : "no page or console errors");
 }
 
@@ -165,8 +169,9 @@ async function drive(): Promise<number> {
   const before = await shown();
   check("board renders cards", before.length > 0, `ids=${before.join(",")}`);
 
-  // The fixture has one open issue and one adjudicated, so what a filter changes
-  // is which card is on the board, not how many.
+  // The fixture has one issue in each of open, adjudicated and settled, and the
+  // board shows one status at a time, so what a filter changes is which card is
+  // on the board, not how many.
   await page.click('button.stat[data-value="archived"]');
   await page.waitForTimeout(1200);
   const during = await shown();

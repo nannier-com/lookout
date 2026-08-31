@@ -60,6 +60,11 @@ export interface BoardShot {
   formFactor: string;
   scheme: string;
   state?: string;
+  /**
+   * When a frozen frame was taken. Absent on a live store shot, which has no
+   * moment of its own: it is whatever that view rendered at the last capture.
+   */
+  at?: string;
 }
 
 /** One line in lookout's record of an issue. */

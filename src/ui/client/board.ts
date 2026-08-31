@@ -24,11 +24,15 @@ function strip(label: string, shots: BoardShot[]): string {
 /**
  * The defect and what replaced it, one pair per view.
  *
+ * This is the card's evidence, not a section that appears once something has
+ * been fixed. Every issue is frozen the moment it is filed, so the pre-fix
+ * frame is there from the start and the post-fix half is a placeholder saying
+ * lookout has not ruled a fix on this view yet.
+ *
  * Paired on route, form factor and scheme, because a comparison the reader has
  * to assemble themselves out of two strips is not a comparison. A view with
- * only one side still shows: the missing half says which side is missing rather
- * than silently dropping the frame, since "there is no after for the phone" is
- * itself worth seeing.
+ * only one side still shows: the missing half says which side is missing, and
+ * why, rather than silently dropping the frame.
  */
 function fixStrip(b: BoardEntry): string {
   const before = b.before || [], after = b.after || [];
@@ -40,21 +44,30 @@ function fixStrip(b: BoardEntry): string {
   for (const s of before) { pairs.push([s, afterBy.get(key(s)) ?? null]); seen.add(key(s)); }
   for (const s of after) if (!seen.has(key(s))) pairs.push([null, s]);
 
+  // A post-fix frame is only taken when lookout rules a fix passed, so its
+  // absence on an open issue is the ordinary case and says so. On a settled
+  // issue it means the freeze found nothing to copy, which is a different
+  // sentence and a rarer one.
+  const ruled = b.status === "done" || b.status === "archived";
+  const absent = (side: string): string =>
+    side === "post" ? (ruled ? "no post-fix frame kept" : "no post-fix frame yet")
+      : "no pre-fix frame kept";
+
   const half = (s: BoardShot | null, side: string): string => s
     ? '<a class="tile side ' + side + '" href="/evidence/' + enc(s.path) + '" target="_blank"'
-      + ' title="' + esc(s.absPath) + '">'
+      + ' title="' + esc(s.absPath + (s.at ? "\nfrozen " + s.at.slice(0, 10) : "")) + '">'
       + '<img loading="lazy" src="/thumb/' + enc(s.path) + '?w=264" alt=""/>'
-      + '<b>' + side + '</b></a>'
-    : '<div class="missing">no ' + side + ' frame</div>';
+      + '<b>' + side + '-fix</b></a>'
+    : '<div class="missing">' + esc(absent(side)) + '</div>';
 
   const body = pairs.map(([bf, af]) => {
     // One side is always present: a pair is only made from a frame that exists.
     const s = (bf ?? af)!;
     const label = [s.formFactor, s.scheme].filter(Boolean).join(" \u00b7 ") || s.route;
-    return '<div class="pair"><div class="frames">' + half(bf, "before") + half(af, "after")
+    return '<div class="pair"><div class="frames">' + half(bf, "pre") + half(af, "post")
       + '</div><div class="lbl">' + esc(label) + '</div></div>';
   }).join("");
-  return '<div class="evi"><h4>The fix</h4><div class="pairs">' + body + '</div></div>';
+  return '<div class="evi"><h4>Pre and post fix</h4><div class="pairs">' + body + '</div></div>';
 }
 
 // What lookout has recorded about this issue, oldest first.
@@ -78,7 +91,11 @@ function paths(b: BoardEntry): string {
   // screenshots and its attempt history, which is the whole point of numbering
   // issues. The evidence-store paths follow for anyone who wants the originals.
   if (b.dir) rows.push(b.dir);
-  for (const s of b.shots) rows.push(s.absPath);
+  // The frames the card is showing, which are the paths that stay put. The
+  // store's own copies move under whoever opens them, so they are listed only
+  // when there is nothing frozen to list instead.
+  const frames = [...(b.before || []), ...(b.after || [])];
+  for (const s of frames.length ? frames : b.shots) rows.push(s.absPath);
   if (!rows.length) return "";
   return '<div class="evi"><h4>On disk</h4><div class="paths">'
     + rows.map(p => '<div>' + esc(p) + '</div>').join("") + '</div></div>';
@@ -228,17 +245,15 @@ export function card(b: BoardEntry): string {
     + '<span class="chip">' + esc(b.category) + '</span>' + routes + attempt + '</div>'
     + defects(b)
     + acceptance(b)
-    // Once a fix has been ruled on, the frozen pair IS the evidence, and the
-    // live strip beneath it would be the same view a second time. Before any
-    // ruling, the strip is all there is. The label follows the truth in both
-    // cases: after a pass, the store's copy of these views is the fixed screen,
-    // so calling it "where lookout saw it" would be describing a picture of the
-    // opposite of the defect.
+    // The frozen pair IS the evidence, and the live strip beneath it would be
+    // the same view a second time. The strip is what is left for an issue with
+    // no frames: one filed before they existed, or one whose pixels were
+    // cleaned out of the store before anything could copy them. It cannot claim
+    // to be where lookout saw the defect, because the store overwrites a view
+    // on every capture, so it says only what it is.
     + ((b.after || []).length || (b.before || []).length
         ? fixStrip(b)
-        : strip(b.status === "done" || b.status === "archived"
-            ? "These views as they are now"
-            : "Where lookout saw it", b.shots))
+        : strip("These views as they are now", b.shots))
     + judge + feed(b) + paths(b)
     + '</article>';
 }

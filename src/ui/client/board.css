@@ -52,12 +52,13 @@ border:1px solid var(--line);border-radius:7px;background:var(--sunk)}
 .tile:hover img{border-color:var(--accent)}
 .tile span{display:block;font-size:10.5px;color:var(--faint);margin-top:4px;
 overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* Before and after, as pairs rather than as two lists: the comparison is the
+/* Pre and post fix, as pairs rather than as two lists: the comparison is the
    whole point, and a reader should not have to match a phone shot in one strip
    against a phone shot in another. */
-.pairs{display:flex;gap:12px;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin}
-.pairs::-webkit-scrollbar{height:6px}
-.pairs::-webkit-scrollbar-thumb{background:var(--line);border-radius:99px}
+/* Wrapped, not scrolled. A strip of single tiles can run off the edge and lose
+   nothing but one more example; a row of pairs that runs off the edge hides
+   half of the comparison the section exists to show. */
+.pairs{display:flex;flex-wrap:wrap;gap:12px 14px;padding-bottom:4px}
 .pair{flex:0 0 auto;display:flex;flex-direction:column;gap:4px}
 .pair .frames{display:flex;gap:6px;align-items:flex-start}
 .pair .side{position:relative}
@@ -67,7 +68,7 @@ overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pair .side b{position:absolute;left:5px;bottom:5px;font-size:9px;font-weight:700;
 text-transform:uppercase;letter-spacing:.06em;padding:2px 5px;border-radius:5px;
 background:rgba(0,0,0,.72);color:#fff;pointer-events:none;line-height:1.5}
-.pair .side.after b{background:var(--ok);color:#04170c}
+.pair .side.post b{background:var(--ok);color:#04170c}
 .pair .lbl{font-size:10.5px;color:var(--faint);overflow:hidden;text-overflow:ellipsis;
 white-space:nowrap;max-width:270px}
 .pair .missing{width:132px;height:106px;border:1px dashed var(--line);border-radius:7px;

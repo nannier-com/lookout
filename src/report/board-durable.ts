@@ -69,7 +69,7 @@ export function fixOf(
 /** A frozen frame, in the two path forms the page needs. */
 export function asBoardShot(
   resolved: ResolvedConfig,
-  f: { path: string; route: string; formFactor: string; scheme: string; state?: string },
+  f: { path: string; route: string; formFactor: string; scheme: string; state?: string; at?: string },
 ): BoardShot {
   return {
     path: f.path,
@@ -78,6 +78,7 @@ export function asBoardShot(
     formFactor: f.formFactor,
     scheme: f.scheme,
     ...(f.state ? { state: f.state } : {}),
+    ...(f.at ? { at: f.at } : {}),
   };
 }
 

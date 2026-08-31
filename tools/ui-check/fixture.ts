@@ -20,6 +20,18 @@ import sharp from "sharp";
 const AT = "2026-08-28T14:02:11.000Z";
 
 /**
+ * Issue ids, fixed rather than minted.
+ *
+ * lookout draws an id at random the first time it sees a cluster key, and a
+ * random number on a card is a hundred pixels that differ between two captures
+ * of the same page. Seeding the records means the fixture also owns the frames
+ * frozen under each id.
+ */
+const OPEN_ISSUE = "418203";
+const INTENTIONAL_ISSUE = "552140";
+const SETTLED_ISSUE = "731094";
+
+/**
  * The age of the evidence, frozen.
  *
  * The one clock the page shows is "seen <duration>", derived from the mtime of
@@ -31,8 +43,15 @@ const AT = "2026-08-28T14:02:11.000Z";
  */
 const EVIDENCE_MTIME = new Date("2025-01-01T00:00:00.000Z");
 
-/** A page-shaped image, so a thumbnail looks like a screenshot of something. */
-async function shot(path: string, bg: string, bar: string): Promise<void> {
+/**
+ * A page-shaped image, so a thumbnail looks like a screenshot of something.
+ *
+ * `overflow` draws a block running off the right edge, which is what the pre
+ * and post frames of the settled issue differ by: a pair whose halves are the
+ * same picture proves the layout renders but not that it is showing two
+ * different moments.
+ */
+async function shot(path: string, bg: string, bar: string, overflow = false): Promise<void> {
   const svg = Buffer.from(
     `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="900">
       <rect width="1280" height="900" fill="${bg}"/>
@@ -40,7 +59,7 @@ async function shot(path: string, bg: string, bar: string): Promise<void> {
       <rect x="40" y="140" width="520" height="34" rx="8" fill="#8b8f99" opacity="0.45"/>
       <rect x="40" y="200" width="900" height="18" rx="6" fill="#8b8f99" opacity="0.3"/>
       <rect x="40" y="232" width="820" height="18" rx="6" fill="#8b8f99" opacity="0.3"/>
-      <rect x="40" y="300" width="300" height="120" rx="12" fill="#8b8f99" opacity="0.2"/>
+      <rect x="40" y="300" width="${overflow ? 1500 : 300}" height="120" rx="12" fill="#8b8f99" opacity="0.2"/>
     </svg>`,
   );
   await sharp(svg).png().toFile(path);
@@ -68,6 +87,42 @@ function finding(over: Record<string, unknown>): Record<string, unknown> {
   };
 }
 
+/**
+ * One issue's frozen frames: the images, and the manifest the page reads.
+ *
+ * Written by hand because the fixture has no run behind it. What the card draws
+ * is this manifest, so this is the shape a real freeze leaves on disk.
+ */
+async function freeze(
+  ev: string,
+  id: string,
+  sides: readonly {
+    side: "before" | "after";
+    file: string;
+    route: string;
+    formFactor: string;
+    overflow: boolean;
+  }[],
+): Promise<void> {
+  const manifest: { schema: 1; before: unknown[]; after: unknown[] } = { schema: 1, before: [], after: [] };
+  for (const f of sides) {
+    const dir = join(ev, "fix-frames", id, f.side);
+    mkdirSync(dir, { recursive: true });
+    const path = join(dir, f.file);
+    await shot(path, "#101318", "#181c24", f.overflow);
+    utimesSync(path, EVIDENCE_MTIME, EVIDENCE_MTIME);
+    manifest[f.side].push({
+      path: `fix-frames/${id}/${f.side}/${f.file}`,
+      route: f.route,
+      formFactor: f.formFactor,
+      scheme: "dark",
+      state: "rest",
+      at: AT,
+    });
+  }
+  writeFileSync(join(ev, "fix-frames", id, "frames.json"), JSON.stringify(manifest, null, 2) + "\n");
+}
+
 export async function buildFixture(root: string): Promise<{ project: string; home: string; checkout: string }> {
   rmSync(root, { recursive: true, force: true });
   const project = join(root, "project");
@@ -91,6 +146,26 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
     await shot(path, bg, bar);
     utimesSync(path, EVIDENCE_MTIME, EVIDENCE_MTIME);
   }
+
+  // The settled issue's own views, and the frames frozen either side of the fix
+  // that closed it. The open issue has a pre-fix frame and no post-fix one,
+  // which is what an issue nobody has fixed yet looks like; the intentional one
+  // has neither, so the card falls back to the live strip.
+  mkdirSync(join(ev, "web", "app", "settings"), { recursive: true });
+  for (const name of ["rest--desktop-dark.png", "rest--phone-dark.png"]) {
+    const path = join(ev, "web", "app", "settings", name);
+    await shot(path, "#101318", "#181c24");
+    utimesSync(path, EVIDENCE_MTIME, EVIDENCE_MTIME);
+  }
+  await freeze(ev, OPEN_ISSUE, [
+    { side: "before", file: "web-app-root-rest--desktop-dark.png", route: "/", formFactor: "desktop", overflow: false },
+  ]);
+  await freeze(ev, SETTLED_ISSUE, [
+    { side: "before", file: "web-app-settings-rest--desktop-dark.png", route: "/settings", formFactor: "desktop", overflow: true },
+    { side: "before", file: "web-app-settings-rest--phone-dark.png", route: "/settings", formFactor: "phone", overflow: true },
+    { side: "after", file: "web-app-settings-rest--desktop-dark.png", route: "/settings", formFactor: "desktop", overflow: false },
+    { side: "after", file: "web-app-settings-rest--phone-dark.png", route: "/settings", formFactor: "phone", overflow: false },
+  ]);
 
   writeFileSync(
     join(lk, "backlog.json"),
@@ -121,8 +196,53 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
             expected: "A dark rendering.",
             observed: "The light rendering, unchanged.",
           }),
+          "app.settings.rest.desktop.dark.layout-overflow.horizontal-scroll": finding({
+            fingerprint: "app.settings.rest.desktop.dark.layout-overflow.horizontal-scroll",
+            route: "/settings",
+            category: "layout-overflow",
+            attribute: "horizontal-scroll",
+            status: "fixed",
+            fixedIn: { commit: "9f2c41d7b6a8e05c3d1f", runId: "verify-fix-1", at: AT },
+            title: "The settings table scrolls the page sideways",
+            problem: "A 1500px table forces the document 220px wider than the viewport.",
+            expected: "No horizontal scrollbar at any supported width.",
+            observed: "document.scrollWidth 1500 against a 1280 viewport.",
+            evidence: [
+              { shotId: "web/app/settings/rest/desktop/dark", path: "web/app/settings/rest--desktop-dark.png", hash: "h3", at: AT },
+            ],
+          }),
+          "app.settings.rest.phone.dark.layout-overflow.horizontal-scroll": finding({
+            fingerprint: "app.settings.rest.phone.dark.layout-overflow.horizontal-scroll",
+            route: "/settings",
+            formFactor: "phone",
+            category: "layout-overflow",
+            attribute: "horizontal-scroll",
+            status: "fixed",
+            fixedIn: { commit: "9f2c41d7b6a8e05c3d1f", runId: "verify-fix-1", at: AT },
+            title: "The settings table scrolls the page sideways",
+            problem: "The same table, worse on a phone.",
+            expected: "No horizontal scrollbar at any supported width.",
+            observed: "document.scrollWidth 1500 against a 390 viewport.",
+            evidence: [
+              { shotId: "web/app/settings/rest/phone/dark", path: "web/app/settings/rest--phone-dark.png", hash: "h4", at: AT },
+            ],
+          }),
         },
-        issues: {},
+        issues: {
+          [OPEN_ISSUE]: { id: OPEN_ISSUE, key: "app--contrast--body-text", createdAt: AT, acceptance: [] },
+          [INTENTIONAL_ISSUE]: {
+            id: INTENTIONAL_ISSUE,
+            key: "app--color-scheme--no-dark-theme",
+            createdAt: AT,
+            acceptance: [],
+          },
+          [SETTLED_ISSUE]: {
+            id: SETTLED_ISSUE,
+            key: "app--layout-overflow--horizontal-scroll",
+            createdAt: AT,
+            acceptance: [],
+          },
+        },
       },
       null,
       2,
