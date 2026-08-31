@@ -228,7 +228,11 @@ if (mode === "placement") {
     }) +
     "\n```";
 } else if (mode === "criteria") {
-  result =
+  // MOCK_CRITERIA overrides the whole reply, for tests that need verdicts the
+  // default one-of-each shape cannot express (an all-pass run, no-fail runs).
+  result = process.env.MOCK_CRITERIA
+    ? "```json\n" + process.env.MOCK_CRITERIA + "\n```"
+    :
     "```json\n" +
     JSON.stringify({
       criteria: [
