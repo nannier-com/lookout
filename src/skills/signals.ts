@@ -26,6 +26,7 @@ import { join } from "node:path";
 import { evidenceDir } from "../config.js";
 import { loadBacklog } from "../verbs/backlog.js";
 import { issuesOf } from "../issues/registry.js";
+import { sha256 } from "../util.js";
 import type { ResolvedConfig } from "../types.js";
 
 export interface Signal {
@@ -38,6 +39,18 @@ export interface Signal {
   detail: string;
   /** Where it came from, so an amendment can cite it. */
   source: string;
+  /**
+   * Stable identity, for the watermark: the same underlying event recomputes
+   * to the same key on every gather, so "new since the last improve" is
+   * decidable. Excludes `skill` on purpose: attribution fixes must never
+   * resurrect already-consumed evidence.
+   */
+  key: string;
+}
+
+/** kind|stable-source, hashed short. What "stable" means varies per kind. */
+function keyOf(kind: Signal["kind"], stable: string): string {
+  return sha256(new TextEncoder().encode(`${kind}|${stable}`)).slice(0, 16);
 }
 
 interface JudgeReport {
@@ -61,6 +74,9 @@ export async function gatherSignals(resolved: ResolvedConfig): Promise<Signal[]>
           summary: `filed and refuted: ${r.title}`,
           detail: r.verifierNote,
           source: `judge-report.json (${r.shotId})`,
+          // shotId+title: the report is overwritten per run, so the id alone
+          // would merge distinct refutations of one view across runs.
+          key: keyOf("refuted", `${r.shotId}|${r.title}`),
         });
       }
       if (report.rejected && report.rejected > 0) {
@@ -72,6 +88,9 @@ export async function gatherSignals(resolved: ResolvedConfig): Promise<Signal[]>
             "The category or severity was outside the closed vocabulary, so the finding was " +
             "discarded. The output contract is not landing.",
           source: `judge-report.json (run ${report.runId ?? "?"})`,
+          // Keyed by run on purpose: a contract that keeps failing to land is
+          // fresh evidence each time it does.
+          key: keyOf("rejected", report.runId ?? "unknown-run"),
         });
       }
     } catch {
@@ -81,12 +100,20 @@ export async function gatherSignals(resolved: ResolvedConfig): Promise<Signal[]>
 
   for (const finding of Object.values(backlog.findings)) {
     if (finding.status === "by-design" && finding.reason) {
+      // A verified finding ruled intentional is a human overruling the
+      // adversarial verifier's explicit confirmation: the refuter's whole
+      // mandate was to kill it, so the lesson is the refuter's. An
+      // unverified one is the judge's error alone.
+      const overruledVerifier = finding.verified === true;
       signals.push({
-        skill: "visual-judge",
+        skill: overruledVerifier ? "refute-finding" : "visual-judge",
         kind: "by-design",
         summary: `adjudicated intentional: ${finding.title}`,
-        detail: finding.reason,
+        detail: overruledVerifier
+          ? `${finding.reason} (the adversarial verifier had confirmed this finding; a person then ruled it intentional)`
+          : finding.reason,
         source: finding.fingerprint,
+        key: keyOf("by-design", finding.fingerprint),
       });
     }
   }
@@ -100,17 +127,50 @@ export async function gatherSignals(resolved: ResolvedConfig): Promise<Signal[]>
         summary: `survived every attempt: ${issue.title}`,
         detail: reason,
         source: `issue ${issue.id}`,
+        key: keyOf("blocked", issue.id),
       });
     }
     for (const c of backlog.issues?.[issue.id]?.acceptance ?? []) {
       if (c.verdict !== "not-verifiable") continue;
+      // By author: a judge-sourced criterion was WRITTEN by the visual judge,
+      // so an undecidable one is the judge's authoring lesson. Derived and
+      // universal criteria are code-authored; their failures are incident
+      // material, not skill-text material, and teach no skill anything.
+      if (c.source !== "judge") continue;
       signals.push({
-        skill: c.source === "derived" ? "visual-judge" : "verify-acceptance",
+        skill: "visual-judge",
         kind: "not-verifiable",
         summary: `criterion could not be decided from the evidence: ${c.text}`,
         detail: c.note ?? "",
-        source: `issue ${issue.id}`,
+        source: `issue ${issue.id} (${c.id})`,
+        key: keyOf("not-verifiable", `${issue.id}|${c.id}`),
       });
+    }
+  }
+
+  // The standalone verify verb's report, which nothing read before: its
+  // not-verifiable criteria are ticket-authored text the verify-acceptance
+  // skill could learn to interpret, which makes them that skill's evidence.
+  const verifyPath = join(evidenceDir(resolved), "verify-report.json");
+  if (existsSync(verifyPath)) {
+    try {
+      const vr = JSON.parse(await readFile(verifyPath, "utf8")) as {
+        criteriaSource?: string;
+        criteria?: { id?: number; text?: string; verdict?: string; reasoning?: string }[];
+      };
+      for (const c of vr.criteria ?? []) {
+        if (c.verdict !== "not-verifiable") continue;
+        signals.push({
+          skill: "verify-acceptance",
+          kind: "not-verifiable",
+          summary: `ticket criterion could not be decided from screenshots: ${c.text ?? ""}`,
+          detail: c.reasoning ?? "",
+          source: `verify-report.json (${vr.criteriaSource ?? "criteria"})`,
+          key: keyOf("not-verifiable", `${vr.criteriaSource ?? "inline"}|${c.id ?? c.text ?? ""}`),
+        });
+      }
+    } catch {
+      // Same stance as the judge report: unparseable teaches nothing here.
     }
   }
 

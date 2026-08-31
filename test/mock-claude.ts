@@ -26,12 +26,15 @@ const p = argv.indexOf("-p");
 const promptText = p !== -1 ? argv[p + 1] ?? "" : "";
 let mode = process.env.MOCK_MODE ?? "auto";
 if (mode === "auto") {
-  mode = promptText.includes("adversarial verifier")
-    ? "verify"
-    : promptText.includes("acceptance-criteria verifier")
-      ? "criteria"
-      : promptText.includes("improving one of lookout's skills")
-        ? "improve"
+  // The improve prompt QUOTES other prompts' vocabulary inside its signal
+  // details ("the adversarial verifier had confirmed..."), so its own marker
+  // is checked first; no other prompt contains it.
+  mode = promptText.includes("improving one of lookout's skills")
+    ? "improve"
+    : promptText.includes("adversarial verifier")
+      ? "verify"
+      : promptText.includes("acceptance-criteria verifier")
+        ? "criteria"
         : promptText.includes("editing lookout's own source")
           ? "heal"
           : promptText.includes("placement advisor")

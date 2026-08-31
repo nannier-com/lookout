@@ -206,7 +206,11 @@ describe("signals", () => {
     const signals = await gatherSignals(r);
     const byDesign = signals.filter((s) => s.kind === "by-design");
     expect(byDesign).toHaveLength(1);
-    expect(byDesign[0]!.skill).toBe("visual-judge");
+    // The fixture's finding is VERIFIED: a person overruled the adversarial
+    // verifier's explicit confirmation, so the lesson is the refuter's, not
+    // the judge's. An unverified by-design still attributes to visual-judge
+    // (pinned in test/watermark.test.ts).
+    expect(byDesign[0]!.skill).toBe("refute-finding");
     expect(byDesign[0]!.detail).toContain("deliberately");
   });
 });
