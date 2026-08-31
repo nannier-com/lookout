@@ -85,8 +85,8 @@ function project(findings: BacklogFinding[] = [finding()]): ResolvedConfig {
   };
 }
 
-function run(r: ResolvedConfig, sub: string): Promise<number> {
-  return skills({ positionals: [sub], flags: { config: r.configPath!, model: "sonnet" } });
+function run(r: ResolvedConfig, sub: string, flags: Record<string, unknown> = {}): Promise<number> {
+  return skills({ positionals: [sub], flags: { config: r.configPath!, model: "sonnet", ...flags } });
 }
 
 afterEach(() => {
@@ -261,10 +261,13 @@ describe("improving a skill, automatically", () => {
     expect(JSON.parse(history.trim().split("\n").at(-1)!).action).toBe("applied");
   });
 
-  test("with nothing frozen to grade it, the amendment is proposed rather than applied", async () => {
+  test("with nothing frozen to grade it, spending is opt-in and produces a proposal", async () => {
     // A blocked issue is something to learn from, but an unverified finding
     // settles nothing, so there is a signal and no gate. An ungated automatic
-    // edit is the one thing this must never do.
+    // edit is the one thing this must never do; and since the best possible
+    // outcome is an unapplied PROPOSED.md, the model call itself now needs
+    // the explicit --propose. Without it: no spend, no file, and the message
+    // says which switch buys the proposal.
     const r = project([
       finding({
         status: "blocked",
@@ -276,6 +279,11 @@ describe("improving a skill, automatically", () => {
     process.env.LOOKOUT_CLAUDE_BIN = MOCK;
 
     expect(await run(r, "improve")).toBe(0);
+    expect(
+      existsSync(join(r.projectDir, ".lookout", "skills", "visual-judge", "PROPOSED.md")),
+    ).toBe(false);
+
+    expect(await run(r, "improve", { propose: true })).toBe(0);
     expect(existsSync(projectSkillPath(r, "visual-judge"))).toBe(false);
     expect(
       existsSync(join(r.projectDir, ".lookout", "skills", "visual-judge", "PROPOSED.md")),
@@ -306,5 +314,73 @@ describe("improving a skill, automatically", () => {
       ],
     };
     expect(usableCases(r, set)).toHaveLength(0);
+  });
+});
+
+// Consumption, the attribution constraint, the auto pre-gate, and the bridge:
+// the machinery phase that makes an automatic trigger safe to add.
+describe("what an improve consumes and refuses", () => {
+  test("a second improve over an unchanged record makes zero model calls", async () => {
+    const r = project();
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    const argvFile = join(r.projectDir, ".lookout", "improve-argv.jsonl");
+    process.env.MOCK_ARGV_FILE = argvFile;
+    try {
+      expect(await run(r, "freeze")).toBe(0);
+      expect(await run(r, "improve")).toBe(0);
+      const callsAfterFirst = readFileSync(argvFile, "utf8").trim().split("\n").length;
+      expect(callsAfterFirst).toBeGreaterThan(0);
+      // Same record, second pass: the watermark says nothing is new, and the
+      // model is never invoked.
+      expect(await run(r, "improve")).toBe(0);
+      const callsAfterSecond = readFileSync(argvFile, "utf8").trim().split("\n").length;
+      expect(callsAfterSecond).toBe(callsAfterFirst);
+    } finally {
+      delete process.env.MOCK_ARGV_FILE;
+    }
+  });
+
+  test("an amendment naming a skill the signals never indicted is refused", async () => {
+    const r = project();
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    process.env.MOCK_IMPROVE_SKILL = "fact-check";
+    try {
+      expect(await run(r, "freeze")).toBe(0);
+      await expect(run(r, "improve")).rejects.toThrow(/names fact-check/);
+    } finally {
+      delete process.env.MOCK_IMPROVE_SKILL;
+    }
+  });
+
+  test("the auto path never spends on a proposal-only outcome", async () => {
+    const { improveSkills } = await import("../src/skills/amend.js");
+    const r = project([
+      finding({ status: "blocked", reason: "stuck", verified: false, severity: "high" }),
+    ]);
+    process.env.LOOKOUT_CLAUDE_BIN = join(import.meta.dir, "no-such-claude-binary");
+    // No frozen cases exist: a manual run would need --propose; the auto run
+    // must simply skip, spending nothing (the dead binary proves no call).
+    expect(await improveSkills(r, "sonnet", { auto: true })).toBe(0);
+  });
+
+  test("a rollback records a skill-rollback incident for the machine-wide log", async () => {
+    const { clusterIncidents, readIncidents } = await import("../src/skills/incidents.js");
+    const home = mkdtempSync(join(tmpdir(), "lookout-home-"));
+    const beforeHome = process.env.LOOKOUT_HOME;
+    process.env.LOOKOUT_HOME = home;
+    const r = project();
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    process.env.MOCK_AMENDMENT = "- File every deliberately light surface as a defect.";
+    process.env.MOCK_JUDGE_CATEGORY = "color-scheme";
+    try {
+      expect(await run(r, "freeze")).toBe(0);
+      expect(await run(r, "improve")).toBe(1);
+      const groups = clusterIncidents(readIncidents());
+      expect(groups.some((g) => g.kind === "skill-rollback")).toBe(true);
+    } finally {
+      delete process.env.MOCK_AMENDMENT;
+      if (beforeHome === undefined) delete process.env.LOOKOUT_HOME;
+      else process.env.LOOKOUT_HOME = beforeHome;
+    }
   });
 });

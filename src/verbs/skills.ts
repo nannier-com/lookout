@@ -107,7 +107,10 @@ export async function skills(parsed: Parsed): Promise<number> {
   }
 
   if (sub === "improve") {
-    return await improveSkills(resolved, model);
+    return await improveSkills(resolved, model, {
+      propose: !!parsed.flags.propose,
+      allSignals: !!parsed.flags["all-signals"],
+    });
   }
 
   throw new LookoutError(

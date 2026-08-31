@@ -20,6 +20,8 @@ import { loadBacklog } from "../verbs/backlog.js";
 import { extractJson, invokeClaude } from "../judge/engine.js";
 import { loadSkill, projectSkillPath, renderSkill, type Skill } from "./load.js";
 import { bySkill, gatherSignals, type Signal } from "./signals.js";
+import { loadWatermark, newSignals, stampSeen } from "./watermark.js";
+import { recordIncident } from "./incidents.js";
 import { freezeRegressionSet, loadRegressionSet, usableCases, type Violation } from "./regression.js";
 import { GATED_SKILLS, replayRegression } from "./replay.js";
 import { improveLockPath, record, SKILL_NAMES } from "./history.js";
@@ -112,16 +114,43 @@ async function restoreLayer(resolved: ResolvedConfig, name: string, before: stri
  * Its own function because it is the one subcommand that writes, and the one
  * that has to be held under a lock while it does.
  */
-async function improve(resolved: ResolvedConfig, model: string): Promise<number> {
+export interface ImproveOptions {
+  /**
+   * An automatic trigger is calling: skip free (no model call) whenever the
+   * outcome could only be a proposal, because a proposal is a file waiting
+   * for a person and the person-facing nudges cover that case for nothing.
+   */
+  auto?: boolean;
+  /** A person explicitly agreeing to spend on a proposal-only outcome. */
+  propose?: boolean;
+  /** Ignore the watermark and replay every signal ever gathered. */
+  allSignals?: boolean;
+}
+
+async function improve(resolved: ResolvedConfig, model: string, opts: ImproveOptions): Promise<number> {
   const signals = await gatherSignals(resolved);
   if (signals.length === 0) {
     console.log("nothing to learn from yet: no refutations, adjudications or blocked issues on record.");
     return 0;
   }
-  const grouped = bySkill(signals);
+
+  // Only what no improve pass has been shown before. Old signals were either
+  // amended-from (the lesson is in the layer) or attempted (identical
+  // evidence would re-produce the identical outcome, at model cost); feeding
+  // them back invites re-amending the same lesson forever.
+  const mark = await loadWatermark(resolved);
+  const shown = opts.allSignals ? signals : newSignals(mark, signals);
+  if (shown.length === 0) {
+    console.log(
+      `nothing new to learn from since ${mark.lastImproveAt ?? "the beginning"}; ` +
+        "--all-signals replays everything",
+    );
+    return 0;
+  }
+  const grouped = bySkill(shown);
   console.log(
-    `${signals.length} signal(s) across ${grouped.size} skill(s): ` +
-      [...grouped].map(([name, s]) => `${name} ${s.length}`).join(", "),
+    `${shown.length} new signal(s) across ${grouped.size} skill(s): ` +
+      [...grouped].map(([name, list]) => `${name} ${list.length}`).join(", "),
   );
 
   // The gate first: an amendment written with nothing able to grade it is not
@@ -131,14 +160,56 @@ async function improve(resolved: ResolvedConfig, model: string): Promise<number>
     const backlog = await loadBacklog(resolved);
     set = await freezeRegressionSet(resolved, backlog, nowIso());
   }
+  const gradeable = usableCases(resolved, set).length;
 
-  const { amendment, costUsd } = await askForAmendment(resolved, signals, model);
+  // The pair rule: signals about either judging skill license amending both,
+  // because the frozen replay exercises them jointly and a filing lesson
+  // sometimes belongs in the refuter's demand for evidence.
+  const attributed = new Set(shown.map((sig) => sig.skill));
+  if (attributed.has("visual-judge") || attributed.has("refute-finding")) {
+    attributed.add("visual-judge").add("refute-finding");
+  }
+  const gatedEvidence = [...attributed].some((name) => GATED_SKILLS.has(name));
+
+  // Gated-or-nothing, checked BEFORE the model call it would waste.
+  if (gradeable === 0 || (opts.auto && !gatedEvidence)) {
+    const why =
+      gradeable === 0
+        ? "nothing frozen can grade an amendment (settle verdicts, then `lookout skills freeze`)"
+        : "the new signals name only skills the frozen set cannot exercise";
+    if (opts.auto) {
+      console.log(`improve skipped: ${why}.`);
+      return 0;
+    }
+    if (gradeable === 0 && !opts.propose) {
+      console.log(`improve not run: ${why}.`);
+      console.log("  --propose spends a model call whose best outcome is an unapplied PROPOSED.md");
+      return 0;
+    }
+  }
+
+  const { amendment, costUsd } = await askForAmendment(resolved, shown, model);
+
+  // The amendment has to be about a skill the evidence indicted. The model
+  // was handed every skill's description for context, and without this it
+  // could amend fact-check off signals about the judge.
+  if (!amendment.newSkill && amendment.skill && !attributed.has(amendment.skill)) {
+    throw new LookoutError(
+      `the amendment names ${amendment.skill}, but the signals shown were about ` +
+        `${[...attributed].join(", ")}`,
+      "an amendment must answer the evidence that prompted it",
+    );
+  }
 
   if (amendment.newSkill) {
     const { name, description, body } = amendment.newSkill;
-    // lookout owns the frontmatter and the amendment slot, so a skill it
-    // writes is always one it can load and later amend.
-    await writeLayer(resolved, name, `${body.trimEnd()}\n\n{{amendments}}\n`, 1, description);
+    // A brand-new skill is ungradeable by definition, which is exactly what
+    // the gate exists to prevent auto-applying, so it lands as a proposal,
+    // never a live layer. (It used to be the one write that skipped the
+    // gate entirely.)
+    const proposalPath = join(lookoutDir(resolved), "skills", name, "PROPOSED.md");
+    await mkdir(dirname(proposalPath), { recursive: true });
+    await writeFile(proposalPath, `# ${name}\n\n${description}\n\n${body.trimEnd()}\n`);
     await record(resolved, {
       at: nowIso(),
       skill: name,
@@ -146,7 +217,8 @@ async function improve(resolved: ResolvedConfig, model: string): Promise<number>
       summary: amendment.summary,
       evidence: amendment.evidence,
     });
-    console.log(`new skill written: ${projectSkillPath(resolved, name)}`);
+    await stampSeen(resolved, mark, shown, "proposed");
+    console.log(`new skill proposed: ${proposalPath}`);
     console.log(`  ${amendment.summary}`);
     console.log("  nothing invokes it yet: wiring a new capability to a verb is a code change.");
     return 0;
@@ -159,6 +231,7 @@ async function improve(resolved: ResolvedConfig, model: string): Promise<number>
       action: "no-change",
       summary: amendment.summary,
     });
+    await stampSeen(resolved, mark, shown, "no-change");
     console.log(`no amendment warranted: ${amendment.summary}`);
     return 0;
   }
@@ -170,7 +243,6 @@ async function improve(resolved: ResolvedConfig, model: string): Promise<number>
   const nextVersion = current.version + 1;
   const merged = `${existingBody.trimEnd()}\n\n## ${nowIso().slice(0, 10)}: ${amendment.summary}\n\n${amendment.amendment}\n`;
 
-  const gradeable = usableCases(resolved, set).length;
   if (!GATED_SKILLS.has(amendment.skill) || gradeable === 0) {
     const why =
       gradeable === 0
@@ -186,6 +258,7 @@ async function improve(resolved: ResolvedConfig, model: string): Promise<number>
       summary: amendment.summary,
       evidence: amendment.evidence,
     });
+    await stampSeen(resolved, mark, shown, "proposed");
     console.log(`proposed, not applied: ${why}.`);
     console.log(`  ${p}`);
     return 0;
@@ -208,6 +281,16 @@ async function improve(resolved: ResolvedConfig, model: string): Promise<number>
     replayCost = outcome.costUsd;
   } catch (e) {
     await restoreLayer(resolved, amendment.skill, before);
+    // An infrastructure failure, not evidence against the amendment: the
+    // watermark is NOT stamped, so the same evidence gets another chance.
+    recordIncident({
+      at: nowIso(),
+      kind: "skill-rollback",
+      verb: "skills improve",
+      message: `amendment to ${amendment.skill} rolled back: the replay could not run`,
+      detail: (e as Error).message.slice(0, 400),
+      project: resolved.projectDir,
+    });
     throw new LookoutError(
       `the replay could not run, so the amendment was rolled back: ${(e as Error).message}`,
     );
@@ -222,6 +305,20 @@ async function improve(resolved: ResolvedConfig, model: string): Promise<number>
       summary: amendment.summary,
       evidence: amendment.evidence,
       violations,
+    });
+    // Stamped seen: identical evidence would produce the identical rollback
+    // at model cost each time. And bridged to the machine-wide incident log:
+    // one rollback is the gate working, but only that log can see "the same
+    // skill keeps rolling back across runs and projects", which indicts the
+    // machinery rather than the project.
+    await stampSeen(resolved, mark, shown, "rolled-back");
+    recordIncident({
+      at: nowIso(),
+      kind: "skill-rollback",
+      verb: "skills improve",
+      message: `amendment to ${amendment.skill} rolled back: ${violations.length} violation(s)`,
+      detail: `${amendment.summary} | ${violations.map((v) => v.kind).join(", ")}`,
+      project: resolved.projectDir,
     });
     console.log(`rolled back: the candidate broke ${violations.length} settled verdict(s).`);
     for (const v of violations) console.log(`  [${v.kind}] ${v.shotId} ${v.category}: ${v.why}`);
@@ -238,6 +335,7 @@ async function improve(resolved: ResolvedConfig, model: string): Promise<number>
     version: nextVersion,
     evidence: amendment.evidence,
   });
+  await stampSeen(resolved, mark, shown, "applied");
   console.log(`applied to ${amendment.skill} (v${nextVersion}): ${amendment.summary}`);
   console.log(`  ${projectSkillPath(resolved, amendment.skill)}`);
   console.log(`  the frozen set still holds. Cached judge verdicts fall out at the new version.`);
@@ -254,7 +352,11 @@ async function improve(resolved: ResolvedConfig, model: string): Promise<number>
  * amendment that had already passed the gate. It is also the lock the page
  * reads to say lookout is learning right now.
  */
-export async function improveSkills(resolved: ResolvedConfig, model: string): Promise<number> {
+export async function improveSkills(
+  resolved: ResolvedConfig,
+  model: string,
+  opts: ImproveOptions = {},
+): Promise<number> {
   const lock = improveLockPath(resolved);
   if (lockHeld(lock)) {
     throw new LookoutError("another skills improve is already running", `if it died, remove ${lock}`);
@@ -262,7 +364,7 @@ export async function improveSkills(resolved: ResolvedConfig, model: string): Pr
   await mkdir(dirname(lock), { recursive: true });
   await writeFile(lock, nowIso());
   try {
-    return await improve(resolved, model);
+    return await improve(resolved, model, opts);
   } finally {
     await rm(lock, { force: true });
   }
