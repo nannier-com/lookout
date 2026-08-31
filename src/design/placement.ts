@@ -19,6 +19,8 @@
  * agent with an opinion.
  */
 import { invokeClaude, extractJson } from "../judge/engine.js";
+import { existsSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
 import { loadSkill, renderSkill } from "../skills/load.js";
 import type { DesignInventory } from "./inventory.js";
 import type { FixCluster } from "../fix/cluster.js";
@@ -126,16 +128,33 @@ export async function placeDefect(
   }
   if (!parsed?.placement) return { placement: null, costUsd: cost };
 
+  // The path is checked to exist the moment it is written, which is the claim
+  // the stored record has always made about it. A model that names a ghost
+  // file loses the path, not the placement: "in the kit's Button" is still
+  // advice, and the note says what was dropped. The single most damaging
+  // reply here is a confident wrong path.
+  let primaryPath = parsed.primaryPath ?? null;
+  let notes = parsed.notes ?? "";
+  if (primaryPath) {
+    const abs = isAbsolute(primaryPath) ? primaryPath : join(resolved.projectDir, primaryPath);
+    if (existsSync(abs)) {
+      primaryPath = abs;
+    } else {
+      notes = (notes ? `${notes} ` : "") + `(the reply named ${primaryPath}, which does not exist; the path was dropped)`;
+      primaryPath = null;
+    }
+  }
+
   return {
     placement: {
       placement: parsed.placement,
-      primaryPath: parsed.primaryPath ?? null,
+      primaryPath,
       symbol: parsed.symbol ?? null,
       reason: parsed.reason ?? "",
       otherCallers: typeof parsed.otherCallers === "number" ? parsed.otherCallers : null,
       blastRadius: parsed.blastRadius ?? "",
       alsoRead: Array.isArray(parsed.alsoRead) ? parsed.alsoRead : [],
-      notes: parsed.notes ?? "",
+      notes,
     },
     costUsd: cost,
   };

@@ -140,7 +140,13 @@ export async function renderIssueDocument(
     l.push("## Where this belongs", "");
     l.push(`This project uses **${p.kit}**. ${WHERE[p.kind] ?? p.kind}`, "");
     if (p.primaryPath) {
-      l.push(`- **change** ${p.primaryPath}${p.symbol ? `  (${p.symbol})` : ""}`);
+      // The path existed when the placement was written; the annotation is
+      // for the record a fixer opens after the file moved, before the next
+      // check's staleness sweep re-derives it.
+      const gone = !existsSync(p.primaryPath)
+        ? "  (this file no longer exists; lookout re-derives the placement on the next check)"
+        : "";
+      l.push(`- **change** ${p.primaryPath}${p.symbol ? `  (${p.symbol})` : ""}${gone}`);
     }
     if (p.reason) l.push(`- **why there** ${p.reason}`);
     if (p.otherCallers !== null && p.otherCallers > 0) {

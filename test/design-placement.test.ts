@@ -2,6 +2,7 @@
 // skill file itself is part of the contract (it ships, it is layered, it
 // declares an amendment slot), so it is loaded here rather than assumed.
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { AMENDMENT_SLOT, loadSkill, renderSkill, shippedSkillDir } from "../src/skills/load.js";
@@ -205,6 +206,12 @@ describe("placing new issues in a run", () => {
   test("places issues that lack one, skips issues that have one, and caps the batch", async () => {
     const { placeNewIssues } = await import("../src/design/place-issues.js");
     const r = tmpProject("lookout-placerun-");
+    // Real files: placeDefect drops a path that does not exist, and the
+    // staleness sweep re-derives a placement whose path is gone, so a
+    // fantasy /repo would turn this test into those tests.
+    const atoms = join(r.projectDir, "packages/kit/src/atoms");
+    mkdirSync(atoms, { recursive: true });
+    writeFileSync(join(atoms, "Button.tsx"), "export const Button = () => null;");
     const inv: DesignInventory = {
       schema: 2,
       at: "now",
@@ -216,14 +223,14 @@ describe("placing new issues in a run", () => {
           via: "dependency",
           evidence: ["dependency @acme/kit@1"],
           editable: true,
-          packageRoot: "/repo/packages/kit",
-          componentRoots: ["/repo/packages/kit/src/atoms"],
+          packageRoot: join(r.projectDir, "packages/kit"),
+          componentRoots: [atoms],
           importPrefixes: ["@acme/kit"],
           exports: [],
         },
       ],
       tokens: [],
-      appRoots: ["/repo/src"],
+      appRoots: [join(r.projectDir, "src")],
       handRolls: [],
       adoption: null,
       notes: [],
@@ -258,7 +265,7 @@ describe("placing new issues in a run", () => {
         "111111": { id: "111111", key: "app--contrast--x", createdAt: "now" },
         "222222": {
           id: "222222", key: "app--spacing--y", createdAt: "now",
-          placement: placement({ kit: "@acme/kit" }),
+          placement: placement({ kit: "@acme/kit", primaryPath: join(atoms, "Button.tsx") }),
         },
       },
     } as never;
@@ -411,5 +418,117 @@ describe("who gets a placement slot", () => {
     } finally {
       delete process.env.LOOKOUT_CLAUDE_BIN;
     }
+  });
+});
+
+// The staleness recognition the stored kit field always promised: a
+// placement is re-derived exactly when the codebase moved under it.
+describe("recognising a stale placement", () => {
+  const kit = (over: Partial<DesignInventory["kits"][number]> = {}) => ({
+    id: "@acme/kit", name: "@acme/kit", via: "dependency" as const,
+    evidence: [], editable: true, packageRoot: null,
+    componentRoots: [], importPrefixes: [], exports: [],
+    ...over,
+  });
+
+  test("a renamed kit, a flipped editability, and a vanished path each read as stale", async () => {
+    const { placementStale } = await import("../src/design/place-issues.js");
+    expect(placementStale(placement({ kit: "@old/kit", primaryPath: null }), kit())).toContain("@old/kit");
+    expect(placementStale(placement({ kitEditable: false, primaryPath: null }), kit())).toContain("editability");
+    expect(placementStale(placement({ primaryPath: "/nowhere/Button.tsx" }), kit())).toContain("no longer exists");
+    expect(placementStale(placement({ primaryPath: MOCK }), kit())).toBeNull();
+    expect(placementStale(placement({ primaryPath: null }), kit())).toBeNull();
+  });
+
+  test("a stale placement is re-derived ahead of fresh issues, with a fresh stamp", async () => {
+    const { placeNewIssues } = await import("../src/design/place-issues.js");
+    const r = tmpProject("lookout-place-stale-");
+    const atoms = join(r.projectDir, "kit/atoms");
+    mkdirSync(atoms, { recursive: true });
+    writeFileSync(join(atoms, "Button.tsx"), "export const Button = () => null;");
+    const inv: DesignInventory = {
+      schema: 2, at: "now", project: "demo",
+      kits: [{ id: "@acme/kit", name: "@acme/kit", via: "dependency", evidence: [],
+        editable: true, packageRoot: null, componentRoots: [atoms], importPrefixes: [], exports: [] }],
+      tokens: [], appRoots: [], handRolls: [], adoption: null, notes: [],
+    };
+    const staleRecord = placement({ kit: "@former/kit", at: "2020-01-01T00:00:00.000Z", primaryPath: null });
+    const backlog = {
+      note: "", project: "demo", updatedAt: "now",
+      findings: {
+        fpS: { fingerprint: "fpS", target: "app", route: "/s", state: "rest",
+          platform: "web", formFactor: "desktop", scheme: "dark",
+          category: "contrast", attribute: "s", severity: "high", status: "open",
+          reason: null, title: "t", problem: "p", expected: "e", observed: "o",
+          channel: "ai", confidence: "high", verified: true, evidence: [],
+          firstSeen: "r", lastSeen: "r", fixAttempts: 0, fixedIn: null },
+        fpF: { fingerprint: "fpF", target: "app", route: "/f", state: "rest",
+          platform: "web", formFactor: "desktop", scheme: "dark",
+          category: "spacing", attribute: "f", severity: "low", status: "open",
+          reason: null, title: "t", problem: "p", expected: "e", observed: "o",
+          channel: "ai", confidence: "high", verified: true, evidence: [],
+          firstSeen: "r", lastSeen: "r", fixAttempts: 0, fixedIn: null },
+      },
+      issues: {
+        "333333": { id: "333333", key: "app--contrast--s", createdAt: "now", placement: staleRecord },
+        "444444": { id: "444444", key: "app--spacing--f", createdAt: "now" },
+      },
+    } as never;
+
+    const before = process.env.LOOKOUT_CLAUDE_BIN;
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    try {
+      // A cap of one: the stale record outranks the fresh issue for the slot.
+      const run = await placeNewIssues(r, backlog, inv, { limit: 1 });
+      expect(run.placed).toBe(1);
+      expect(run.skipped).toBe(1);
+      const issues = (backlog as never as { issues: Record<string, { placement?: IssuePlacement }> }).issues;
+      expect(issues["333333"]!.placement?.kit).toBe("@acme/kit");
+      expect(issues["333333"]!.placement?.at).not.toBe("2020-01-01T00:00:00.000Z");
+      expect(issues["444444"]!.placement).toBeUndefined();
+    } finally {
+      if (before === undefined) delete process.env.LOOKOUT_CLAUDE_BIN;
+      else process.env.LOOKOUT_CLAUDE_BIN = before;
+    }
+  });
+
+  test("a reply naming a ghost file keeps the placement and drops the path, saying so", async () => {
+    const { placeDefect } = await import("../src/design/placement.js");
+    const r = tmpProject("lookout-place-ghost-");
+    const inv: DesignInventory = {
+      schema: 2, at: "now", project: "demo",
+      kits: [{ id: "@acme/kit", name: "@acme/kit", via: "dependency", evidence: [],
+        editable: true, packageRoot: null, componentRoots: ["/repo/atoms"], importPrefixes: [], exports: [] }],
+      tokens: [], appRoots: [], handRolls: [], adoption: null, notes: [],
+    };
+    const cluster = { id: "1", target: "app", category: "contrast", attribute: "x",
+      severity: "high", title: "t", problem: "p", expected: "e", observed: "o",
+      routes: ["/a"], fingerprints: ["fp"], members: [], shotCount: 1,
+      findingCount: 1, attemptsSpent: 0, verified: true, channel: "ai",
+      key: "k", defects: [] } as never as FixCluster;
+    const beforeBin = process.env.LOOKOUT_CLAUDE_BIN;
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    try {
+      const { placement: p } = await placeDefect(r, cluster, inv);
+      expect(p).not.toBeNull();
+      expect(p!.primaryPath).toBeNull();
+      expect(p!.notes).toContain("does not exist");
+    } finally {
+      if (beforeBin === undefined) delete process.env.LOOKOUT_CLAUDE_BIN;
+      else process.env.LOOKOUT_CLAUDE_BIN = beforeBin;
+    }
+  });
+
+  test("the document annotates a path that vanished after placement", async () => {
+    const r = tmpProject("lookout-place-doc-");
+    const gone = await renderIssueDocument(r, cluster(), {
+      placement: placement({ primaryPath: "/gone/Button.tsx" }),
+    });
+    expect(gone.markdown).toContain("/gone/Button.tsx");
+    expect(gone.markdown).toContain("no longer exists");
+    const fine = await renderIssueDocument(r, cluster(), {
+      placement: placement({ primaryPath: MOCK }),
+    });
+    expect(fine.markdown).not.toContain("no longer exists");
   });
 });

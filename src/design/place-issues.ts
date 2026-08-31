@@ -11,12 +11,29 @@
  * design system, where there is only one place a fix can go and asking would be
  * spending a model call to be told so.
  */
+import { existsSync } from "node:fs";
 import { placeDefect } from "./placement.js";
-import { primaryKit, type DesignInventory } from "./inventory.js";
+import { primaryKit, type DesignInventory, type DetectedKit } from "./inventory.js";
 import { issuesOf } from "../issues/registry.js";
 import { emit } from "../report/events.js";
-import type { Backlog } from "../backlog/lib.js";
+import type { Backlog, IssuePlacement } from "../backlog/lib.js";
 import type { ResolvedConfig } from "../types.js";
+
+/**
+ * The staleness recognition the stored `kit` field always promised.
+ * Deterministic and free: a placement is re-derived (at model cost) only when
+ * one of these says the codebase moved under it. Kit `exports` drift is
+ * deliberately not a trigger, or every kit release would re-pay every
+ * placement; and a kit that stops resolving entirely deletes nothing, because
+ * detection can transiently fail and advice whose kit name is visibly absent
+ * beats advice wiped by a flaky miss.
+ */
+export function placementStale(p: IssuePlacement, kit: DetectedKit): string | null {
+  if (p.kit !== kit.name) return `it was reasoned against ${p.kit}; the project now uses ${kit.name}`;
+  if (p.kitEditable !== kit.editable) return "the kit's editability changed since it was reasoned";
+  if (p.primaryPath && !existsSync(p.primaryPath)) return `${p.primaryPath} no longer exists`;
+  return null;
+}
 
 export interface PlacementRun {
   placed: number;
@@ -53,11 +70,28 @@ export async function placeNewIssues(
   // fix, starving the fresh ones; and a code finding's document already
   // renders "Where it is" with the exact path, line and symbol, so asking a
   // model where it belongs paid for an answer the record carried.
-  const open = issuesOf(backlog, { statuses: ["open"] }).filter((c) => {
-    if (c.channel === "code") return false;
+  //
+  // Stale placements come FIRST: wrong advice sends a fix to the wrong file,
+  // which is worse than no advice, so re-deriving it outranks placing a
+  // fresh issue when the cap bites.
+  const staleWhy = new Map<string, string>();
+  const stale: ReturnType<typeof issuesOf> = [];
+  const fresh: ReturnType<typeof issuesOf> = [];
+  for (const c of issuesOf(backlog, { statuses: ["open"] })) {
+    if (c.channel === "code") continue;
     const record = backlog.issues?.[c.id];
-    return record && !record.placement;
-  });
+    if (!record) continue;
+    if (!record.placement) {
+      fresh.push(c);
+    } else {
+      const why = placementStale(record.placement, kit);
+      if (why) {
+        staleWhy.set(c.id, why);
+        stale.push(c);
+      }
+    }
+  }
+  const open = [...stale, ...fresh];
   // A cap, because this costs a model call each and a first run on a neglected
   // project can file dozens. The rest get placed on the next sweep, and the
   // count is reported rather than silently dropped.
@@ -69,6 +103,10 @@ export async function placeNewIssues(
   for (const cluster of todo) {
     const record = backlog.issues?.[cluster.id];
     if (!record) continue;
+    const why = staleWhy.get(cluster.id);
+    if (why) {
+      emit("note", `re-deriving placement for ${cluster.id}: ${why}`, { issue: cluster.id, why });
+    }
     try {
       const { placement: p, costUsd: callCost } = await placeDefect(resolved, cluster, inv, opts.model);
       costUsd += callCost;
