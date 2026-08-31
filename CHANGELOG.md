@@ -1,5 +1,16 @@
 # @nannier-com/lookout
 
+## 0.30.4
+
+### Patch Changes
+
+- c30f72b: The conformance cache's identity now covers the composed skill text and the
+  model, not just the skill version and kit exports. A project amendment with
+  no version field changes the prompt, and a `--model` flip changes whose
+  verdict it is; both previously left every cached verdict standing, and both
+  now discard the cache whole, which is the same bargain the judge ledger
+  already makes.
+
 ## 0.30.3
 
 ### Patch Changes
