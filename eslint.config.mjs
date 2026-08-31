@@ -13,8 +13,9 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    // Plain-JS node scripts (licensegen): give core rules the node globals so
-    // no-undef stops flagging URL/console; TS files get this from the compiler.
+    // Plain-JS node scripts, this config included: give core rules the node
+    // globals so no-undef stops flagging URL/console; TS files get this from
+    // the compiler.
     files: ["**/*.mjs"],
     languageOptions: {
       globals: { console: "readonly", process: "readonly", URL: "readonly", Buffer: "readonly" }

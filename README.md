@@ -517,3 +517,8 @@ lookout never edits code. The loop it is built for:
    failed attempts.
 6. `lookout backlog check` as the gate: schema, mandatory reasons, missing
    issue ids, markdown freshness, and drift detection all fail loud.
+
+## License
+
+MIT. See [LICENSE](LICENSE). The grant covers this repository as well as the
+package published to npm; it used to cover the published package alone.

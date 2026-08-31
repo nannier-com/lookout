@@ -50,7 +50,7 @@
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "changeset publish",
-    "prepublishOnly": "node tools/licensegen/generate.mjs && bun run build"
+    "prepublishOnly": "bun run build"
   },
   "dependencies": {
     "@axe-core/playwright": "^4.10.2",

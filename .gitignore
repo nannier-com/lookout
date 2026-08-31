@@ -7,11 +7,6 @@ coverage/
 # lookout's own dogfood evidence (when run against itself or test pages)
 .lookout/evidence/
 
-# Generated at pack time by tools/licensegen: the MIT grant covers the PUBLISHED
-# package only. Committing it here would make GitHub read the whole repository as
-# MIT, which is the opposite of the intent (source stays all rights reserved).
-LICENSE
-
 # Local agent config; never part of the published project.
 .claude/
 .lookout-ui-check/
