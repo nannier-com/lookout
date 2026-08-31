@@ -15,9 +15,9 @@
  * afterwards, and the record of one that was rolled back is worth as much as
  * the record of one that stuck: it says the gate did its job.
  *
- * It lives in its own module for the same reason `ui-settings` does: `ui.ts`
- * carries the shell (the rail, the run state, the board) and one screen's worth
- * of markup, style and script does not belong inlined in the middle of it.
+ * It lives in its own module because one screen's worth of markup, style and
+ * script does not belong inlined in the middle of the page that carries the
+ * shell, the run state and the board.
  *
  * The three exports are spliced into the single page `ui.ts` serves, so the
  * script here shares that page's helpers rather than redefining them: `esc`,

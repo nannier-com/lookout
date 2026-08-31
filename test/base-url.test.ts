@@ -7,7 +7,7 @@
 // one-route run, which looks like a pass.
 import { describe, expect, test } from "bun:test";
 import { applyBaseUrl } from "../src/config.js";
-import { validBaseUrl } from "../src/verbs/ui-settings.js";
+import { validBaseUrl } from "../src/ui/stored-settings.js";
 import { LookoutError, type LookoutConfig } from "../src/types.js";
 
 function config(): LookoutConfig {
