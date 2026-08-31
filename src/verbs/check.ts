@@ -1,418 +1,75 @@
 /**
- * `lookout check`: capture (unless --no-capture) then judge the evidence with
- * the local Claude Code CLI against the base rubric plus the project
- * extension. Ledger-cached per VIEW GROUP (the comment below says why a per-shot
- * cache was wrong), adversarially verified for critical/high, written to
- * .lookout/evidence/judge-report.json.
+ * `lookout check`: capture the app, judge the evidence, write down what stands.
+ *
+ * The verb is four steps, and each of them lives in its own module under
+ * `src/check` because each answers a different question: what are we looking at
+ * (`scope`), what still needs judging and by which rules (`plan`), what does
+ * the judge say once the refuter has been at it (`batches`), and what does the
+ * run leave behind (`outcome`). What is left here is the order they run in, and
+ * the two things a caller does with the result: exit on it, or stop at the
+ * first issue and hand it over.
  *
  * A batch that fails does not fail the run: it is recorded, left out of the
  * cache so it is judged again next time, and the rest of the run stands. Only a
  * run where every batch failed is an error, because that one judged nothing.
  *
- * Exit 1 when any confirmed AI finding or error-severity deterministic
- * finding stands; 0 when clean.
+ * Exit 1 when any confirmed AI finding or error-severity deterministic finding
+ * stands; 0 when clean.
  */
-import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { loadConfig, evidenceDir } from "../config.js";
-import { loadReport } from "../capture/store.js";
-import {
-  batchShots,
-  groupShots,
-  judgeBatch,
-  type AiFinding,
-  type PriorFinding,
-} from "../judge/engine.js";
-import { loadRubric } from "../judge/rubric.js";
-import { loadSkill } from "../skills/load.js";
-import { recordIncident } from "../skills/incidents.js";
-import { sheetNote } from "../capture/sheet.js";
-import {
-  groupHash,
-  judgeIdentity,
-  ledgerKey,
-  loadLedger,
-  recordVerdicts,
-  saveLedger,
-} from "../judge/ledger.js";
-import { verifyFindings, type VerifiedFinding } from "../judge/verify.js";
-import { LookoutError, type ResolvedConfig, type Severity, type ShotRecord } from "../types.js";
-import { list, num, printJson, runId, str, type Parsed } from "../util.js";
-import { runCapture, runContactSheet } from "./capture.js";
-import { resolveTargets } from "../targets.js";
+import { evidenceDir, loadConfig } from "../config.js";
+import { judgeInBatches, type RunCheckOptions } from "../check/batches.js";
+import { recordOutcome, type CheckOutcome } from "../check/outcome.js";
+import { planJudging } from "../check/plan.js";
+import { resolveScope } from "../check/scope.js";
 import { SEVERITIES } from "../judge/rubric.js";
 import { emit, EventLog, setCurrentLog } from "../report/events.js";
+import { sheetNote } from "../capture/sheet.js";
+import { runContactSheet } from "./capture.js";
+import { resolveTargets } from "../targets.js";
+import { LookoutError, type ResolvedConfig, type Severity, type ShotRecord } from "../types.js";
+import { list, num, printJson, runId, str, type Parsed } from "../util.js";
+
+export type { CheckOutcome, RunCheckOptions };
 
 /** Attempts a cluster gets before `verify-fix` blocks it. */
 export const DEFAULT_MAX_ATTEMPTS = 2;
 
-export interface CheckOutcome {
-  runId: string;
-  model: string;
-  rubricVersion: number;
-  shotsConsidered: number;
-  judged: number;
-  cached: number;
-  findings: (VerifiedFinding & { cached?: boolean })[];
-  refuted: { title: string; shotId: string; verifierNote: string }[];
-  rejected: number;
-  /**
-   * Shots this run could not vouch for: a batch that failed, or a reply that
-   * left them out of both findings and cleanShotIds. They are not cached, and
-   * they are not clean; they were not judged.
-   */
-  unjudged: number;
-  /** Batches whose judge call failed. The run continued without them. */
-  failedBatches: { shots: number; message: string }[];
-  deterministicErrors: number;
-  costUsd: number;
-  reportPath: string;
-  /**
-   * Labelled composite of everything judged, defect-carrying tiles marked. The
-   * calling session sees what lookout saw for the cost of one Read, instead of
-   * spending more context on a dozen full-resolution screenshots than on the
-   * findings themselves.
-   */
-  contactSheet?: string | null;
-}
-
-export interface RunCheckOptions {
-  /** Called once the cache partition is known, before any judging begins. */
-  onStart?: (toJudge: ShotRecord[]) => Promise<void>;
-  /**
-   * Invoked after each batch is judged AND verified, in order, never
-   * concurrently. Findings are narrated to the event log as they land, so the
-   * UI shows them while the rest of the app is still being judged.
-   */
-  onBatch?: (e: {
-    index: number;
-    total: number;
-    shots: ShotRecord[];
-    findings: VerifiedFinding[];
-    shotsById: Map<string, ShotRecord>;
-  }) => Promise<void>;
-}
-
+/**
+ * One check, start to finish.
+ *
+ * Returns more than the outcome because two callers need the middle of it:
+ * `verify-fix` re-judges a known set of shots, and the ui narrates them.
+ */
 export async function runCheck(
   parsed: Parsed,
   opts: RunCheckOptions = {},
 ): Promise<{
   outcome: CheckOutcome;
-  resolved: Awaited<ReturnType<typeof loadConfig>>;
+  resolved: ResolvedConfig;
   shotsById: Map<string, ShotRecord>;
   toJudge: ShotRecord[];
 }> {
-  // 1. Fresh evidence unless the caller judges an existing set.
-  let resolved;
-  if (parsed.flags["no-capture"]) {
-    resolved = await loadConfig({ configPath: str(parsed.flags.config), url: str(parsed.flags.url),
-    baseUrl: str(parsed.flags["base-url"]) });
-  } else {
-    resolved = (await runCapture(parsed)).resolved;
-  }
+  const scope = await resolveScope(parsed);
+  const plan = await planJudging(scope.resolved, scope.shots, parsed);
 
-  const report = await loadReport(resolved);
-  if (!report || report.shots.length === 0) {
-    throw new LookoutError(
-      "no captured evidence to judge",
-      "run `lookout capture` first, or drop --no-capture",
-    );
-  }
-
-  // 2. Scope selection mirrors capture's flags.
-  const onlyTargets = list(parsed.flags.targets);
-  const onlyRoutes = list(parsed.flags.routes);
-  const shots = report.shots.filter(
-    (s) =>
-      s.platform === "web" &&
-      (!onlyTargets || onlyTargets.includes(s.target)) &&
-      (!onlyRoutes ||
-        onlyRoutes.some((r) => s.route === r || s.route === `/${r}` || s.routeName === r)),
-  );
-  if (shots.length === 0) throw new LookoutError("no shots match the given --targets/--routes");
-  const shotsById = new Map(shots.map((s) => [s.id, s]));
-
-  // 3. Skills + cache partition. Both AI passes are loaded once per run: a
-  // skill amended mid-run would judge two batches by two different rules.
-  const rubric = await loadRubric(resolved);
-  const refute = await loadSkill(resolved, "refute-finding");
-  const model = str(parsed.flags.model) ?? "sonnet";
-  const ledger = await loadLedger(resolved);
-  const toJudge: ShotRecord[] = [];
-  const cachedFindings: (VerifiedFinding & { cached: boolean })[] = [];
-  let cached = 0;
-  // Cache by view group, not by single shot: a group re-judges whole whenever
-  // any member's pixels moved, so a comparative finding never loses the shot
-  // it compares against. Per-shot caching made a scoped re-check report a
-  // dark/light or responsive finding as gone when only its partner had changed,
-  // which is exactly the false "fixed" the auto loop must never see.
-  const identity = judgeIdentity({
-    version: rubric.version,
-    rubricText: rubric.text,
-    refuteText: refute.text,
-    model,
-  });
-  for (const group of groupShots(shots).values()) {
-    const entry = ledger.entries[ledgerKey(groupHash(group), identity)];
-    if (entry && !group.some((s) => s.animated)) {
-      cached += group.length;
-      for (const f of entry.findings ?? []) {
-        // `verified` is read back, not asserted. A --no-verify run records
-        // findings the refuter never saw, and medium and low findings are never
-        // refuted at all, so stamping true here reported a check that had not
-        // happened, in the one field that says how much to trust the finding.
-        cachedFindings.push({ ...f, verified: f.verified ?? false, cached: true });
-      }
-    } else {
-      toJudge.push(...group);
-    }
-  }
-
-  // What lookout already has open on these views. The judge writes the
-  // `attribute` freehand, and it is half of both the fingerprint and the cluster
-  // key, so the same defect returning under a different word mints a second
-  // issue and splits the attempt history of the first. Showing it the name a
-  // defect already carries is a few lines of prompt and keeps one defect one
-  // issue. Only AI findings: the deterministic ones reach the judge as `signals`
-  // on the shot, and it is told not to restate those.
-  const prior: PriorFinding[] = [];
-  if (resolved.configPath) {
-    const { loadBacklog } = await import("./backlog.js");
-    const b = await loadBacklog(resolved);
-    const seen = new Set<string>();
-    for (const f of Object.values(b.findings)) {
-      if (f.status !== "open" || f.channel !== "ai") continue;
-      for (const ev of f.evidence) {
-        const key = `${ev.shotId}|${f.category}|${f.attribute}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        prior.push({
-          shotId: ev.shotId,
-          category: f.category,
-          attribute: f.attribute,
-          title: f.title,
-        });
-      }
-    }
-  }
-
+  // --json and --quiet both mean the caller is reading the result, not the
+  // narration. The event log is written either way.
   const quiet = !!parsed.flags.json || !!parsed.flags.quiet;
-  const log = (line: string) => {
+  const log = (line: string): void => {
     if (!quiet) console.log(line);
   };
 
-  // 4. Judge in batches, a couple of subprocesses at a time.
-  const evDir = evidenceDir(resolved);
-  // One view group (a route and state across its form factors and schemes) is
-  // both the unit the rubric compares within and the unit that streams: a
-  // larger batch buys nothing the judge can use and holds every finding in it
-  // hostage until the whole batch returns, which on full-page screenshots ran
-  // to several silent minutes.
-  const batches = batchShots(toJudge);
-  const concurrency = num(parsed.flags.concurrency) ?? 2;
-  log(
-    `judging ${toJudge.length} shot(s) in ${batches.length} batch(es) with model ${model} ` +
-      `(${cached} cached under judge skill v${rubric.version})`,
-  );
-  emit("judge-start", `judging ${toJudge.length} shot(s) in ${batches.length} batch(es)`, {
-    shots: toJudge.length,
-    batches: batches.length,
-    model,
-    cached,
+  const pass = await judgeInBatches({
+    resolved: scope.resolved,
+    plan,
+    shotsById: scope.shotsById,
+    parsed,
+    log,
+    opts,
   });
-  if (opts.onStart) await opts.onStart(toJudge);
-
-  const confirmed: VerifiedFinding[] = [];
-  const refuted: (AiFinding & { verifierNote: string })[] = [];
-  /** Shots no verdict can be claimed for: the batch failed, or the reply skipped them. */
-  const uncacheable = new Set<string>();
-  const failedBatches: { shots: number; message: string }[] = [];
-  let rejectedCount = 0;
-  let costUsd = 0;
-  let batchIndex = 0;
-
-  // Callbacks run one at a time even though batches judge concurrently: they
-  // write the backlog and print, and interleaving either would corrupt it.
-  let tail: Promise<void> = Promise.resolve();
-  const serialize = (fn: () => Promise<void>): Promise<void> => {
-    tail = tail.then(fn, fn);
-    return tail;
-  };
-
-  const worker = async (): Promise<void> => {
-    for (;;) {
-      const i = batchIndex++;
-      if (i >= batches.length) return;
-      const batch = batches[i]!;
-
-      // One batch failing is not the run failing. Without this, a single
-      // timeout or unparseable reply rejected the worker, took Promise.all with
-      // it, and threw away every batch already judged before the ledger was
-      // ever written: on a long run that is minutes of judging and real money
-      // discarded because the last call went wrong. A failed batch is recorded,
-      // left out of the cache so it is judged again next time, and the run
-      // carries on.
-      let res: Awaited<ReturnType<typeof judgeBatch>>;
-      try {
-        res = await judgeBatch(rubric.text, resolved.project, batch, evDir, model, {
-          handoff: rubric.handoff,
-          prior,
-        });
-      } catch (e) {
-        const message = e instanceof Error ? e.message : String(e);
-        for (const s of batch) uncacheable.add(s.id);
-        failedBatches.push({ shots: batch.length, message });
-        recordIncident({
-          at: new Date().toISOString(),
-          kind: "crash",
-          verb: "check",
-          message: `judge batch failed: ${message}`,
-          project: resolved.project,
-        });
-        log(`  batch ${i + 1}/${batches.length}: FAILED (${message})`);
-        emit("error", `batch ${i + 1}/${batches.length} failed: ${message}`, {}, "error");
-        continue;
-      }
-      rejectedCount += res.rejected.length;
-      costUsd += res.costUsd ?? 0;
-      // A shot the reply accounted for in neither list has no verdict. Caching
-      // the group as clean would make silence look like a clean bill of health,
-      // durably; leaving it out means it is judged again next run.
-      for (const id of res.unaccounted) uncacheable.add(id);
-
-      // 5. Verify this batch now rather than at the end. A finding the caller
-      // can act on immediately is worth more than a tidy single verify pass,
-      // and the smaller prompts judge the same evidence either way.
-      let batchFindings: VerifiedFinding[];
-      if (parsed.flags["no-verify"] || res.findings.length === 0) {
-        batchFindings = res.findings.map((f) => ({ ...f, verified: false }));
-      } else {
-        try {
-          const v = await verifyFindings(refute.text, res.findings, shotsById, evDir, model);
-          batchFindings = v.confirmed;
-          refuted.push(...v.refuted);
-          costUsd += v.costUsd ?? 0;
-        } catch (e) {
-          // The refuter failing is not grounds for dropping what the judge
-          // found. The findings stand unverified, and the group is left out of
-          // the cache so a later run can still refute them.
-          batchFindings = res.findings.map((f) => ({ ...f, verified: false }));
-          for (const s of batch) uncacheable.add(s.id);
-          const message = e instanceof Error ? e.message : String(e);
-          log(`  batch ${i + 1}/${batches.length}: verifier failed (${message}); findings unverified`);
-          emit("error", `verifier failed on batch ${i + 1}: ${message}`, {}, "error");
-        }
-      }
-      confirmed.push(...batchFindings);
-
-      log(
-        `  batch ${i + 1}/${batches.length}: ${batch.length} shot(s), ` +
-          `${batchFindings.length} finding(s)` +
-          (res.rejected.length ? `, ${res.rejected.length} rejected` : "") +
-          ` (${(res.durationMs / 1000).toFixed(0)}s)`,
-      );
-      emit("batch", `batch ${i + 1}/${batches.length}: ${batchFindings.length} finding(s)`, {
-        index: i + 1,
-        total: batches.length,
-        shots: batch.length,
-        findings: batchFindings.length,
-        seconds: Math.round(res.durationMs / 1000),
-      });
-      for (const f of batchFindings) {
-        const shot = shotsById.get(f.shotId);
-        emit(
-          "finding",
-          `${f.category}/${f.attribute}: ${f.title}`,
-          {
-            severity: f.severity,
-            category: f.category,
-            attribute: f.attribute,
-            shotId: f.shotId,
-            path: shot?.path,
-            route: shot?.route,
-            formFactor: shot?.formFactor,
-            scheme: shot?.scheme,
-            problem: f.problem,
-            verified: f.verified,
-          },
-          f.severity,
-        );
-      }
-      if (opts.onBatch) {
-        await serialize(() =>
-          opts.onBatch!({
-            index: i,
-            total: batches.length,
-            shots: batch,
-            findings: batchFindings,
-            shotsById,
-          }),
-        );
-      }
-    }
-  };
-  await Promise.all(Array.from({ length: Math.max(1, concurrency) }, () => worker()));
-  await tail;
-  if (refuted.length > 0) log(`verifier refuted ${refuted.length} finding(s)`);
-
-  // 6. Ledger: judged shots record their post-verification findings.
-  //
-  // Only groups lookout can actually vouch for. A group whose batch failed, or
-  // whose reply left a member in neither findings nor cleanShotIds, has no
-  // verdict, and writing "clean" for it would turn silence into a durable clean
-  // bill of health. Left out, it is simply judged again next run.
-  const checkRunId = runId("check");
-  const judgedGroups = [...groupShots(toJudge).values()]
-    .filter((members) => !members.some((s) => uncacheable.has(s.id)))
-    .map((members) => {
-      const ids = new Set(members.map((s) => s.id));
-      return { shots: members, findings: confirmed.filter((f) => ids.has(f.shotId)) };
-    });
-  recordVerdicts(ledger, checkRunId, identity, judgedGroups);
-  await saveLedger(resolved, ledger);
-
-  if (failedBatches.length > 0) {
-    log(
-      `${failedBatches.length} batch(es) failed and were not cached; ` +
-        "the shots they cover are judged again next run",
-    );
-  }
-  // Every batch failing is a run that judged nothing, which must not read as a
-  // clean result. One failing among several is reported and survived.
-  if (failedBatches.length > 0 && failedBatches.length === batches.length) {
-    throw new LookoutError(
-      `every judge batch failed (${batches.length})`,
-      failedBatches[0]!.message,
-    );
-  }
-
-  const allFindings = [...confirmed, ...cachedFindings];
-  const severityRank = { critical: 0, high: 1, medium: 2, low: 3 } as const;
-  allFindings.sort((a, b) => severityRank[a.severity] - severityRank[b.severity]);
-
-  const deterministicErrors = shots
-    .flatMap((s) => s.deterministicFindings)
-    .filter((f) => f.severity === "error").length;
-
-  const reportPath = join(evDir, "judge-report.json");
-  const outcome: CheckOutcome = {
-    runId: checkRunId,
-    model,
-    rubricVersion: rubric.version,
-    shotsConsidered: shots.length,
-    judged: toJudge.length,
-    cached,
-    findings: allFindings,
-    refuted: refuted.map((r) => ({ title: r.title, shotId: r.shotId, verifierNote: r.verifierNote })),
-    rejected: rejectedCount,
-    unjudged: uncacheable.size,
-    failedBatches,
-    deterministicErrors,
-    costUsd: Number(costUsd.toFixed(4)),
-    reportPath,
-  };
-  await writeFile(reportPath, JSON.stringify(outcome, null, 2));
-  return { outcome, resolved, shotsById, toJudge };
+  const outcome = await recordOutcome({ resolved: scope.resolved, scope, plan, pass, log });
+  return { outcome, resolved: scope.resolved, shotsById: scope.shotsById, toJudge: plan.toJudge };
 }
 
 /** The worst-acceptable severity a caller cares about; critical and high by default. */
