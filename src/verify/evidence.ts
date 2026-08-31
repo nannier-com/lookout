@@ -20,9 +20,8 @@ import { runCheck } from "../verbs/check.js";
 import { mergeLatest } from "../verbs/backlog.js";
 import { runContactSheet } from "../verbs/capture.js";
 import type { SheetResult } from "../capture/sheet.js";
-import { aiToFindings, deterministicToFindings, type Backlog } from "../backlog/lib.js";
+import { aiToFindings, deterministicToFindings, type Backlog, type BacklogFinding } from "../backlog/lib.js";
 import { clusterKeyOf, clusterScope, type FixCluster } from "../fix/cluster.js";
-import { withoutByDesign } from "../verbs/verify-fix.js";
 import type { CheckOutcome } from "../check/outcome.js";
 import type { ResolvedConfig, ShotRecord } from "../types.js";
 import type { Parsed } from "../util.js";
@@ -133,4 +132,48 @@ export async function gatherFreshEvidence(args: {
     stillOpen,
     runIdNow,
   };
+}
+
+/**
+ * Every shot lookout holds a previous hash for, from either source.
+ *
+ * `.lookout/evidence/` is gitignored and routinely cleaned, and an empty
+ * baseline made every fresh shot look changed, which switched the pixels-moved
+ * guard OFF exactly when it was needed: a wiped evidence directory would let
+ * judge variance alone pass an issue. backlog.json is committed and its evidence
+ * refs carry the hash each finding was filed against, so they outlive the
+ * pixels. The report is fresher, so it wins where both know a shot.
+ */
+export function baselineHashes(
+  priorShots: readonly { id: string; hash: string }[],
+  findings: readonly BacklogFinding[],
+): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const f of findings) {
+    // Later refs win: evidence is appended in capture order.
+    for (const ev of f.evidence) out.set(ev.shotId, ev.hash);
+  }
+  for (const sh of priorShots) out.set(sh.id, sh.hash);
+  return out;
+}
+
+/**
+ * Drop findings somebody already ruled intentional.
+ *
+ * A by-design sibling under an issue's own cluster key re-fires on every
+ * capture, because an intentional defect is still there by definition. Counting
+ * it held the issue open however well the real defect had been fixed, and then
+ * blocked it with a reason claiming a defect persists that somebody had already
+ * ruled intended. `mergeFindings` suppresses these; the verdict has to as well.
+ */
+export function withoutByDesign<T extends { fingerprint: string }>(
+  fresh: readonly T[],
+  backlog: Backlog,
+): T[] {
+  const byDesign = new Set(
+    Object.values(backlog.findings)
+      .filter((f) => f.status === "by-design")
+      .map((f) => f.fingerprint),
+  );
+  return fresh.filter((f) => !byDesign.has(f.fingerprint));
 }

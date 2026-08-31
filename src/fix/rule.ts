@@ -34,6 +34,14 @@ export interface RuleInput {
    * otherwise make an issue permanently unclosable.
    */
   unmetCriteria: number;
+  /**
+   * AI members none of whose own evidence shots changed this run (see
+   * src/verify/closure.ts). The scope changing somewhere is not enough: each
+   * member's closure has to be backed by its own moved pixels, or a
+   * multi-route issue closes members on cache-served silence. Optional so the
+   * code channel, which has no shots, is untouched.
+   */
+  unclosableMembers?: number;
 }
 
 export function ruleVerdict(i: RuleInput): Verdict {
@@ -46,6 +54,8 @@ export function ruleVerdict(i: RuleInput): Verdict {
   // an oracle must not have.
   if (i.changedShots === 0) return exhausted ? "blocked" : "still-open";
 
-  if (i.stillOpen === 0 && i.unmetCriteria === 0) return "passed";
+  if (i.stillOpen === 0 && i.unmetCriteria === 0 && (i.unclosableMembers ?? 0) === 0) {
+    return "passed";
+  }
   return exhausted ? "blocked" : "still-open";
 }

@@ -19,11 +19,18 @@ import { findIssue, issueById } from "../issues/registry.js";
 import { spawnedIssues, stampCausedBy } from "../issues/spawned.js";
 import { loadState, saveState } from "../fix/state.js";
 import { ruleCodeIssue } from "../verify/code.js";
+import { baselineHashes } from "../verify/evidence.js";
+import { unclosableMembers } from "../verify/closure.js";
+
+// Re-exported from their new home so existing importers keep working; the
+// implementations moved to src/verify/ to fix the verify -> verbs import
+// inversion.
+export { baselineHashes, withoutByDesign } from "../verify/evidence.js";
 import { ruleIssueAcceptance } from "../verify/acceptance.js";
 import { gatherFreshEvidence } from "../verify/evidence.js";
 import { acceptanceTally } from "../issues/acceptance.js";
 import { ruleVerdict, type Verdict } from "../fix/rule.js";
-import { setStatus, type Backlog, type BacklogFinding } from "../backlog/lib.js";
+import { setStatus, type Backlog } from "../backlog/lib.js";
 import { loadReport } from "../capture/store.js";
 import { loadBacklog, saveBacklog } from "./backlog.js";
 import { DEFAULT_MAX_ATTEMPTS } from "./check.js";
@@ -95,49 +102,7 @@ export function noOpenWork(backlog: Backlog, issueId: string, json = false): num
   return 0;
 }
 
-/**
- * Every shot lookout holds a previous hash for, from either source.
- *
- * `.lookout/evidence/` is gitignored and routinely cleaned, and an empty
- * baseline made every fresh shot look changed, which switched the pixels-moved
- * guard OFF exactly when it was needed: a wiped evidence directory would let
- * judge variance alone pass an issue. backlog.json is committed and its evidence
- * refs carry the hash each finding was filed against, so they outlive the
- * pixels. The report is fresher, so it wins where both know a shot.
- */
-export function baselineHashes(
-  priorShots: readonly { id: string; hash: string }[],
-  findings: readonly BacklogFinding[],
-): Map<string, string> {
-  const out = new Map<string, string>();
-  for (const f of findings) {
-    // Later refs win: evidence is appended in capture order.
-    for (const ev of f.evidence) out.set(ev.shotId, ev.hash);
-  }
-  for (const sh of priorShots) out.set(sh.id, sh.hash);
-  return out;
-}
 
-/**
- * Drop findings somebody already ruled intentional.
- *
- * A by-design sibling under an issue's own cluster key re-fires on every
- * capture, because an intentional defect is still there by definition. Counting
- * it held the issue open however well the real defect had been fixed, and then
- * blocked it with a reason claiming a defect persists that somebody had already
- * ruled intended. `mergeFindings` suppresses these; the verdict has to as well.
- */
-export function withoutByDesign<T extends { fingerprint: string }>(
-  fresh: readonly T[],
-  backlog: Backlog,
-): T[] {
-  const byDesign = new Set(
-    Object.values(backlog.findings)
-      .filter((f) => f.status === "by-design")
-      .map((f) => f.fingerprint),
-  );
-  return fresh.filter((f) => !byDesign.has(f.fingerprint));
-}
 
 export async function verifyFix(parsed: Parsed): Promise<number> {
   const issueId = str(parsed.flags.issue) ?? parsed.positionals[0];
@@ -248,12 +213,18 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
   // would let judge variance alone close real defects, which would make the
   // oracle worthless precisely where it is supposed to be strict.
   const nothingChanged = changedShots.size === 0;
+  // Closure is per member, backed by that member's own pixels. The scope
+  // changing somewhere is not enough: a multi-route cluster would otherwise
+  // close members whose views were served from cache while a sibling route
+  // moved, which is judge variance laundered through the ledger.
+  const unclosable = unclosableMembers(cluster, changedShots);
   const verdict: Verdict = ruleVerdict({
     attempt,
     maxAttempts,
     changedShots: changedShots.size,
     stillOpen: stillOpen.length,
     unmetCriteria: unmet.length,
+    unclosableMembers: unclosable.length,
   });
 
   const judgeNote = nothingChanged
@@ -269,7 +240,12 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
       : unmet.length > 0
         ? `${unmet.length} acceptance criteri${unmet.length === 1 ? "on" : "a"} still fail: ` +
           unmet.map((c) => c.text).join("; ")
-        : "";
+        : unclosable.length > 0
+          ? `${unclosable.length} finding(s) sit on pixels unchanged since they were filed ` +
+            `(${[...new Set(unclosable.map((m) => m.route))].join(", ")}); the judge not re-filing ` +
+            "them is not evidence of a fix. If they were fixed earlier or are intended, adjudicate " +
+            "them; otherwise the fix has not reached these views."
+          : "";
 
   // A defect this fix caused somewhere else is a NEW issue, with its own number
   // and its own evidence. It is not this one regressing, and charging it here
