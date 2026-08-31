@@ -16,14 +16,45 @@ describe("the walk order", () => {
     expect(orderStops(stops, open).map((s) => s.route)).toEqual(["/d", "/c", "/a", "/b"]);
   });
 
-  test("closed, code-channel and off-walk findings do not reorder anything", () => {
-    const stops = [stop("/a"), stop("/b")];
-    const open = [
+  test("routes ruled fully fixed walk before everything, open work included", () => {
+    // A fix in one area can regress another, and this walk runs between every
+    // fix attempt. If fixed routes waited behind the open band, the stop rule
+    // would end the run before reaching them for as long as any open work
+    // stands, which is the whole campaign: "always re-tested" has to mean
+    // ahead of the stop, not behind it.
+    const stops = [stop("/a"), stop("/b"), stop("/c")];
+    const findings = [
+      { target: "app", route: "/b", severity: "high", status: "open", channel: "ai" },
+      { target: "app", route: "/c", severity: "critical", status: "fixed", channel: "ai" },
+    ] as never[];
+    expect(orderStops(stops, findings).map((s) => s.route)).toEqual(["/c", "/b", "/a"]);
+  });
+
+  test("open or blocked work on a route keeps it out of the fixed band", () => {
+    // "Everything has been fixed" is the band's admission rule. A route still
+    // carrying open work walks with the open band; one carrying blocked work
+    // is a person's, and walking it first would stop every run at the same
+    // un-dispatchable issue.
+    const stops = [stop("/a"), stop("/b"), stop("/c")];
+    const findings = [
       { target: "app", route: "/b", severity: "critical", status: "fixed", channel: "ai" },
+      { target: "app", route: "/b", severity: "high", status: "open", channel: "ai" },
+      { target: "app", route: "/c", severity: "critical", status: "fixed", channel: "ai" },
+      { target: "app", route: "/c", severity: "high", status: "blocked", channel: "ai" },
+    ] as never[];
+    expect(orderStops(stops, findings).map((s) => s.route)).toEqual(["/b", "/a", "/c"]);
+  });
+
+  test("by-design, code-channel and off-walk findings do not reorder anything", () => {
+    const stops = [stop("/a"), stop("/b")];
+    const findings = [
+      { target: "app", route: "/b", severity: "critical", status: "by-design", channel: "ai" },
+      { target: "app", route: "/b", severity: "critical", status: "fixed", channel: "code" },
       { target: "app", route: "/b", severity: "critical", status: "open", channel: "code" },
+      { target: "other", route: "/b", severity: "critical", status: "fixed", channel: "ai" },
       { target: "other", route: "/b", severity: "critical", status: "open", channel: "ai" },
     ] as never[];
-    expect(orderStops(stops, open).map((s) => s.route)).toEqual(["/a", "/b"]);
+    expect(orderStops(stops, findings).map((s) => s.route)).toEqual(["/a", "/b"]);
   });
 
   test("a clean backlog leaves config order untouched", () => {

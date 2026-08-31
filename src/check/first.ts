@@ -3,8 +3,22 @@
  * honestly as a full check would.
  *
  * Each route is captured and judged on its own and the walk stops at the
- * first that turns something up. Two rules keep it honest, both learned from
+ * first that turns something up. Three rules keep it honest, all learned from
  * the UI's play button, which drives every run through this path:
+ *
+ * - Routes lookout has ruled fully fixed (a fixed finding, nothing open or
+ *   blocked) are walked FIRST, on every run. A fix in one area can regress
+ *   another, and this walk runs between every fix attempt, so a fixed route
+ *   waiting behind the open band would sit untested for the whole campaign:
+ *   the stop rule ends the run before the walk ever reaches it. Ahead of the
+ *   stop, "always re-tested" actually holds, and it costs almost nothing in
+ *   the steady state: a genuine verify-fix pass required changed pixels, so
+ *   the clean verdict that followed is cached by group hash, and an unchanged
+ *   fixed route is one capture and a ledger hit, no judge call. When its
+ *   pixels DID move, the judge runs exactly where a regression could be, the
+ *   merge reopens the finding, and the walk stops with the newest breakage
+ *   while its cause is still the most recent commit. verify-fix stays scoped
+ *   to the issue it rules on; this band is the loop's regression net.
  *
  * - The stop rule matches the full check's exit standard: STANDING findings,
  *   not merely newly filed ones. A repeat walk over an unchanged app used to
@@ -12,13 +26,13 @@
  *   back as "refreshed", so it walked every route at full capture cost and
  *   printed "no issues found" over a backlog full of open work.
  *
- * - Routes already carrying open findings are walked FIRST, worst severity
- *   first. A repeat run therefore stops at stop one with one route's capture
- *   and zero judge calls, which is where "find me one issue" actually
- *   approaches zero marginal cost. Clean routes are still captured and
- *   cache-judged on the way to a dirty one when the walk gets that far: they
- *   might have regressed, and skipping them would be the false-clean
- *   shortcut this file exists to avoid.
+ * - Routes carrying open findings come next, worst severity first. A repeat
+ *   run with nothing regressed therefore stops at the first open route with
+ *   the fixed band's captures plus one, and zero judge calls, which is where
+ *   "find me one issue" approaches zero marginal cost. Clean routes are still
+ *   captured and cache-judged on the way to a dirty one when the walk gets
+ *   that far: they might have regressed, and skipping them would be the
+ *   false-clean shortcut this file exists to avoid.
  */
 import { resolveTargets } from "../targets.js";
 import { issuesOf } from "../issues/registry.js";
@@ -30,23 +44,43 @@ import type { Backlog, BacklogFinding } from "../backlog/lib.js";
 const SEVERITY_RANK = { critical: 0, high: 1, medium: 2, low: 3 } as const;
 
 /**
- * The walk order: routes with open findings first (worst first, then config
- * order), then the rest in config order. Exported for the tests; pure.
+ * The walk order: routes ruled fully fixed first (regressions surface every
+ * run), then routes with open findings (worst first, then config order), then
+ * the rest in config order. Exported for the tests; pure.
+ *
+ * The fixed band's admission rule is "everything has been fixed": at least one
+ * fixed AI finding, and nothing open or blocked on the route. Open work walks
+ * with the open band; blocked work is a person's, and a route walking first on
+ * its account would stop every run at the same un-dispatchable issue.
  */
 export function orderStops(
   stops: { target: string; route: string }[],
-  openFindings: readonly Pick<BacklogFinding, "target" | "route" | "severity" | "status" | "channel">[],
+  findings: readonly Pick<BacklogFinding, "target" | "route" | "severity" | "status" | "channel">[],
 ): { target: string; route: string }[] {
   const worst = new Map<string, number>();
-  for (const f of openFindings) {
-    if (f.status !== "open" || f.channel === "code") continue;
+  const fixed = new Set<string>();
+  const standing = new Set<string>();
+  for (const f of findings) {
+    // Code-channel findings live in source, not on a route's pixels; they
+    // neither dirty a route nor qualify it as fixed-and-regressable.
+    if (f.channel === "code") continue;
     const key = `${f.target}|${f.route}`;
-    const rank = SEVERITY_RANK[f.severity] ?? 4;
-    worst.set(key, Math.min(worst.get(key) ?? 5, rank));
+    if (f.status === "open") {
+      const rank = SEVERITY_RANK[f.severity] ?? 4;
+      worst.set(key, Math.min(worst.get(key) ?? 5, rank));
+      standing.add(key);
+    } else if (f.status === "blocked") {
+      standing.add(key);
+    } else if (f.status === "fixed") {
+      fixed.add(key);
+    }
   }
-  const dirty = stops.filter((s) => worst.has(`${s.target}|${s.route}`));
-  dirty.sort((a, b) => worst.get(`${a.target}|${a.route}`)! - worst.get(`${b.target}|${b.route}`)!);
-  return [...dirty, ...stops.filter((s) => !worst.has(`${s.target}|${s.route}`))];
+  const key = (s: { target: string; route: string }): string => `${s.target}|${s.route}`;
+  const healed = stops.filter((s) => fixed.has(key(s)) && !standing.has(key(s)));
+  const dirty = stops.filter((s) => worst.has(key(s)));
+  dirty.sort((a, b) => worst.get(key(a))! - worst.get(key(b))!);
+  const walked = new Set([...healed, ...dirty].map(key));
+  return [...healed, ...dirty, ...stops.filter((s) => !walked.has(key(s)))];
 }
 
 export async function firstIssue(parsed: Parsed, pre: ResolvedConfig): Promise<number> {
