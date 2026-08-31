@@ -12,6 +12,11 @@ import {
 } from "../src/judge/engine.js";
 import { groupHash, judgeIdentity, ledgerKey } from "../src/judge/ledger.js";
 import { loadRubric } from "../src/judge/rubric.js";
+// Redirects the lookout home away from the operator's. The bunfig preload
+// does this for the whole suite, but it is only found when bun is run from the
+// repository root, and the code under test here records incidents: importing it
+// keeps that true whatever directory the run was started from.
+import "./setup.js";
 import { tmpProject } from "./tmp-project.js";
 import type { ShotRecord } from "../src/types.js";
 

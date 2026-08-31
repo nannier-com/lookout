@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { lockHeld, ownCheckout, selfHeal } from "../src/verbs/self-heal.js";
 import { clusterIncidents, incidentsPath, readIncidents, recordIncident } from "../src/skills/incidents.js";
 import { LookoutError } from "../src/types.js";
+import { SUITE_HOME } from "./setup.js";
 
 const MOCK = join(import.meta.dir, "mock-claude.ts");
 
@@ -47,7 +48,10 @@ function home(): string {
 }
 
 afterEach(() => {
-  delete process.env.LOOKOUT_HOME;
+  // Back to the suite's throwaway home rather than deleted: an unset
+  // LOOKOUT_HOME is the operator's real one, and every test that ran after this
+  // file would append its incidents there.
+  process.env.LOOKOUT_HOME = SUITE_HOME;
   delete process.env.LOOKOUT_CHECKOUT;
   delete process.env.LOOKOUT_CLAUDE_BIN;
   delete process.env.MOCK_HEAL_FILE;

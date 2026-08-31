@@ -18,6 +18,11 @@ import { emptyBacklog, type Backlog, type BacklogFinding } from "../src/backlog/
 import { reconcileIssues } from "../src/issues/registry.js";
 import type { AiFinding } from "../src/judge/engine.js";
 import type { ResolvedConfig } from "../src/types.js";
+// Redirects the lookout home away from the operator's. The bunfig preload
+// does this for the whole suite, but it is only found when bun is run from the
+// repository root, and the code under test here records incidents: importing it
+// keeps that true whatever directory the run was started from.
+import "./setup.js";
 
 const MOCK = join(import.meta.dir, "mock-claude.ts");
 
