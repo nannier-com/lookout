@@ -4,13 +4,10 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  conformanceCandidates,
-  mergeHandRolls,
-  readConformance,
-  verifyClaim,
-  type ConformanceResult,
-} from "../src/design/conformance.js";
+import { mergeHandRolls, readConformance } from "../src/design/conformance.js";
+import { conformanceCandidates } from "../src/design/conformance-candidates.js";
+import { verifyClaim } from "../src/design/conformance-batch.js";
+import type { ConformanceResult } from "../src/design/conformance-types.js";
 import { loadCache, readerIdentity, saveCache } from "../src/design/conformance-cache.js";
 import { detect } from "../src/design/detect.js";
 import { tmpProject } from "./tmp-project.js";

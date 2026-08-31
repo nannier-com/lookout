@@ -22,7 +22,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { lookoutDir } from "../config.js";
-import type { ConformanceFinding, Refutation } from "./conformance.js";
+import type { ConformanceFinding, Refutation } from "./conformance-types.js";
 import type { ResolvedConfig } from "../types.js";
 
 export interface CachedRead {

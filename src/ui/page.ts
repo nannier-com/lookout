@@ -19,7 +19,8 @@ export const PAGE = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>lookout</title>
-<link rel="stylesheet" href="/ui/app.css"/>
+<link rel="stylesheet" href="/ui/shell.css"/>
+<link rel="stylesheet" href="/ui/board.css"/>
 <link rel="stylesheet" href="/ui/learning.css"/>
 </head><body>
 <nav class="rail" aria-label="Areas">

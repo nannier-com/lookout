@@ -10,10 +10,12 @@
  * tell that apart from legitimate scaffolding, because the difference is what
  * the thing IS, not what it is made of.
  *
- * So the reading is done by a skill, and this file is the machinery around it:
- * choose which files are worth a model's attention, hand them over in batches,
- * and refuse to believe the reply until each finding has been checked back
- * against the file it names.
+ * So the reading is done by a skill, and this file is the run around it: work
+ * out what has already been read, hand the rest over in batches, and fold what
+ * comes back into one answer. The two jobs either side of that live next door.
+ * `conformance-candidates` decides what is worth reading at all, and
+ * `conformance-batch` puts one batch to the model and refuses to believe the
+ * reply until every claim has been checked against the file it names.
  *
  * On reading the repository with a model. The visual judge is cwd-pinned to the
  * evidence directory with Read alone, so the target repository's own
@@ -40,260 +42,24 @@ import {
   saveCache,
   type ConformanceCache,
 } from "./conformance-cache.js";
-import { extractJson, invokeClaude } from "../judge/engine.js";
-import { loadSkill, renderSkill } from "../skills/load.js";
+import { loadSkill } from "../skills/load.js";
 import { recordIncident } from "../skills/incidents.js";
-import { appSourceFiles } from "./detect.js";
-import { inventoryBrief } from "./placement.js";
+import { conformanceCandidates, DEFAULT_FILE_BUDGET } from "./conformance-candidates.js";
+import { readBatch, type BatchContext } from "./conformance-batch.js";
 import { primaryKit, type DesignInventory, type HandRoll } from "./inventory.js";
+import type {
+  BatchOutcome,
+  Candidate,
+  ConformanceOptions,
+  ConformanceResult,
+} from "./conformance-types.js";
 import type { ResolvedConfig } from "../types.js";
 
 /** Files handed to one model call. Small enough that each one is actually read. */
 const FILES_PER_BATCH = 8;
 
-/** Files one run will look at, unless the caller says otherwise. */
-export const DEFAULT_FILE_BUDGET = 40;
-
 /** Batches in flight at once. Two, the same width the judge runs at. */
 const BATCH_CONCURRENCY = 2;
-
-/** Raw elements that carry interaction, which is what a control is made of. */
-const INTERACTIVE = /<(button|input|select|textarea|a)[\s/>]|onClick|onPress|role=["'](button|tab|dialog|switch|checkbox)/g;
-
-/** Any raw element at all. */
-const RAW = /<(div|span|button|input|select|textarea|label|a|ul|li|p|h[1-6])[\s/>]/g;
-
-export interface ConformanceFinding extends HandRoll {
-  foundBy: "skill";
-  confidence: "high" | "medium" | "low";
-}
-
-/** A suspicion the skill looked at and killed. */
-export interface Refutation {
-  relPath: string;
-  symbol: string;
-  why: string;
-}
-
-export interface ConformanceResult {
-  /** Hand-rolled controls the skill found and lookout could verify. */
-  handRolls: ConformanceFinding[];
-  /** Scanner suspicions the skill read and rejected. */
-  refuted: Refutation[];
-  /** Files with a verdict this run, whether read fresh or carried from the cache. */
-  examined: string[];
-  /**
-   * Files chosen for reading that came back with no verdict: a batch that
-   * failed, or a reply that left them out. Not clean, not read, and never
-   * cached, so the next run asks again. Ruling a fix on a file in this list is
-   * refused outright.
-   */
-  unread: string[];
-  /** Files carried from the cache because their bytes had not changed. */
-  cached: number;
-  /** Files chosen for reading, whether or not the skill accounted for them. */
-  considered: number;
-  /** Claims thrown out because the file, the symbol or the export did not check out. */
-  rejected: { reason: string; raw: unknown }[];
-  costUsd: number;
-  /** Model calls spent. */
-  calls: number;
-}
-
-interface Candidate {
-  path: string;
-  relPath: string;
-  /** Raw-element weight, for choosing what is worth reading. */
-  score: number;
-  /** What the deterministic scan suspected here, if anything. */
-  suspicions: HandRoll[];
-  /** The file's bytes as they were when it was chosen, for the cache key. */
-  hash: string;
-}
-
-/** Files that exist to be read by a machine, or to demonstrate raw markup. */
-const NOT_APPLICATION_UI = /\.(test|spec|stories|d)\.[tj]sx?$|\.generated\.|__(tests|mocks|snapshots)__/;
-
-/**
- * Which files are worth a model's attention, worst offenders first.
- *
- * The ranking is the whole reason this is affordable. An application has
- * hundreds of source files and almost all of them are data, routing or
- * composition; the ones that hide a hand-rolled control are the ones dense in
- * raw interactive markup. Interaction counts triple because a styled div that
- * takes a click is a button by every definition except its tag.
- *
- * Files the scanner already suspects are pulled to the front regardless of
- * weight: those need a verdict either way, and a suspicion nobody rules on is a
- * finding filed on a regex's say-so.
- */
-export async function conformanceCandidates(
-  inv: DesignInventory,
-  repoRoot: string,
-  budget = DEFAULT_FILE_BUDGET,
-): Promise<Candidate[]> {
-  const kit = primaryKit(inv);
-  if (!kit) return [];
-  const kitRoots = [
-    ...(kit.packageRoot && kit.packageRoot !== repoRoot ? [kit.packageRoot] : []),
-    ...kit.componentRoots,
-  ];
-  const suspicionsByFile = new Map<string, HandRoll[]>();
-  for (const h of inv.handRolls) {
-    suspicionsByFile.set(h.path, [...(suspicionsByFile.get(h.path) ?? []), h]);
-  }
-
-  const out: Candidate[] = [];
-  for (const file of await appSourceFiles(inv.appRoots)) {
-    if (kitRoots.some((r) => file.startsWith(r + "/") || file === r)) continue;
-    if (NOT_APPLICATION_UI.test(file)) continue;
-    let text: string;
-    try {
-      text = await readFile(file, "utf8");
-    } catch {
-      continue;
-    }
-    const raw = [...text.matchAll(RAW)].length;
-    if (raw === 0) continue;
-    const interactive = [...text.matchAll(INTERACTIVE)].length;
-    out.push({
-      path: file,
-      relPath: relative(repoRoot, file),
-      score: raw + interactive * 3,
-      suspicions: suspicionsByFile.get(file) ?? [],
-      hash: hashText(text),
-    });
-  }
-
-  out.sort((a, b) => {
-    if (a.suspicions.length !== b.suspicions.length) return b.suspicions.length - a.suspicions.length;
-    return b.score - a.score;
-  });
-  return out.slice(0, Math.max(0, budget));
-}
-
-/** The file list as the skill sees it: paths to open, and what was suspected. */
-function fileBrief(batch: Candidate[]): string {
-  const l: string[] = [];
-  for (const c of batch) {
-    l.push(`- ${c.path}`);
-    for (const s of c.suspicions) {
-      l.push(
-        `    scanner suspects: ${s.symbol ?? "a component"} at line ${s.line}, built from ` +
-          `<${s.elements.join(">, <")}>${s.candidate ? `, possibly duplicating ${s.candidate}` : ""}`,
-      );
-    }
-  }
-  return l.join("\n");
-}
-
-/** What one batch produced, before it is folded into the run's result. */
-interface BatchOutcome {
-  findings: ConformanceFinding[];
-  refuted: Refutation[];
-  examined: string[];
-  unread: string[];
-  rejected: { reason: string; raw: unknown }[];
-  /** Per-file verdicts, for the cache. A file missing here has no verdict. */
-  decided: Map<string, { findings: ConformanceFinding[]; refuted: Refutation[] }>;
-  costUsd: number;
-  calls: number;
-}
-
-interface RawFinding {
-  path?: unknown;
-  symbol?: unknown;
-  line?: unknown;
-  elements?: unknown;
-  kitComponent?: unknown;
-  what?: unknown;
-  why?: unknown;
-  confidence?: unknown;
-}
-
-const CONFIDENCE = new Set(["high", "medium", "low"]);
-
-/**
- * Turn one claim into a finding, or say why it cannot be one.
- *
- * Everything here is a check against the file on disk, because every one of
- * these has a failure mode that ends with somebody opening a file that does not
- * contain what they were told it contains. The line is the worst of them: a
- * model reading a long file will estimate, so the symbol is searched for and
- * the file's own answer wins over the reply's.
- */
-export function verifyClaim(
-  raw: RawFinding,
-  text: string,
-  candidate: Candidate,
-  kitExports: string[],
-): { ok: true; finding: ConformanceFinding } | { ok: false; reason: string } {
-  const symbol = typeof raw.symbol === "string" ? raw.symbol.trim() : "";
-  // An identifier, or nothing. Sanitising a symbol down to the empty string and
-  // searching for that would match the first declaration in the file and file a
-  // finding against a component nobody named.
-  if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(symbol)) {
-    return { ok: false, reason: symbol ? `"${symbol}" is not an identifier` : "no symbol named" };
-  }
-
-  // The declaration, found in the file rather than trusted from the reply.
-  const decl = new RegExp(`(?:function|const|let|var|class)\\s+${symbol}\\b`).exec(text);
-  if (!decl) {
-    return { ok: false, reason: `${symbol} is not declared in ${candidate.relPath}` };
-  }
-  const line = text.slice(0, decl.index).split("\n").length;
-
-  const claimed = typeof raw.kitComponent === "string" ? raw.kitComponent.trim() : null;
-  // A kit component the kit does not export is the one claim that cannot be
-  // softened into a note: it would send somebody looking for an import that
-  // does not exist. The finding survives as a gap, which is what it is.
-  const candidateExport =
-    claimed && kitExports.length > 0 && kitExports.includes(claimed) ? claimed : null;
-
-  const elements = Array.isArray(raw.elements)
-    ? raw.elements.filter((e): e is string => typeof e === "string").slice(0, 6)
-    : [];
-  const confidence = CONFIDENCE.has(String(raw.confidence))
-    ? (raw.confidence as "high" | "medium" | "low")
-    : "medium";
-  // What it is and why it counts, as two sentences rather than one run-on. This
-  // text lands in the issue a person reads, so it is punctuated here rather
-  // than hoping the reply punctuated itself.
-  const parts = [raw.what, raw.why]
-    .map((t) => (typeof t === "string" ? t.trim().replace(/[.;,\s]+$/, "") : ""))
-    .filter(Boolean);
-  const note = parts.length > 0 ? `${parts.join(". ")}.` : "";
-  if (!note) return { ok: false, reason: `${symbol} was filed with no account of what it is` };
-
-  return {
-    ok: true,
-    finding: {
-      path: candidate.path,
-      relPath: candidate.relPath,
-      symbol,
-      elements,
-      candidate: candidateExport,
-      line,
-      foundBy: "skill",
-      note,
-      confidence,
-    },
-  };
-}
-
-export interface ConformanceOptions {
-  model?: string;
-  /**
-   * How many files to read at most. Zero reads nothing, because this is a cap
-   * on spending and a cap that means "unlimited" at zero is a way to spend a
-   * lot of somebody's money by typing the smallest number they could think of.
-   */
-  fileBudget?: number;
-  /** Read only these files, for ruling on one issue rather than sweeping. */
-  only?: string[];
-  /** Set false to read every candidate fresh, ignoring and not writing the cache. */
-  cache?: boolean;
-}
 
 /**
  * Read the application and say what it built for itself.
@@ -382,145 +148,14 @@ export async function readConformance(
     batches.push(toRead.slice(i, i + FILES_PER_BATCH));
   }
 
-  /** One model call, and everything that survived checking it. */
-  const readBatch = async (batch: Candidate[]): Promise<BatchOutcome> => {
-    const out: BatchOutcome = {
-      findings: [],
-      refuted: [],
-      examined: [],
-      unread: [],
-      rejected: [],
-      decided: new Map(),
-      costUsd: 0,
-      calls: 0,
-    };
-    const entryFor = (relPath: string) => {
-      const e = out.decided.get(relPath) ?? { findings: [], refuted: [] };
-      out.decided.set(relPath, e);
-      return e;
-    };
-    const prompt = renderSkill(skill.text, {
-      project: resolved.project,
-      kit: inventoryBrief(inv),
-      files: fileBrief(batch),
-    });
-
-    let reply: { text: string; costUsd?: number };
-    try {
-      reply = await invokeClaude({
-        prompt,
-        // The repository, because the question is about the repository. The
-        // note at the top of this file says why that is acceptable here and is
-        // not acceptable for the visual judge.
-        cwd: resolved.projectDir,
-        model,
-        allowedTools: ["Read", "Grep", "Glob"],
-      });
-    } catch (e) {
-      // A batch failing is not the sweep failing. The files it covered are
-      // simply not accounted for, which is reported rather than papered over.
-      recordIncident({
-        at: new Date().toISOString(),
-        kind: "crash",
-        verb: "conformance",
-        message: `conformance batch failed: ${e instanceof Error ? e.message : String(e)}`,
-        project: resolved.project,
-      });
-      out.unread.push(...batch.map((c) => c.path));
-      return out;
-    }
-    out.calls++;
-    out.costUsd += reply.costUsd ?? 0;
-
-    let parsed: { findings?: unknown; refuted?: unknown; examined?: unknown };
-    try {
-      parsed = extractJson(reply.text) as typeof parsed;
-    } catch {
-      recordIncident({
-        at: new Date().toISOString(),
-        kind: "judge-unparseable",
-        verb: "conformance",
-        message: "conformance reply was not JSON",
-        detail: reply.text.slice(0, 400),
-        project: resolved.project,
-      });
-      out.unread.push(...batch.map((c) => c.path));
-      return out;
-    }
-
-    for (const raw of Array.isArray(parsed.findings) ? parsed.findings : []) {
-      const claim = raw as RawFinding;
-      const path = typeof claim.path === "string" ? claim.path : "";
-      const candidate = byPath.get(path);
-      if (!candidate) {
-        out.rejected.push({ reason: "names a file that was not in the batch", raw });
-        continue;
-      }
-      let text: string;
-      try {
-        text = await readFile(candidate.path, "utf8");
-      } catch {
-        out.rejected.push({ reason: `${candidate.relPath} could not be read back`, raw });
-        continue;
-      }
-      const checked = verifyClaim(claim, text, candidate, kit.exports);
-      if (!checked.ok) {
-        out.rejected.push({ reason: checked.reason, raw });
-        continue;
-      }
-      // One finding per control. A model asked about a file twice in one reply
-      // is describing the same component from two angles.
-      if (
-        out.findings.some(
-          (h) => h.path === checked.finding.path && h.symbol === checked.finding.symbol,
-        )
-      ) {
-        continue;
-      }
-      out.findings.push(checked.finding);
-      out.examined.push(candidate.path);
-      entryFor(candidate.relPath).findings.push(checked.finding);
-    }
-
-    for (const raw of Array.isArray(parsed.refuted) ? parsed.refuted : []) {
-      const r = raw as { path?: unknown; symbol?: unknown; why?: unknown };
-      const candidate = byPath.get(typeof r.path === "string" ? r.path : "");
-      if (!candidate || typeof r.symbol !== "string") continue;
-      // A reply that files a control and refutes it in the same breath has said
-      // nothing. The finding is the assertive half and it stands; the
-      // contradiction is recorded, because a reader doing this often is a
-      // reader whose instructions need fixing.
-      if (out.findings.some((h) => h.path === candidate.path && h.symbol === r.symbol)) {
-        out.rejected.push({
-          reason: `${r.symbol} was filed and refuted in the same reply`,
-          raw,
-        });
-        continue;
-      }
-      const refutation = {
-        relPath: candidate.relPath,
-        symbol: r.symbol,
-        why: typeof r.why === "string" ? r.why : "",
-      };
-      out.refuted.push(refutation);
-      out.examined.push(candidate.path);
-      entryFor(candidate.relPath).refuted.push(refutation);
-    }
-
-    for (const raw of Array.isArray(parsed.examined) ? parsed.examined : []) {
-      const candidate = typeof raw === "string" ? byPath.get(raw) : undefined;
-      if (!candidate) continue;
-      out.examined.push(candidate.path);
-      entryFor(candidate.relPath);
-    }
-
-    // A file the reply accounted for nowhere has no verdict. Caching it as
-    // clean would turn silence into a durable clean bill of health, so it is
-    // recorded as unread and asked about again next run.
-    for (const c of batch) {
-      if (!out.decided.has(c.relPath)) out.unread.push(c.path);
-    }
-    return out;
+  // Everything a batch needs that does not change between batches, built once.
+  const ctx: BatchContext = {
+    resolved,
+    skillText: skill.text,
+    inv,
+    model,
+    byPath,
+    kitExports: kit.exports,
   };
 
   // Two at a time, the same width the judge uses. These are subprocesses that
@@ -532,7 +167,7 @@ export async function readConformance(
     for (;;) {
       const i = next++;
       if (i >= batches.length) return;
-      outcomes[i] = await readBatch(batches[i]!);
+      outcomes[i] = await readBatch(ctx, batches[i]!);
     }
   };
   await Promise.all(

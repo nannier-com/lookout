@@ -29,7 +29,7 @@ make that safe.
 | what the board contains | `src/report/board-types.ts` |
 | how the board is derived | `src/report/board-durable.ts` (state), `board-live.ts` (narration) |
 | the local page's server | `src/ui/` (routes, payload, evidence, run, project, session) |
-| the local page in the browser | `src/ui/client/` |
+| the local page in the browser | `src/ui/client/` (`shell.css` for the frame, `board.css` for a card, one module per area) |
 | how lookout amends its own instructions | `src/skills/` (history, replay, amend, signals, regression) |
 | what a verb prints or exits with | `src/verbs/<verb>.ts` |
 
@@ -68,6 +68,11 @@ Green gates are not enough for two kinds of change:
 - **A verb.** The suite covers the modules, not the composition: nothing calls
   `runCheck`, for instance. Run the verb for real against a served page, with
   `LOOKOUT_CLAUDE_BIN` pointed at `test/mock-claude.ts` so no model is called.
+- **Anything the build ships.** The page's assets are files now, and a build
+  that stopped copying them would pass every gate and serve a blank page to
+  anyone who installed it. `npm pack`, install the tarball into a throwaway
+  directory, and run `lookout doctor` and `lookout ui` from
+  `node_modules/.bin`.
 
 Never delete or weaken a test to make a change pass. If a test is wrong, say so
 and fix the test as its own change.
