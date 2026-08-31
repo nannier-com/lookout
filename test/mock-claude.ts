@@ -14,9 +14,14 @@
 //   verify  confirm index 0, refute every other index
 //   prose   reply with prose + a trailing fenced json (parser must cope)
 //   ask     plain-text answer
-import { readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 
 const argv = process.argv.slice(2);
+// Tests that assert what reached the subprocess (a --model flag, a prompt
+// shape) set MOCK_ARGV_FILE; every invocation appends its argv as one line.
+if (process.env.MOCK_ARGV_FILE) {
+  appendFileSync(process.env.MOCK_ARGV_FILE, JSON.stringify(argv) + "\n");
+}
 const p = argv.indexOf("-p");
 const promptText = p !== -1 ? argv[p + 1] ?? "" : "";
 let mode = process.env.MOCK_MODE ?? "auto";

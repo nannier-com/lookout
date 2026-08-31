@@ -36,8 +36,11 @@ export interface SourceRef {
   line: number;
   /**
    * Which oracle found it, and therefore which one has to agree it is gone.
-   * Absent on findings filed before the conformance skill existed, which the
-   * ruling reads as the scan, because the scan is all there was.
+   * Absent on findings filed before the conformance skill existed. The ruling
+   * reads absence as skill-found, the conservative way round: the scanner by
+   * design cannot see what the skill files, so its silence about a finding of
+   * unknown provenance proves nothing. Reading absence as scan-found closed
+   * defects nothing had re-read.
    */
   foundBy?: "scan" | "skill";
   /** The conformance skill's account of the component, when a skill found it. */

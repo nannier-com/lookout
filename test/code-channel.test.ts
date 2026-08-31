@@ -1,7 +1,7 @@
 // The code channel end to end: a hand-rolled component becomes a finding, that
 // finding clusters per file, and re-reading the source is what closes it.
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { detect } from "../src/design/detect.js";
@@ -10,12 +10,16 @@ import {
   handRollsToFindings,
   sourceFingerprintOf,
   wasPhotographed,
+  type Backlog,
   type BacklogFinding,
 } from "../src/backlog/lib.js";
+import { ruleCodeIssue } from "../src/verify/code.js";
+import { nowIso } from "../src/util.js";
 import { clusterKeyOf } from "../src/fix/cluster.js";
 import { ruleCodeCluster } from "../src/fix/rule-code.js";
 import { tmpProject } from "./tmp-project.js";
 import type { FixCluster } from "../src/fix/cluster.js";
+import type { ResolvedConfig } from "../src/types.js";
 import type { HandRoll } from "../src/design/inventory.js";
 
 const MOCK = join(import.meta.dir, "mock-claude.ts");
@@ -218,6 +222,15 @@ describe("ruling a finding the skill found, not the scanner", () => {
       "src/screens/Checkout.tsx",
       `import { Text } from "@acme/kit";\n\nexport function PayCard() {\n  return <div onClick={() => {}}><span/><button/></div>;\n}\n`,
     );
+    // A second consumer of the kit, so the kit stays detectable when the
+    // file under test is deleted. Without it, deleting Checkout.tsx removed
+    // the kit's only import and the ruling exercised kit disappearance
+    // rather than the deleted-file path this suite is about.
+    write(
+      r.projectDir,
+      "src/screens/Home.tsx",
+      `import { Button } from "@acme/kit";\nexport const Home = () => <Button/>;\n`,
+    );
     return { r, file };
   }
 
@@ -310,5 +323,187 @@ describe("ruling a finding the skill found, not the scanner", () => {
       ruleCodeCluster(r, cluster),
     );
     expect(ruling.cleared).toBe(true);
+  });
+});
+
+// The ruling must resolve the kit the same way filing does (declaration
+// applied), and may never close a conformance finding without the oracle that
+// filed it re-firing. Each of these pinned a real auto-pass before the fix.
+describe("the ruling resolves the kit the way filing does", () => {
+  function codeCluster(f: BacklogFinding): FixCluster {
+    return {
+      id: "654321",
+      key: clusterKeyOf(f),
+      target: f.target,
+      category: f.category,
+      attribute: f.attribute,
+      defects: [],
+      severity: f.severity,
+      title: f.title,
+      problem: f.problem,
+      expected: f.expected,
+      observed: f.observed,
+      routes: [f.route],
+      fingerprints: [f.fingerprint],
+      members: [f],
+      shotCount: 0,
+      findingCount: 1,
+      attemptsSpent: 0,
+      verified: false,
+      channel: "code",
+    };
+  }
+
+  function skillFinding(file: string, relPath: string, symbol: string): BacklogFinding {
+    const handRoll: HandRoll = {
+      path: file,
+      relPath,
+      symbol,
+      elements: ["div", "button"],
+      candidate: "Button",
+      line: 1,
+      foundBy: "skill",
+      note: "a pressable card built from raw elements",
+    };
+    return handRollsToFindings([handRoll], "@acme/kit", "app")[0]! as BacklogFinding;
+  }
+
+  /** A project whose kit exists only as a config declaration. */
+  function declaredOnlyProject() {
+    const base = tmpProject("lookout-declared-");
+    write(base.projectDir, "package.json", JSON.stringify({ name: "app", private: true }));
+    write(base.projectDir, "design/components/Button.tsx", "export const Button = () => null;");
+    write(base.projectDir, "design/components/Card.tsx", "export const Card = () => null;");
+    const file = write(
+      base.projectDir,
+      "src/screens/Checkout.tsx",
+      `export function PayCard() {\n  return <div onClick={() => {}}><span/><button/></div>;\n}\n`,
+    );
+    const r: ResolvedConfig = {
+      ...base,
+      config: {
+        ...base.config,
+        designSystem: { name: "@acme/kit", componentRoots: ["../design/components"] },
+      },
+    };
+    return { r, file };
+  }
+
+  test("a kit that exists only as a config declaration still reaches the reader", async () => {
+    const { r, file } = declaredOnlyProject();
+    const cluster = codeCluster(skillFinding(file, "src/screens/Checkout.tsx", "PayCard"));
+
+    // Before the fix this cleared with "no longer resolves to a design
+    // system": filing applied the declaration and the ruling did not.
+    const ruling = await withClaude(MOCK, () => ruleCodeCluster(r, cluster));
+    expect(ruling.cleared).toBe(false);
+    expect(ruling.note).toContain("conformance reader still sees it");
+  });
+
+  test("kit disappearance never auto-passes: the ruling refuses and points at adjudication", async () => {
+    const r = tmpProject("lookout-kitgone-");
+    write(r.projectDir, "package.json", JSON.stringify({ name: "app", private: true }));
+    const file = write(
+      r.projectDir,
+      "src/screens/Checkout.tsx",
+      `export function PayCard() { return <button/>; }\n`,
+    );
+    const cluster = codeCluster(skillFinding(file, "src/screens/Checkout.tsx", "PayCard"));
+
+    const ruling = await ruleCodeCluster(r, cluster);
+    expect(ruling.cleared).toBe(false);
+    expect(ruling.note).toContain("no longer resolves");
+    expect(ruling.note).toContain("by-design");
+    expect(ruling.stillOpen).toBe(1);
+  });
+
+  /** The workspace shape the skill-found tests use: a real, detectable kit. */
+  function detectableKitProject() {
+    const r = tmpProject("lookout-provenance-");
+    write(
+      r.projectDir,
+      "package.json",
+      JSON.stringify({ name: "app", private: true, workspaces: ["packages/*"] }),
+    );
+    write(
+      r.projectDir,
+      "packages/kit/package.json",
+      JSON.stringify({ name: "@acme/kit", main: "./dist/index.js" }),
+    );
+    write(r.projectDir, "packages/kit/src/atoms/Button.tsx", "export const Button = () => null;");
+    write(r.projectDir, "packages/kit/src/atoms/Card.tsx", "export const Card = () => null;");
+    const file = write(
+      r.projectDir,
+      "src/screens/Checkout.tsx",
+      `import { Text } from "@acme/kit";\n\nexport function PayCard() {\n  return <div onClick={() => {}}><span/><button/></div>;\n}\n`,
+    );
+    return { r, file };
+  }
+
+  test("a member with a source path and no foundBy is re-read by the skill, not cleared by scanner silence", async () => {
+    const { r, file } = detectableKitProject();
+    const filed = skillFinding(file, "src/screens/Checkout.tsx", "PayCard");
+    // A finding filed before provenance was recorded: same defect, no foundBy.
+    const legacy: BacklogFinding = { ...filed, source: { ...filed.source!, foundBy: undefined } };
+    const cluster = codeCluster(legacy);
+
+    const ruling = await withClaude(MOCK, () => ruleCodeCluster(r, cluster));
+    expect(ruling.cleared).toBe(false);
+    expect(ruling.note).toContain("conformance reader still sees it");
+  });
+
+  test("a member with no source path refuses to clear rather than passing on nothing", async () => {
+    const { r, file } = detectableKitProject();
+    const filed = skillFinding(file, "src/screens/Checkout.tsx", "PayCard");
+    const pathless: BacklogFinding = { ...filed, source: undefined };
+    const cluster = codeCluster(pathless);
+
+    const ruling = await ruleCodeCluster(r, cluster);
+    expect(ruling.cleared).toBe(false);
+    expect(ruling.note).toContain("cannot be re-checked");
+  });
+
+  test("verify-fix's --model reaches the conformance re-read", async () => {
+    const { r, file } = detectableKitProject();
+    const filed = skillFinding(file, "src/screens/Checkout.tsx", "PayCard");
+    const cluster = codeCluster(filed);
+    const before: Backlog = {
+      note: "",
+      project: r.project,
+      updatedAt: nowIso(),
+      findings: { [filed.fingerprint]: filed },
+      issues: {},
+    };
+
+    const argvFile = join(r.projectDir, ".lookout", "mock-argv.jsonl");
+    const prev = process.env.MOCK_ARGV_FILE;
+    process.env.MOCK_ARGV_FILE = argvFile;
+    try {
+      await withClaude(MOCK, () =>
+        ruleCodeIssue(r, cluster, before, {
+          attempt: 1,
+          maxAttempts: 3,
+          issueId: "654321",
+          commit: null,
+          note: null,
+          json: true,
+          model: "opus",
+        }),
+      );
+    } finally {
+      if (prev === undefined) delete process.env.MOCK_ARGV_FILE;
+      else process.env.MOCK_ARGV_FILE = prev;
+    }
+
+    const calls = readFileSync(argvFile, "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l) as string[]);
+    expect(calls.length).toBeGreaterThan(0);
+    for (const argv of calls) {
+      const i = argv.indexOf("--model");
+      expect(i).toBeGreaterThan(-1);
+      expect(argv[i + 1]).toBe("opus");
+    }
   });
 });

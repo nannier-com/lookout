@@ -38,13 +38,15 @@ export async function ruleCodeIssue(
     commit: string | null;
     note: string | null;
     json: boolean;
+    /** Model for the conformance re-read, from `verify-fix --model`. */
+    model?: string | null;
   },
 ): Promise<number> {
   const { attempt, maxAttempts, issueId } = opts;
   const runIdNow = makeRunId("verify-fix");
 
   emit("phase", `re-reading the source for issue ${issueId}`, { issue: issueId, phase: "scan" });
-  const ruling = await ruleCodeCluster(resolved, cluster);
+  const ruling = await ruleCodeCluster(resolved, cluster, opts.model ? { model: opts.model } : {});
 
   // No unchanged-pixels guard here, and none is needed: the scanner is
   // deterministic, so an unchanged file gives an unchanged answer. If the

@@ -187,6 +187,7 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
       commit: reportedCommit ?? null,
       note: reportedNote ?? null,
       json: !!parsed.flags.json,
+      model: str(parsed.flags.model) ?? null,
     });
     setCurrentLog(null);
     return code;

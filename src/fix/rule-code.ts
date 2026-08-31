@@ -27,7 +27,8 @@
  * the skill, over the files those members name, and a reader that cannot run
  * leaves the finding open rather than passing it.
  */
-import { detect, repoRootOf } from "../design/detect.js";
+import { repoRootOf } from "../design/detect.js";
+import { resolveInventory } from "../design/resolve.js";
 import { primaryKit } from "../design/inventory.js";
 import { readConformance } from "../design/conformance.js";
 import { handRollsToFindings } from "../backlog/lib.js";
@@ -65,19 +66,27 @@ export async function ruleCodeCluster(
 ): Promise<CodeRuling> {
   // Deliberately a fresh scan, never the cache: the cache is what the tree
   // looked like before the fix, and ruling a fix against a pre-fix snapshot
-  // would pass or fail on stale evidence.
-  const inv = await detect(resolved);
+  // would pass or fail on stale evidence. Resolved the same way FILING
+  // resolves it, declaration applied: this used to call raw detect(), so a
+  // kit that existed only as a config declaration filed findings on `check`
+  // and auto-passed them here, having read nothing. persist: false because a
+  // ruling has no business rewriting the project's inventory.
+  const inv = await resolveInventory(resolved, { refresh: true, persist: false });
   const kit = primaryKit(inv);
 
-  // The kit going away entirely is a legitimate clearing of a hand-roll
-  // finding: with no design system there is nothing left to duplicate. Saying
-  // so is better than reporting zero findings without explaining why.
+  // No kit, by detection or declaration, never auto-passes. Genuinely gone
+  // and merely undetectable are indistinguishable from inside a ruling, and
+  // they demand opposite verdicts, so the ruling refuses both and routes the
+  // genuine case to the channel that records intentional states.
   if (!kit) {
     return {
-      cleared: true,
-      note: "the project no longer resolves to a design system, so there is nothing left for this component to duplicate",
-      stillOpen: 0,
-      scanned: true,
+      cleared: false,
+      note:
+        "the design system this issue was filed against no longer resolves (no detection hit, no config " +
+        "declaration). If it was removed on purpose, adjudicate this issue by-design with that reason; " +
+        "if not, the detection or declaration is broken and this pass must not close anything",
+      stillOpen: cluster.fingerprints.length,
+      scanned: false,
     };
   }
 
@@ -92,13 +101,35 @@ export async function ruleCodeCluster(
     };
   }
 
-  // The files this cluster's skill-found members live in. Nothing else is
-  // re-read: a conformance sweep of the whole application to rule on one issue
-  // would cost a run's worth of model calls to answer a question about one file.
+  // A member that names no source file cannot be re-checked by either oracle.
+  // Clearing it would close a defect nothing looked at, which is the one
+  // outcome this channel must never produce.
+  const unrecheckable = cluster.members.filter(
+    (m) => m.source?.foundBy !== "scan" && !m.source?.path,
+  );
+  if (unrecheckable.length > 0) {
+    return {
+      cleared: false,
+      note:
+        "this finding names no source file, so it cannot be re-checked mechanically; " +
+        "adjudicate it, or re-file it from a fresh check",
+      stillOpen: cluster.fingerprints.length,
+      scanned: false,
+    };
+  }
+
+  // The files this cluster's non-scanner members live in. Provenance the
+  // conservative way round: a member with no recorded `foundBy` predates the
+  // provenance field, and the scanner BY DESIGN cannot see what the skill
+  // files, so scanner silence about such a member proves nothing. It costs one
+  // skill re-read, once; reading it as scan-found closed defects unread.
+  // Nothing else is re-read: a conformance sweep of the whole application to
+  // rule on one issue would cost a run's worth of model calls to answer a
+  // question about one file.
   const files = [
     ...new Set(
       cluster.members
-        .filter((m) => m.source?.foundBy === "skill" && m.source.path)
+        .filter((m) => m.source?.path && m.source.foundBy !== "scan")
         .map((m) => m.source!.path),
     ),
   ];
