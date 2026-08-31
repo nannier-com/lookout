@@ -14,23 +14,14 @@
  *   3  blocked    attempts exhausted; it needs a person
  */
 import { loadConfig } from "../config.js";
-import { clusterKeyOf, clusterScope, type FixCluster } from "../fix/cluster.js";
+import { clusterKeyOf, clusterScope } from "../fix/cluster.js";
 import { findIssue, issueById } from "../issues/registry.js";
 import { spawnedIssues, stampCausedBy } from "../issues/spawned.js";
 import { loadState, saveState } from "../fix/state.js";
-import { acceptanceTally, blocksPass } from "../issues/acceptance.js";
-import {
-  asCriteriaText,
-  judgeableCriteria,
-  matchJudged,
-  ruleAcceptance,
-  type JudgedCriterion,
-} from "../issues/rule-acceptance.js";
-import { MAX_VERIFY_SHOTS, verifyCriteria } from "../judge/criteria.js";
-import { loadSkill } from "../skills/load.js";
-import { evidenceDir } from "../config.js";
+import { ruleCodeIssue } from "../verify/code.js";
+import { ruleIssueAcceptance } from "../verify/acceptance.js";
+import { acceptanceTally } from "../issues/acceptance.js";
 import { ruleVerdict, type Verdict } from "../fix/rule.js";
-import { ruleCodeCluster } from "../fix/rule-code.js";
 import {
   aiToFindings,
   deterministicToFindings,
@@ -44,7 +35,7 @@ import { runCheck, DEFAULT_MAX_ATTEMPTS } from "./check.js";
 import { freezeFrames } from "../issues/frames.js";
 import { runContactSheet } from "./capture.js";
 import { sheetNote } from "../capture/sheet.js";
-import { LookoutError, type ResolvedConfig } from "../types.js";
+import { LookoutError } from "../types.js";
 import { execFileAsync, nowIso, num, printJson, runId as makeRunId, str, type Parsed } from "../util.js";
 import { emit, EventLog, setCurrentLog } from "../report/events.js";
 
@@ -152,129 +143,6 @@ export function withoutByDesign<T extends { fingerprint: string }>(
       .map((f) => f.fingerprint),
   );
   return fresh.filter((f) => !byDesign.has(f.fingerprint));
-}
-
-/**
- * Rule on a source finding, and record it the same way the visual path does.
- *
- * The bookkeeping is deliberately identical: same statuses, same attempt
- * accounting, same exit codes, same state file. What differs is only the
- * oracle, because the question differs. A caller cannot tell from the outside
- * which path ran, which is the point: an issue is an issue.
- */
-async function ruleCodeIssue(
-  resolved: ResolvedConfig,
-  cluster: FixCluster,
-  before: Backlog,
-  opts: {
-    attempt: number;
-    maxAttempts: number;
-    issueId: string;
-    commit: string | null;
-    note: string | null;
-    json: boolean;
-  },
-): Promise<number> {
-  const { attempt, maxAttempts, issueId } = opts;
-  const runIdNow = makeRunId("verify-fix");
-
-  emit("phase", `re-reading the source for issue ${issueId}`, { issue: issueId, phase: "scan" });
-  const ruling = await ruleCodeCluster(resolved, cluster);
-
-  // No unchanged-pixels guard here, and none is needed: the scanner is
-  // deterministic, so an unchanged file gives an unchanged answer. If the
-  // finding is gone, the source really changed.
-  const verdict: Verdict = ruleVerdict({
-    attempt,
-    maxAttempts,
-    // Deterministic re-read, so "did anything change" is not a question the
-    // verdict has to hedge on. Claiming one changed file keeps the shared
-    // rule function honest without inventing a screenshot count.
-    changedShots: 1,
-    stillOpen: ruling.stillOpen,
-    unmetCriteria: 0,
-  });
-
-  const backlog = before;
-  if (verdict === "passed") {
-    for (const fp of cluster.fingerprints) {
-      if (backlog.findings[fp]) {
-        setStatus(backlog, fp, "fixed", { commit: opts.commit ?? undefined, runId: runIdNow, now: nowIso() });
-      }
-    }
-    // The criteria were written to be decidable by this same scan, so the scan
-    // clearing is what meets them.
-    const record = backlog.issues?.[issueId];
-    if (record?.acceptance) {
-      for (const c of record.acceptance) {
-        c.verdict = "met";
-        c.ruledAt = nowIso();
-        c.runId = runIdNow;
-      }
-    }
-  } else if (verdict === "blocked") {
-    const reason =
-      `${attempt} fix attempt(s) did not clear this. ` +
-      (ruling.note ? `The source scan still sees: ${ruling.note}` : "The duplicate persists.") +
-      (opts.note ? ` Last attempt reported: ${opts.note}` : "");
-    for (const fp of cluster.fingerprints) {
-      if (backlog.findings[fp]) {
-        setStatus(backlog, fp, "blocked", { reason, runId: runIdNow, now: nowIso() });
-      }
-    }
-  } else {
-    for (const fp of cluster.fingerprints) {
-      const f = backlog.findings[fp];
-      if (f) f.fixAttempts += 1;
-    }
-  }
-  await saveBacklog(resolved, backlog);
-
-  const state = await loadState(resolved, issueId);
-  state.attempts.push({
-    n: attempt,
-    dispatchedAt: nowIso(),
-    ...(opts.commit || opts.note
-      ? {
-          reported: {
-            ...(opts.commit ? { commit: opts.commit } : {}),
-            ...(opts.note ? { note: opts.note } : {}),
-          },
-        }
-      : {}),
-    verdict,
-    ...(ruling.note ? { judgeNote: ruling.note } : {}),
-  });
-  await saveState(resolved, state);
-
-  emit(
-    "verdict",
-    `${issueId}: ${verdict} (attempt ${attempt} of ${maxAttempts})`,
-    { issue: issueId, verdict, attempt, maxAttempts, judgeNote: ruling.note },
-    verdict === "passed" ? "info" : "error",
-  );
-
-  const exit = verdict === "passed" ? 0 : verdict === "blocked" ? 3 : 1;
-  if (opts.json) {
-    printJson({
-      issue: issueId,
-      verdict,
-      channel: "code",
-      attempt,
-      maxAttempts,
-      ruledBy: "source scan",
-      stillOpen: ruling.stillOpen,
-      note: ruling.note,
-      exit,
-    });
-  } else {
-    console.log(
-      `\n${issueId}: ${verdict} (attempt ${attempt} of ${maxAttempts}), ruled by re-reading the source`,
-    );
-    if (ruling.note) console.log(`  ${ruling.note}`);
-    if (verdict === "passed") console.log("  the source scan no longer sees this duplicate");
-  }
-  return exit;
 }
 
 export async function verifyFix(parsed: Parsed): Promise<number> {
@@ -406,70 +274,20 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
   );
   const runIdNow = outcome.runId;
 
-  // 3. Rule this issue's acceptance criteria against the fresh evidence.
-  //
-  // Each source is ruled by the thing that can decide it: the deterministic
-  // checks rule their own, the pixel hashes rule the re-capture guard, and the
-  // judge-authored ones get an independent look at the new screenshots rather
-  // than being inferred from whether the original finding came back.
-  const record = backlog.issues?.[issueId];
-  const criteria = record?.acceptance ?? [];
-  const judgeable = judgeableCriteria(criteria);
-  let judged = new Map<string, JudgedCriterion>();
-  let acceptanceCost = 0;
-
-  if (judgeable.length > 0) {
-    // The issue's own views, capped: these criteria are about this defect, and
-    // the verifier needs the whole evidence set in one context.
-    const ownShotIds = new Set(
-      cluster.members.flatMap((m) => m.evidence.map((e) => e.shotId)),
-    );
-    const forCriteria = [...shotsById.values()]
-      .filter((sh) => ownShotIds.has(sh.id))
-      .slice(0, MAX_VERIFY_SHOTS);
-    const shotsForCriteria =
-      forCriteria.length > 0 ? forCriteria : [...shotsById.values()].slice(0, MAX_VERIFY_SHOTS);
-    try {
-      const skill = await loadSkill(resolved, "verify-acceptance");
-      const result = await verifyCriteria(
-        skill.text,
-        resolved.project,
-        asCriteriaText(judgeable),
-        shotsForCriteria,
-        evidenceDir(resolved),
-        str(parsed.flags.model) ?? "sonnet",
-      );
-      judged = matchJudged(judgeable, result.criteria);
-      acceptanceCost = result.costUsd ?? 0;
-    } catch (e) {
-      // A verifier that could not run leaves those criteria unruled rather than
-      // failing the issue: `stillOpen` is the primary gate, and an unreachable
-      // criterion is not evidence of anything.
-      emit("error", `acceptance criteria could not be ruled: ${(e as Error).message}`, {}, "error");
-    }
-  }
-
-  const freshFingerprints = new Set(freshDeterministic.map((f) => f.fingerprint));
-  const recapturedFingerprints = new Set(
-    criteria
-      .map((c) => c.from)
-      .filter((fp): fp is string => !!fp)
-      .filter((fp) =>
-        (backlog.findings[fp]?.evidence ?? []).some((e) => shotsById.has(e.shotId)),
-      ),
-  );
-  const ruledCriteria = ruleAcceptance({
-    criteria,
-    changedShots: changedShots.size,
-    totalShots: shotsById.size,
+  // 3. Rule this issue's acceptance criteria against the fresh evidence, each
+  // source ruled by the thing that can actually decide it.
+  const { criteria: ruledCriteria, unmet, costUsd: acceptanceCost } = await ruleIssueAcceptance({
+    resolved,
+    parsed,
+    backlog,
+    issueId,
+    cluster,
+    shotsById,
+    changedShots,
     baselineShots,
-    deterministic: { freshFingerprints, recapturedFingerprints },
-    judged,
-    ruledAt: nowIso(),
-    runId: runIdNow,
+    freshDeterministic,
+    runIdNow,
   });
-  if (record) record.acceptance = ruledCriteria;
-  const unmet = blocksPass(ruledCriteria);
 
   // 4. Rule.
   //
