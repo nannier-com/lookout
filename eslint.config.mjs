@@ -69,7 +69,7 @@ export default tseslint.config(
     "src/judge/engine.ts": 306,
     "src/report/board.ts": 315,
     "src/verbs/skills.ts": 367,
-    "src/verbs/verify-fix.ts": 473,
+    "src/verbs/verify-fix.ts": 325,
   }).map(([file, max]) => ({
     files: [file],
     rules: { "max-lines": ["error", { max, skipBlankLines: true, skipComments: true }] },
