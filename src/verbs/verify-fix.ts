@@ -14,26 +14,20 @@
  *   3  blocked    attempts exhausted; it needs a person
  */
 import { loadConfig } from "../config.js";
-import { clusterKeyOf, clusterScope } from "../fix/cluster.js";
+import { clusterKeyOf } from "../fix/cluster.js";
 import { findIssue, issueById } from "../issues/registry.js";
 import { spawnedIssues, stampCausedBy } from "../issues/spawned.js";
 import { loadState, saveState } from "../fix/state.js";
 import { ruleCodeIssue } from "../verify/code.js";
 import { ruleIssueAcceptance } from "../verify/acceptance.js";
+import { gatherFreshEvidence } from "../verify/evidence.js";
 import { acceptanceTally } from "../issues/acceptance.js";
 import { ruleVerdict, type Verdict } from "../fix/rule.js";
-import {
-  aiToFindings,
-  deterministicToFindings,
-  setStatus,
-  type Backlog,
-  type BacklogFinding,
-} from "../backlog/lib.js";
+import { setStatus, type Backlog, type BacklogFinding } from "../backlog/lib.js";
 import { loadReport } from "../capture/store.js";
-import { loadBacklog, mergeLatest, saveBacklog } from "./backlog.js";
-import { runCheck, DEFAULT_MAX_ATTEMPTS } from "./check.js";
+import { loadBacklog, saveBacklog } from "./backlog.js";
+import { DEFAULT_MAX_ATTEMPTS } from "./check.js";
 import { freezeFrames } from "../issues/frames.js";
-import { runContactSheet } from "./capture.js";
 import { sheetNote } from "../capture/sheet.js";
 import { LookoutError } from "../types.js";
 import { execFileAsync, nowIso, num, printJson, runId as makeRunId, str, type Parsed } from "../util.js";
@@ -212,67 +206,20 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
   // attempt still compares against the defect as it was filed.
   await freezeFrames(preResolved, cluster, "before");
 
-  // 1. Re-capture and re-judge only this cluster's own routes.
-  const scope = clusterScope(cluster);
-  const { outcome, resolved, shotsById } = await runCheck({
-    positionals: [],
-    flags: {
-      ...parsed.flags,
-      targets: scope.targets.join(","),
-      routes: scope.routes.join(","),
-    },
-  });
-
-  // The session reading this verdict should be able to see the state it was
-  // reached from, so composite what was just re-captured, with the tiles that
-  // still carry findings marked.
-  const freshByShot = new Map<string, number>();
-  for (const f of outcome.findings) freshByShot.set(f.shotId, (freshByShot.get(f.shotId) ?? 0) + 1);
-  const sheet = await runContactSheet(
+  // 1. Re-capture and re-judge this cluster's own routes, fold the result into
+  // the backlog, and work out what actually moved.
+  const {
     resolved,
-    [...shotsById.values()],
-    freshByShot,
-    `verify-${issueId}.png`,
-  );
-
-  // 2. Fold the fresh evidence into the backlog, then read the answer off it.
-  const merged = await mergeLatest(resolved, { judgeOutcome: outcome });
-
-  // Both channels, or a deterministic cluster could never fail. Rule violations
-  // (every axe finding) come back from capture, not from the judge, so
-  // comparing against judged findings alone would pass an accessibility cluster
-  // whose violations are all still firing.
-  const report = await loadReport(resolved);
-  const latestRun = report?.runs[report.runs.length - 1];
-  const latestShots = new Set(
-    (report?.shots ?? []).filter((sh) => sh.runId === latestRun?.id).map((sh) => sh.id),
-  );
-  // A shot with no baseline at all is not evidence of change: it is evidence of
-  // nothing. Counting it as changed is what let a cleaned evidence directory
-  // satisfy the guard. Kept separate so the verdict and the criterion can both
-  // say which of the two they are looking at.
-  const changedShots = new Set<string>();
-  const noBaseline = new Set<string>();
-  for (const sh of shotsById.values()) {
-    const prior = priorHashes.get(sh.id);
-    if (prior === undefined) noBaseline.add(sh.id);
-    else if (prior !== sh.hash) changedShots.add(sh.id);
-  }
-  const baselineShots = shotsById.size - noBaseline.size;
-
-  const freshDeterministic = report
-    ? deterministicToFindings({
-        ...report,
-        shots: report.shots.filter((sh) => latestShots.has(sh.id) && shotsById.has(sh.id)),
-      })
-    : [];
-  const fresh = [...aiToFindings(outcome.findings, shotsById), ...freshDeterministic];
-  const backlog = merged.backlog;
-  const stillOpen = withoutByDesign(
-    fresh.filter((f) => clusterKeyOf(f) === cluster.key),
+    outcome,
+    shotsById,
     backlog,
-  );
-  const runIdNow = outcome.runId;
+    sheet,
+    changedShots,
+    baselineShots,
+    freshDeterministic,
+    stillOpen,
+    runIdNow,
+  } = await gatherFreshEvidence({ parsed, issueId, cluster, priorHashes });
 
   // 3. Rule this issue's acceptance criteria against the fresh evidence, each
   // source ruled by the thing that can actually decide it.
