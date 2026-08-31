@@ -37,7 +37,28 @@ export async function pickFolder(): Promise<string | null> {
   }
 }
 
-export async function useProject(dir: string): Promise<Record<string, unknown>> {
+/** What the page is told after being pointed somewhere. */
+export interface ProjectView {
+  project?: string;
+  projectDir: string;
+  configured: boolean;
+  /** Set when there was nothing to point at, and absent otherwise. */
+  error?: string;
+}
+
+/** What the settings panel shows: where lookout is pointed, and what answers. */
+export interface SettingsView {
+  projectDir: string | null;
+  baseUrl: string | null;
+  configPath: string | null;
+  project: string | null;
+  configured: boolean;
+  targets: { name: string; url: string; routes: number; up: boolean; status: number | null }[];
+  error: string | null;
+}
+
+/** Point lookout at a directory, reporting honestly when it has no config. */
+export async function useProject(dir: string): Promise<ProjectView> {
   try {
     setCurrentProject(await loadConfig({ cwd: dir, baseUrl: session.settings.baseUrl ?? undefined }));
   } catch {
@@ -60,7 +81,7 @@ export async function useProject(dir: string): Promise<Record<string, unknown>> 
  * Probing here is what makes the panel worth opening: a wrong port is visible
  * before a run is spent on it, rather than after.
  */
-export async function settingsView(): Promise<Record<string, unknown>> {
+export async function settingsView(): Promise<SettingsView> {
   const project = currentProjectOrNull();
   const configured = project?.configPath !== null && project?.configPath !== undefined;
   let targets: { name: string; url: string; routes: number; up: boolean; status: number | null }[] = [];

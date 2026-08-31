@@ -5,7 +5,11 @@ import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist/**", "node_modules/**", ".lookout/**"] },
+  // .claude holds other sessions' worktrees, each with its own build output.
+  // Linting a sibling checkout's dist is both meaningless and, because that
+  // build is JavaScript without node globals declared, noisy enough to bury
+  // this repo's own findings.
+  { ignores: ["dist/**", "node_modules/**", ".lookout/**", ".claude/**", "**/dist/**"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -15,6 +19,36 @@ export default tseslint.config(
     languageOptions: {
       globals: { console: "readonly", process: "readonly", URL: "readonly", Buffer: "readonly" }
     }
+  },
+  {
+    // The page's own script runs in a browser, and nothing in the type system
+    // says so: the compiler is configured with node's globals for the CLI, and
+    // would happily accept `process.env` in code served to Chrome. These two
+    // rules are what makes the boundary real.
+    files: ["src/ui/client/**/*.ts"],
+    rules: {
+      "no-restricted-globals": [
+        "error",
+        { name: "process", message: "the client runs in a browser: there is no process here" },
+        { name: "Buffer", message: "the client runs in a browser: there is no Buffer here" },
+        { name: "require", message: "the client is an ES module served to a browser" },
+        { name: "__dirname", message: "the client runs in a browser: there is no __dirname here" },
+      ],
+      "@typescript-eslint/no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["../**"],
+              allowTypeImports: true,
+              message:
+                "the client is served to a browser and cannot load server modules; " +
+                "import them as types only, so the import is erased",
+            },
+          ],
+        },
+      ],
+    },
   },
   {
     rules: {

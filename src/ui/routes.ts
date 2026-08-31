@@ -11,6 +11,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { evidenceDir } from "../config.js";
 import { launchHandoff, toolsAvailable } from "../report/handoff.js";
 import { json, readJson } from "./http.js";
+import { serveClient } from "./assets.js";
 import { serveEvidence, serveThumb } from "./evidence.js";
 import { learningNow, statusBody } from "./payload.js";
 import { pickFolder, settingsView, useProject } from "./project.js";
@@ -196,6 +197,13 @@ export function handle(req: IncomingMessage, res: ServerResponse): void {
 
   if (url.pathname.startsWith("/evidence/")) {
     serveEvidence(res, evDir, url);
+    return;
+  }
+
+  // The page's own stylesheets and script modules, which the browser asks for
+  // by name after it has parsed the shell.
+  if (url.pathname.startsWith("/ui/")) {
+    serveClient(res, url.pathname.slice("/ui/".length));
     return;
   }
 

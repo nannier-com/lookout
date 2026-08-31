@@ -1,0 +1,92 @@
+/* --- what lookout has changed about itself ----------------------------- */
+/* min() rather than a bare floor: a column that cannot go under 430px is wider
+   than a phone once the rail has taken its 46, and the page scrolled sideways. */
+.lcols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(430px,100%),1fr));
+gap:18px;align-items:start}
+.ltrack{display:flex;flex-direction:column;gap:12px}
+.ltrack>h2{margin:0}
+/* A track's opening sentence: what this half of the page is, in one line, so
+   the columns are not two unlabelled lists of nouns. */
+.lwhat{font-size:12.5px;color:var(--dim);margin:-4px 0 0;max-width:64ch}
+.lwhat code{font:11.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--sunk);
+border:1px solid var(--line);border-radius:5px;padding:1px 5px;color:var(--ink);
+white-space:nowrap}
+/* Running right now: the one thing on this page that is not history. */
+.lnow{display:flex;align-items:center;gap:9px;font-size:13px;color:var(--ver);
+border:1px solid var(--ver);border-radius:10px;padding:9px 13px;background:var(--panel);
+margin:0 0 16px}
+.lnow i{width:8px;height:8px;border-radius:50%;background:var(--ver);flex:0 0 auto;
+animation:pulse2 1.4s infinite}
+.lnow b{font-weight:640;color:var(--ink)}
+
+/* The skills themselves: what version this project judges at, and whether it
+   has written anything of its own into them. */
+.skills{display:flex;flex-direction:column;gap:0}
+.skill{display:flex;align-items:baseline;gap:9px;padding:7px 0;border-bottom:1px solid var(--line);
+flex-wrap:wrap}
+.skill:last-child{border-bottom:0}
+.skill .nm{font:12.5px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--ink);
+font-weight:600}
+.skill .v{font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums}
+.skill .ds{font-size:12px;color:var(--dim);flex:1 1 240px;min-width:0}
+.chip.amended{color:var(--accent);border-color:var(--accent)}
+.chip.proposal{color:var(--med);border-color:var(--med)}
+
+/* The gate, stated as a fact about evidence rather than as a setting. */
+.gate{font-size:12.5px;color:var(--dim);line-height:1.5}
+.gate b{color:var(--ink);font-weight:620}
+.gate.none{color:var(--med)}
+
+/* One thing lookout did to itself. The mark carries the outcome, because the
+   outcome is the only reason to read the row. */
+.lentry{display:flex;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)}
+.lentry:last-child{border-bottom:0}
+.lmark{flex:0 0 auto;width:18px;height:18px;border-radius:50%;border:1.5px solid var(--line);
+display:flex;align-items:center;justify-content:center;font-size:10px;line-height:1;
+color:var(--faint);margin-top:1px}
+.lentry.applied .lmark{border-color:var(--ok);color:var(--ok)}
+.lentry.rolled-back .lmark{border-color:var(--crit);color:var(--crit)}
+.lentry.proposed .lmark{border-color:var(--med);color:var(--med)}
+.lbody{min-width:0;flex:1 1 auto}
+.lhead2{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.lact{font-size:10.5px;font-weight:750;letter-spacing:.06em;text-transform:uppercase}
+.applied .lact{color:var(--ok)}
+.rolled-back .lact{color:var(--crit)}
+.proposed .lact{color:var(--med)}
+.no-change .lact{color:var(--faint)}
+.lskill{font:11.5px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dim)}
+.lwhen{margin-left:auto;font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;
+color:var(--faint);font-variant-numeric:tabular-nums;white-space:nowrap}
+.lsum{font-size:13px;line-height:1.5;margin-top:2px;word-break:break-word}
+/* Why a rollback happened: the settled verdict the candidate broke. Kept in
+   full, because it is the whole argument for the gate existing. */
+.lwhy{margin-top:6px;font-size:12px;color:var(--dim);background:var(--sunk);
+border:1px solid var(--line);border-left:2px solid var(--crit);border-radius:7px;padding:6px 9px}
+.lwhy div+div{margin-top:5px}
+.lwhy code{font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--ink)}
+.levi{margin-top:5px;font-size:11.5px;color:var(--faint);word-break:break-word}
+
+/* A failure lookout keeps hitting. The count is the point: once is noise, nine
+   times is a bug with a shape. */
+.inc{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);align-items:baseline}
+.inc:last-child{border-bottom:0}
+.inc .ct{flex:0 0 auto;font:11.5px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;
+font-variant-numeric:tabular-nums;color:var(--ink);background:var(--sunk);border:1px solid var(--line);
+border-radius:6px;padding:2px 7px}
+.inc .msg{min-width:0;font-size:12.5px;line-height:1.45;word-break:break-word}
+.inc .kd{font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--faint)}
+.inc.hot .ct{color:var(--crit);border-color:var(--crit)}
+
+/* A commit lookout wrote about itself, and an attempt that never became one. */
+.hcommit{display:flex;align-items:baseline;gap:9px;padding:7px 0;
+border-bottom:1px solid var(--line)}
+.hcommit:last-child{border-bottom:0}
+.hcommit code{font:11.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--ink);
+background:var(--sunk);border:1px solid var(--line);border-radius:6px;padding:2px 6px;
+flex:0 0 auto;user-select:all}
+.hcommit .sj{font-size:12.5px;min-width:0;word-break:break-word}
+.gates{display:flex;gap:5px;flex-wrap:wrap;margin-top:4px}
+.gate-chip{font:10.5px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;padding:2px 6px;
+border-radius:5px;border:1px solid var(--crit);color:var(--crit)}
+.lpath{font:11px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--faint);
+word-break:break-all;user-select:all;margin-top:4px}

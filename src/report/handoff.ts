@@ -76,10 +76,18 @@ function suppliedMark(resolved: ResolvedConfig, key: string): string | null {
   }
 }
 
+/** One coding tool the page can hand an issue to. */
+export interface ToolChoice {
+  key: string;
+  label: string;
+  bin: string;
+  installed: boolean;
+  /** The tool's own mark, as inline SVG. Rendered as markup, not as text. */
+  mark: string;
+}
+
 /** The tools, each with whether its binary is actually here. */
-export async function toolsAvailable(
-  resolved?: ResolvedConfig,
-): Promise<{ key: string; label: string; bin: string; installed: boolean; mark: string }[]> {
+export async function toolsAvailable(resolved?: ResolvedConfig): Promise<ToolChoice[]> {
   return Promise.all(
     Object.entries(TOOLS).map(async ([key, t]) => ({
       key,

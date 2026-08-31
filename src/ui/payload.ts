@@ -14,8 +14,8 @@
 import { statSync } from "node:fs";
 import { join } from "node:path";
 import { evidenceDir } from "../config.js";
-import { readEvents, summarise } from "../report/events.js";
-import { buildBoard, severityTally, tally } from "../report/board.js";
+import { readEvents, summarise, type LookoutEvent, type RunStatus } from "../report/events.js";
+import { buildBoard, severityTally, tally, type BoardEntry } from "../report/board.js";
 import { buildLearning, learningBadge, learningKey, type Learning } from "../report/learning.js";
 import { checkIsRunning, session } from "./session.js";
 import type { ResolvedConfig } from "../types.js";
@@ -75,6 +75,32 @@ export async function learningNow(resolved: ResolvedConfig): Promise<Learning> {
 /** Read a JSON request body, capped so a stray POST cannot fill memory. */
 
 /**
+ * What one poll of `/api/status` answers.
+ *
+ * Written down as a type because the page is checked against it: the client
+ * modules import this, so a field that changes shape here fails the build
+ * rather than quietly rendering "undefined" in somebody's browser. The counts
+ * borrow their shapes from the functions that produce them, so there is one
+ * definition of each and not two that can disagree.
+ */
+export interface StatusPayload {
+  project: string;
+  projectDir: string;
+  configured: boolean;
+  /** Why the last run this page started ended badly, if it did. */
+  lastFailure: { code: number | null; message: string } | null;
+  status: RunStatus & {
+    board: BoardEntry[];
+    issues: ReturnType<typeof tally>;
+    checkRunning: boolean;
+    findings: ReturnType<typeof severityTally>;
+    /** One line about lookout working on lookout, for the rail. */
+    learning: ReturnType<typeof learningBadge>;
+  };
+  events: LookoutEvent[];
+}
+
+/**
  * The board payload, from cache when nothing has moved.
  *
  * Returns the serialised body rather than an object because that is what the
@@ -113,7 +139,7 @@ export async function statusBody(resolved: ResolvedConfig): Promise<string> {
   const outstanding = board.filter(
     (b) => b.status !== "done" && b.status !== "archived",
   );
-  const body = JSON.stringify({
+  const payload: StatusPayload = {
     project: resolved.project,
     projectDir: resolved.projectDir,
     configured: resolved.configPath !== null,
@@ -132,7 +158,8 @@ export async function statusBody(resolved: ResolvedConfig): Promise<string> {
       learning: learningBadge(await learningNow(resolved)),
     },
     events: events.slice(-400),
-  });
+  };
+  const body = JSON.stringify(payload);
   boardCache = { key, body };
   return body;
 }
