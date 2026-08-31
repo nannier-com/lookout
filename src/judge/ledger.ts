@@ -174,3 +174,29 @@ export function recordVerdicts(
     };
   }
 }
+
+
+/**
+ * Drop entries no current capture can ever hit again.
+ *
+ * A hit requires the key's exact group hash, so an entry whose hash matches
+ * no group computable from the current report is unreachable: the pixels
+ * moved, the route left the config, or the identity changed under it. The
+ * committed ledger otherwise grows monotonically with every pixel change.
+ * Entries for OTHER identities of a still-live hash are kept (alternating
+ * --model keeps both caches), and the worst case of pruning wrongly is one
+ * re-judge after a byte-identical revert, which is the failure this cache
+ * prefers. Callers only run this on full-scope checks: a scoped run cannot
+ * see every live group.
+ */
+export function pruneLedger(ledger: Ledger, liveGroupHashes: ReadonlySet<string>): number {
+  let dropped = 0;
+  for (const key of Object.keys(ledger.entries)) {
+    const hash = key.slice(0, key.indexOf("@"));
+    if (!liveGroupHashes.has(hash)) {
+      delete ledger.entries[key];
+      dropped++;
+    }
+  }
+  return dropped;
+}

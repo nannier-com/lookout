@@ -94,6 +94,7 @@ export function buildJudgePrompt(
       (s) =>
         `- shotId: ${s.id}\n  file: ${evidenceDir}/${s.path}\n  route: ${s.route} (${s.routeName})  state: ${s.state}  formFactor: ${s.formFactor}  scheme: ${s.scheme}  size: ${s.width}x${s.height}` +
         (s.design ? `\n  design: ${s.design}` : "") +
+        (s.animated ? "\n  note: this view animates live; the still is one frame of it" : "") +
         signalsOf(s),
     )
     .join("\n");

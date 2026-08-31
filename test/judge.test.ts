@@ -372,3 +372,15 @@ describe("ledger", () => {
     expect(after).not.toBe(before);
   });
 });
+
+describe("what the manifest says about a moving view", () => {
+  test("an animated shot is marked as one frame of a live animation", async () => {
+    const { buildJudgePrompt } = await import("../src/judge/engine.js");
+    const moving = shot("web/app/x/rest/desktop/dark", { animated: true });
+    const still = shot("web/app/y/rest/desktop/dark");
+    const prompt = buildJudgePrompt("{{manifest}}", "p", [moving, still], "/ev");
+    const lines = prompt.split("- shotId: ");
+    expect(lines.find((l) => l.startsWith("web/app/x"))).toContain("one frame of it");
+    expect(lines.find((l) => l.startsWith("web/app/y"))).not.toContain("one frame of it");
+  });
+});

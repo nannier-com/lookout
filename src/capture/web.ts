@@ -263,8 +263,13 @@ async function captureRoute(
         };
 
         const findings: DeterministicFinding[] = [];
+        // Sampled once per route x state at the first form factor and scheme:
+        // spinners and skeletons live inside state recipes, which the old
+        // rest-only sampling never saw. Not per form factor or scheme, because
+        // media-query-gated animation is rare and the flag no longer gates
+        // money, only a context line in the judge prompt.
         let animated = false;
-        if (stateName === "rest" && formFactor === ctx.formFactors[0] && scheme === ctx.schemes[0]) {
+        if (formFactor === ctx.formFactors[0] && scheme === ctx.schemes[0]) {
           animated = await detectAnimated(page, element);
         }
 

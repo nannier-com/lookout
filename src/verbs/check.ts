@@ -81,7 +81,14 @@ export async function runCheck(
   });
   pass.refuted.push(...repairs.refuted);
   pass.costUsd += repairs.costUsd;
-  const outcome = await recordOutcome({ resolved: scope.resolved, scope, plan, pass, log });
+  const outcome = await recordOutcome({
+    resolved: scope.resolved,
+    scope,
+    plan,
+    pass,
+    log,
+    fullScope: !parsed.flags.targets && !parsed.flags.routes,
+  });
   return { outcome, resolved: scope.resolved, shotsById: scope.shotsById, toJudge: plan.toJudge };
 }
 

@@ -117,3 +117,53 @@ describe("the ledger round trip", () => {
     expect(back.entries[ledgerKey(groupHash(group), other)]).toBeUndefined();
   });
 });
+
+describe("pruning unreachable entries", () => {
+  test("a dead hash is dropped; every identity of a live hash is kept", async () => {
+    const { pruneLedger } = await import("../src/judge/ledger.js");
+    const live = shot();
+    const id1 = judgeIdentity({ version: 4, rubricText: "R", refuteText: "F", handoffText: "", model: "sonnet" });
+    const id2 = judgeIdentity({ version: 4, rubricText: "R", refuteText: "F", handoffText: "", model: "opus" });
+    const ledger = { note: "", entries: {} as Record<string, never> } as never as import("../src/judge/ledger.js").Ledger;
+    const entry = { verdict: "clean" as const, shotIds: [live.id], judgedAt: "t", runId: "r" };
+    ledger.entries[ledgerKey(groupHash([live]), id1)] = entry;
+    ledger.entries[ledgerKey(groupHash([live]), id2)] = entry;
+    ledger.entries[ledgerKey("deadbeef", id1)] = entry;
+
+    const dropped = pruneLedger(ledger, new Set([groupHash([live])]));
+    expect(dropped).toBe(1);
+    expect(Object.keys(ledger.entries)).toHaveLength(2);
+    expect(ledger.entries[ledgerKey("deadbeef", id1)]).toBeUndefined();
+  });
+});
+
+describe("the cache partition serves animated groups", () => {
+  test("an animated group with a matching entry is served, not re-judged forever", async () => {
+    const { planJudging } = await import("../src/check/plan.js");
+    const { loadRubric } = await import("../src/judge/rubric.js");
+    const { loadSkill } = await import("../src/skills/load.js");
+    const r = tmpProject("lookout-plan-animated-");
+    const rubric = await loadRubric(r);
+    const refute = await loadSkill(r, "refute-finding");
+    const id = judgeIdentity({
+      version: rubric.version,
+      rubricText: rubric.text,
+      refuteText: refute.text,
+      handoffText: rubric.handoff,
+      model: "sonnet",
+    });
+    const moving = shot({ animated: true });
+    const ledger = await loadLedger(r);
+    ledger.entries[ledgerKey(groupHash([moving]), id)] = {
+      verdict: "clean",
+      shotIds: [moving.id],
+      judgedAt: "t",
+      runId: "old",
+    };
+    await saveLedger(r, ledger);
+
+    const plan = await planJudging(r, [moving], { positionals: [], flags: {} });
+    expect(plan.cached).toBe(1);
+    expect(plan.toJudge).toHaveLength(0);
+  });
+});

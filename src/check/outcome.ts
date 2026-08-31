@@ -10,7 +10,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { evidenceDir } from "../config.js";
 import { groupShots } from "../judge/engine.js";
-import { recordVerdicts, saveLedger } from "../judge/ledger.js";
+import { groupHash, pruneLedger, recordVerdicts, saveLedger } from "../judge/ledger.js";
 import type { VerifiedFinding } from "../judge/verify.js";
 import { LookoutError, type ResolvedConfig, type ShotRecord } from "../types.js";
 import { runId } from "../util.js";
@@ -71,6 +71,8 @@ export async function recordOutcome(args: {
   plan: JudgePlan;
   pass: JudgePass;
   log: (line: string) => void;
+  /** True when no --targets/--routes narrowed the run: the one moment every live group is visible. */
+  fullScope?: boolean;
 }): Promise<CheckOutcome> {
   const { resolved, scope, plan, pass, log } = args;
   const evDir = evidenceDir(resolved);
@@ -88,6 +90,11 @@ export async function recordOutcome(args: {
       return { shots: members, findings: pass.confirmed.filter((f) => ids.has(f.shotId)) };
     });
   recordVerdicts(plan.ledger, checkRunId, plan.identity, judgedGroups);
+  if (args.fullScope) {
+    const live = new Set([...groupShots(scope.shots).values()].map((g) => groupHash(g)));
+    const dropped = pruneLedger(plan.ledger, live);
+    if (dropped > 0) log(`ledger: pruned ${dropped} unreachable cached verdict(s)`);
+  }
   await saveLedger(resolved, plan.ledger);
 
   if (pass.failedBatches.length > 0) {

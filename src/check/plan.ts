@@ -74,8 +74,15 @@ export async function planJudging(
     model,
   });
   for (const group of groupShots(shots).values()) {
+    // Hash identity decides, animated or not. Captures disable CSS animation,
+    // so an animated view's stored still is usually byte-stable; when the
+    // animation leaks into pixels anyway, the group hash misses on its own.
+    // Vetoing the cache for animated groups re-judged byte-identical stills
+    // forever (and wrote entries nothing could ever read); re-judging the
+    // same bytes buys only judge variance. The flag's real job is context:
+    // the judge prompt marks the shot as one frame of a moving view.
     const entry = ledger.entries[ledgerKey(groupHash(group), identity)];
-    if (entry && !group.some((s) => s.animated)) {
+    if (entry) {
       cached += group.length;
       for (const f of entry.findings ?? []) {
         // `verified` is read back, not asserted. A --no-verify run records
