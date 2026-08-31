@@ -45,7 +45,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "build": "rm -rf dist && tsc -p tsconfig.build.json && cp src/ui/client/*.css dist/ui/client/ && chmod +x dist/cli.js",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && cp src/ui/client/*.css src/ui/client/*.html dist/ui/client/ && chmod +x dist/cli.js",
     "test": "bun test",
     "changeset": "changeset",
     "version-packages": "changeset version",

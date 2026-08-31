@@ -39,7 +39,7 @@ import type { ResolvedConfig } from "../types.js";
 
 // Re-exported because the page's own test reads it, and because `lookout ui`
 // is the name of this thing however its parts are arranged.
-export { PAGE } from "../ui/page.js";
+export { pageHtml } from "../ui/page.js";
 
 export async function ui(parsed: Parsed): Promise<number> {
   // The page is where lookout gets configured now, so the server has to be able

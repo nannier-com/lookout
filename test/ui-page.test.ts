@@ -9,8 +9,11 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { PAGE } from "../src/ui/page.js";
+import { pageHtml } from "../src/ui/page.js";
 import { clientAsset, clientDir } from "../src/ui/assets.js";
+
+/** The shell as the server would send it: read from disk, exactly like a request. */
+const PAGE = pageHtml();
 
 /** Every file the shell asks the browser to load. */
 function linkedAssets(): string[] {

@@ -18,7 +18,7 @@ import { pickFolder, settingsView, useProject } from "./project.js";
 import { startCheck } from "./run.js";
 import { currentProject, session } from "./session.js";
 import { saveSettings, validBaseUrl } from "./stored-settings.js";
-import { PAGE } from "./page.js";
+import { servePage } from "./page.js";
 
 export function handle(req: IncomingMessage, res: ServerResponse): void {
   const resolved = currentProject();
@@ -208,8 +208,7 @@ export function handle(req: IncomingMessage, res: ServerResponse): void {
   }
 
   if (url.pathname === "/") {
-    res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
-    res.end(PAGE);
+    servePage(res);
     return;
   }
   res.writeHead(404).end("not found");
