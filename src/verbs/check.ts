@@ -148,24 +148,41 @@ export async function check(parsed: Parsed): Promise<number> {
     // capped, and switched off with --no-conformance: a run that spends money
     // with no way to say no is a run people stop making. Unchanged files are
     // carried from the cache, so the cost falls to nearly nothing on a repeat.
+    // The reading pass runs on FULL-scope checks. It reads the application's
+    // source, not the captured routes, so a scoped run would pay the same
+    // sweep on every iteration of a tight fix loop to answer a question that
+    // has nothing to do with which route was captured; the same reasoning
+    // --first has always carried. An explicit --max-conformance is explicit
+    // consent and overrides. The skip is reported, never silent.
+    const routeScoped = !!(parsed.flags.targets || parsed.flags.routes);
+    const conformanceOn =
+      !parsed.flags["no-conformance"] &&
+      (!routeScoped || parsed.flags["max-conformance"] !== undefined);
     const merged = await mergeLatest(resolved, {
       judgeOutcome: outcome,
       scanSource: true,
-      ...(parsed.flags["no-conformance"]
-        ? {}
-        : {
+      ...(conformanceOn
+        ? {
             conformance: {
               model: str(parsed.flags.model),
               fileBudget: num(parsed.flags["max-conformance"]),
+              cache: !parsed.flags["no-cache"],
             },
-          }),
+          }
+        : {}),
     });
     backlogNote = `backlog: ${merged.added} added, ${merged.reopened} reopened, ${merged.refreshed} refreshed`;
+    if (!conformanceOn && !parsed.flags["no-conformance"]) {
+      backlogNote += "; conformance: skipped (scoped run; a full check sweeps the source)";
+    }
     if (merged.conformance) {
       const c = merged.conformance;
       backlogNote +=
         `; conformance: ${c.read} of ${c.considered} file(s) read (${c.cached} cached), ` +
         `${c.found} hand-rolled control(s), ${c.refuted} suspicion(s) refuted` +
+        (c.disagreements > 0
+          ? `, reader disagrees with ${c.disagreements} open finding(s) (see the notes)`
+          : "") +
         (c.unread > 0 ? `, ${c.unread} not read` : "");
     }
 

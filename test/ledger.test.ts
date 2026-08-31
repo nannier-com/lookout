@@ -167,3 +167,36 @@ describe("the cache partition serves animated groups", () => {
     expect(plan.toJudge).toHaveLength(0);
   });
 });
+
+describe("--no-cache", () => {
+  test("reads nothing and re-judges, without discarding the rest of the ledger", async () => {
+    const { planJudging } = await import("../src/check/plan.js");
+    const { loadRubric } = await import("../src/judge/rubric.js");
+    const { loadSkill } = await import("../src/skills/load.js");
+    const r = tmpProject("lookout-plan-nocache-");
+    const rubric = await loadRubric(r);
+    const refute = await loadSkill(r, "refute-finding");
+    const id = judgeIdentity({
+      version: rubric.version,
+      rubricText: rubric.text,
+      refuteText: refute.text,
+      handoffText: rubric.handoff,
+      model: "sonnet",
+    });
+    const s = shot();
+    const ledger = await loadLedger(r);
+    ledger.entries[ledgerKey(groupHash([s]), id)] = {
+      verdict: "clean", shotIds: [s.id], judgedAt: "t", runId: "old",
+    };
+    ledger.entries[ledgerKey("otherhash", id)] = {
+      verdict: "clean", shotIds: ["x"], judgedAt: "t", runId: "old",
+    };
+    await saveLedger(r, ledger);
+
+    const plan = await planJudging(r, [s], { positionals: [], flags: { "no-cache": true } });
+    expect(plan.cached).toBe(0);
+    expect(plan.toJudge).toHaveLength(1);
+    // The unrelated entry survives in the object a later save writes back.
+    expect(plan.ledger.entries[ledgerKey("otherhash", id)]).toBeDefined();
+  });
+});

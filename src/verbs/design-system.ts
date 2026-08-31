@@ -153,7 +153,10 @@ export async function designSystem(parsed: Parsed): Promise<number> {
       for (const r of audit.refuted.slice(0, 10)) {
         console.log(`  not a hand-roll: ${r.symbol} in ${r.relPath} (${r.why})`);
       }
-      console.log("\nnothing here is filed; `lookout check` is the verb that files.");
+      console.log(
+        "\nnothing here is filed; `lookout check` is the verb that files. The verdicts are " +
+          "cached, so the next check files from them without re-reading.",
+      );
     }
     console.log(`cached: ${inventoryPath(resolved)}`);
   }

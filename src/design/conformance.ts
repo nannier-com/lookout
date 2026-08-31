@@ -33,7 +33,7 @@
  */
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { relative } from "node:path";
+import { join, relative } from "node:path";
 import {
   emptyCache,
   hashText,
@@ -193,7 +193,22 @@ export async function readConformance(
 
   result.examined = [...new Set(result.examined)];
   result.unread = [...new Set(result.unread)].filter((p) => !result.examined.includes(p));
-  if (useCache && result.calls > 0) await saveCache(resolved, cache);
+  // Full sweeps retire entries for files that left the tree: nothing can hit
+  // them again (the key is the path, the hit needs the bytes), so they are
+  // dead weight that would otherwise grow with every deleted screen. Entries
+  // for existing files outside this run's budget are kept; budget rotation
+  // can bring them back.
+  let prunedEntries = 0;
+  if (!opts.only && useCache) {
+    for (const relPath of Object.keys(cache.files)) {
+      if (!existsSync(join(repoRoot, relPath))) {
+        delete cache.files[relPath];
+        prunedEntries++;
+      }
+    }
+  }
+  result.prunedCache = prunedEntries;
+  if (useCache && (result.calls > 0 || prunedEntries > 0)) await saveCache(resolved, cache);
   if (result.rejected.length > 0) {
     recordIncident({
       at: new Date().toISOString(),

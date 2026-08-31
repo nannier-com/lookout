@@ -499,6 +499,47 @@ describe("filing what the reader found", () => {
     expect(filed).toHaveLength(1);
     expect(filed[0]!.source?.foundBy).toBe("scan");
   });
+
+  // A refutation of an ALREADY-OPEN finding is a paid conclusion; it used to
+  // evaporate. It now surfaces as a disagreement with the adjudication
+  // command, and never closes anything itself.
+  test("counts the disagreement and leaves the finding open", async () => {
+    const r = withReport("lookout-conf-disagree-");
+    write(r.projectDir, "src/screens/Row.tsx", `export function RowCard() { return <div><span/></div>; }\n`);
+    write(
+      r.projectDir,
+      "src/screens/Uses.tsx",
+      `import { Text } from "@acme/kit";\nexport const Uses = () => <Text>hi</Text>;\n`,
+    );
+
+    const { loadBacklog, mergeLatest, saveBacklog } = await import("../src/verbs/backlog.js");
+    // Run one: the scanner files the suspicion as an open code finding.
+    await withMockClaude(() => mergeLatest(r, { scanSource: true }));
+    let backlog = await loadBacklog(r);
+    expect(Object.values(backlog.findings)).toHaveLength(1);
+    await saveBacklog(r, backlog);
+
+    // Run two: the reader refutes it. The finding must survive, flagged.
+    const before = process.env.MOCK_CONFORMANCE;
+    process.env.MOCK_CONFORMANCE =
+      "```json\n" +
+      JSON.stringify({
+        findings: [],
+        refuted: [{ path: join(r.projectDir, "src/screens/Row.tsx"), symbol: "RowCard", why: "a row of data" }],
+        examined: [],
+      }) +
+      "\n```";
+    try {
+      const merged = await withMockClaude(() => mergeLatest(r, { scanSource: true, conformance: {} }));
+      expect(merged.conformance?.disagreements).toBe(1);
+      backlog = await loadBacklog(r);
+      const f = Object.values(backlog.findings)[0]!;
+      expect(f.status).toBe("open");
+    } finally {
+      if (before === undefined) delete process.env.MOCK_CONFORMANCE;
+      else process.env.MOCK_CONFORMANCE = before;
+    }
+  });
 });
 
 describe("the kit fixture", () => {
@@ -508,5 +549,48 @@ describe("the kit fixture", () => {
     const inv = await detect(r);
     expect(inv.kits[0]!.exports).toContain("Button");
     expect(kit().exports).toContain("Card");
+  });
+});
+
+describe("cache entries for deleted files", () => {
+  test("a full sweep retires them; a scoped re-read never does", async () => {
+    const { readConformance } = await import("../src/design/conformance.js");
+    const { loadCache, readerIdentity, saveCache } = await import("../src/design/conformance-cache.js");
+    const { loadSkill } = await import("../src/skills/load.js");
+    const { detect, repoRootOf } = await import("../src/design/detect.js");
+    const r = appWithKit("lookout-conf-prune-");
+    const keep = write(
+      r.projectDir,
+      "src/screens/Keep.tsx",
+      `import { Text } from "@acme/kit";\nexport function KeepThing() { return <div onClick={() => {}}><button/></div>; }\n`,
+    );
+    const inv = await detect(r);
+    const repoRoot = await repoRootOf(r.projectDir);
+    const skill = await loadSkill(r, "kit-conformance");
+    const identity = readerIdentity(skill, "sonnet", inv.kits[0]!.exports);
+    await saveCache(r, {
+      schema: 1,
+      identity,
+      files: {
+        "src/screens/Gone.tsx": { hash: "dead", findings: [], refuted: [] },
+        "src/screens/Keep.tsx": { hash: "stale", findings: [], refuted: [] },
+      },
+    });
+
+    const read = await withMockClaude(() => readConformance(r, inv, repoRoot, {}));
+    expect(read.prunedCache).toBe(1);
+    const cache = await loadCache(r, identity);
+    expect(cache.files["src/screens/Gone.tsx"]).toBeUndefined();
+    expect(cache.files["src/screens/Keep.tsx"]).toBeDefined();
+
+    // A scoped re-read (only:) cannot see the whole tree's intent.
+    await saveCache(r, {
+      schema: 1,
+      identity,
+      files: { "src/screens/Gone.tsx": { hash: "dead", findings: [], refuted: [] } },
+    });
+    await withMockClaude(() => readConformance(r, inv, repoRoot, { only: [keep] }));
+    const after = await loadCache(r, identity);
+    expect(after.files["src/screens/Gone.tsx"]).toBeDefined();
   });
 });

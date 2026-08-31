@@ -40,6 +40,8 @@ export interface ConformanceResult {
   /** Claims thrown out because the file, the symbol or the export did not check out. */
   rejected: { reason: string; raw: unknown }[];
   costUsd: number;
+  /** Cache entries retired because their file left the tree (full sweeps only). */
+  prunedCache?: number;
   /** Model calls spent. */
   calls: number;
 }

@@ -85,6 +85,8 @@ export interface ConformanceRun {
   found: number;
   /** Scanner suspicions it killed. */
   refuted: number;
+  /** Open findings the reader now disagrees with; adjudication is a person's call. */
+  disagreements: number;
   costUsd: number;
 }
 
@@ -109,7 +111,7 @@ export async function mergeLatest(
      * that imports the kit for something else. Costs model calls, so the caller
      * decides, and the caller is `check`.
      */
-    conformance?: { model?: string; fileBudget?: number };
+    conformance?: { model?: string; fileBudget?: number; cache?: boolean };
   },
 ): Promise<{
   backlog: Backlog;
@@ -152,6 +154,7 @@ export async function mergeLatest(
   // any screenshot, which is why they are their own channel.
   let code: ReturnType<typeof deterministicToFindings> = [];
   let conformance: ConformanceRun | undefined;
+  let disagreements = 0;
   if (opts.scanSource) {
     const { resolveInventory } = await import("../design/resolve.js");
     const { primaryKit } = await import("../design/inventory.js");
@@ -169,8 +172,32 @@ export async function mergeLatest(
       const read = await readConformance(resolved, inv, await repoRootOf(resolved.projectDir), {
         model: opts.conformance.model,
         fileBudget: opts.conformance.fileBudget,
+        cache: opts.conformance.cache,
       });
       handRolls = mergeHandRolls(inv.handRolls, read);
+
+      // The reader disagreeing with an OPEN issue is a paid conclusion that
+      // used to evaporate: mergeHandRolls only filters the current scan list,
+      // and nothing closes a finding but verify-fix. So the disagreement is
+      // said out loud, with the adjudication command ready to paste; ruling
+      // it by-design stays a person's call.
+      for (const ref of read.refuted) {
+        const match = Object.values(backlog.findings).find(
+          (f) =>
+            f.status === "open" &&
+            f.channel === "code" &&
+            f.source?.relPath === ref.relPath &&
+            f.source.symbol === ref.symbol,
+        );
+        if (!match) continue;
+        disagreements++;
+        emit(
+          "note",
+          `the conformance reader disagrees with open finding ${match.fingerprint}: ${ref.why} ` +
+            `(if intentional: lookout backlog set ${match.fingerprint} --status by-design --reason "${ref.why}")`,
+          { fingerprint: match.fingerprint, why: ref.why },
+        );
+      }
       conformance = {
         read: read.examined.length,
         cached: read.cached,
@@ -178,6 +205,7 @@ export async function mergeLatest(
         unread: read.unread.length,
         found: read.handRolls.length,
         refuted: read.refuted.length,
+        disagreements,
         costUsd: read.costUsd,
       };
       emit(

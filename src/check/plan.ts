@@ -81,7 +81,14 @@ export async function planJudging(
     // forever (and wrote entries nothing could ever read); re-judging the
     // same bytes buys only judge variance. The flag's real job is context:
     // the judge prompt marks the shot as one frame of a moving view.
-    const entry = ledger.entries[ledgerKey(groupHash(group), identity)];
+    // --no-cache: serve nothing, still WRITE fresh verdicts. The model is in
+    // the ledger key and a fresh verdict is the best entry there is, so a
+    // forced re-judge repairs the cache rather than bypassing it. (The
+    // conformance cache does the opposite under the same flag: its identity
+    // gained a model term only recently, and old caches are discarded whole.)
+    const entry = parsed.flags["no-cache"]
+      ? undefined
+      : ledger.entries[ledgerKey(groupHash(group), identity)];
     if (entry) {
       cached += group.length;
       for (const f of entry.findings ?? []) {
