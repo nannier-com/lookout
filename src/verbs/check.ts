@@ -221,6 +221,17 @@ export async function check(parsed: Parsed): Promise<number> {
     }
   }
 
+  // The learning loop's trigger: enough new evidence, and this run ends by
+  // improving the skills that produced it. Spend is visible (narrated, in
+  // the payload under --json), capped by the cooldown, and declinable.
+  let learned: import("../skills/auto-improve.js").AutoImproveResult | null = null;
+  if (resolved.configPath) {
+    const { maybeAutoImprove } = await import("../skills/auto-improve.js");
+    learned = await maybeAutoImprove(resolved, parsed, (line) => {
+      if (!parsed.flags.json && !parsed.flags.quiet) console.log(line);
+    });
+  }
+
   // One image showing everything judged, with the tiles that carry findings
   // marked. A session driving lookout should be able to see what lookout saw
   // without spending more of its context on screenshots than on the findings.
@@ -232,7 +243,7 @@ export async function check(parsed: Parsed): Promise<number> {
   outcome.contactSheet = sheet?.path ?? null;
 
   if (parsed.flags.json) {
-    printJson(outcome);
+    printJson({ ...outcome, ...(learned ? { learned } : {}) });
   } else {
     console.log(
       `\n${outcome.shotsConsidered} shot(s): ${outcome.judged} judged, ${outcome.cached} cached` +

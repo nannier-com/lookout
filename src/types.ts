@@ -162,6 +162,21 @@ export interface LookoutConfig {
     ios?: NativeAppConfig;
     android?: NativeAppConfig;
   };
+  /**
+   * The automatic learning loop. `check` and `verify-fix` run `skills
+   * improve` when this project's NEW signals cross the threshold, still
+   * protected by the frozen-set replay gate. Off switches, because auto-spend
+   * without one is a run people stop making: `auto: false` here,
+   * `--no-improve` per run, and CI environments never auto-learn.
+   */
+  learn?: {
+    /** Default true. */
+    auto?: boolean;
+    /** New signals needed before a run auto-learns. Default 3; a new by-design adjudication fires alone. */
+    threshold?: number;
+    /** Minimum hours between automatic improves. Default 24. */
+    cooldownHours?: number;
+  };
 }
 
 /**

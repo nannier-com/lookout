@@ -278,6 +278,19 @@ export function validateConfig(raw: unknown, path: string): LookoutConfig {
     }
   }
 
+  let learn: LookoutConfig["learn"];
+  if (raw.learn !== undefined) {
+    if (!isRecord(raw.learn)) fail(path, "learn must be an object");
+    const l = raw.learn;
+    if (l.auto !== undefined && typeof l.auto !== "boolean") fail(path, "learn.auto must be a boolean");
+    for (const key of ["threshold", "cooldownHours"] as const) {
+      if (l[key] !== undefined && (typeof l[key] !== "number" || l[key] < 0)) {
+        fail(path, `learn.${key} must be a non-negative number`);
+      }
+    }
+    learn = l as LookoutConfig["learn"];
+  }
+
   let designSystem: DesignSystemDeclaration | undefined;
   if (raw.designSystem !== undefined) {
     if (!isRecord(raw.designSystem)) fail(path, "designSystem must be an object");
@@ -323,6 +336,7 @@ export function validateConfig(raw: unknown, path: string): LookoutConfig {
       : undefined,
     designSystem,
     native: raw.native as LookoutConfig["native"],
+    learn,
   };
 }
 

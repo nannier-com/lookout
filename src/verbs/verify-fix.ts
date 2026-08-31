@@ -27,15 +27,14 @@ import { unclosableMembers } from "../verify/closure.js";
 // inversion.
 export { baselineHashes, withoutByDesign } from "../verify/evidence.js";
 import { ruleIssueAcceptance, unruledJudgeCriteria } from "../verify/acceptance.js";
+import { printFixOutcome } from "../verify/outcome-report.js";
 import { gatherFreshEvidence } from "../verify/evidence.js";
-import { acceptanceTally } from "../issues/acceptance.js";
 import { ruleVerdict, type Verdict } from "../fix/rule.js";
 import { setStatus, type Backlog } from "../backlog/lib.js";
 import { loadReport } from "../capture/store.js";
 import { loadBacklog, saveBacklog } from "./backlog.js";
 import { DEFAULT_MAX_ATTEMPTS } from "./check.js";
 import { ensureBeforeFrames, freezeFrames } from "../issues/frames.js";
-import { sheetNote } from "../capture/sheet.js";
 import { LookoutError } from "../types.js";
 import { execFileAsync, nowIso, num, printJson, runId as makeRunId, str, type Parsed } from "../util.js";
 import { emit, EventLog, setCurrentLog } from "../report/events.js";
@@ -154,6 +153,14 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
       json: !!parsed.flags.json,
       model: str(parsed.flags.model) ?? null,
     });
+    // Blocked statuses born on this ruling are learning evidence; the trigger
+    // sees them now rather than waiting for the next check.
+    {
+      const { maybeAutoImprove } = await import("../skills/auto-improve.js");
+      await maybeAutoImprove(preResolved, parsed, (line) => {
+        if (!parsed.flags.json) console.log(line);
+      });
+    }
     setCurrentLog(null);
     return code;
   }
@@ -338,6 +345,13 @@ ${issueId}: not ruled. ${what}`);
     verdict === "passed" ? "info" : "error",
   );
   const exit = verdict === "passed" ? 0 : verdict === "blocked" ? 3 : 1;
+  // The learning trigger, before the payload so --json carries what it did.
+  // The exit code above is already decided: an improve failure is an
+  // incident, never this verdict's problem.
+  const { maybeAutoImprove } = await import("../skills/auto-improve.js");
+  const learned = await maybeAutoImprove(resolved, parsed, (line) => {
+    if (!parsed.flags.json) console.log(line);
+  });
   const payload = {
     issue: issueId,
     verdict,
@@ -376,35 +390,21 @@ ${issueId}: not ruled. ${what}`);
         : ""),
     costUsd: (outcome.costUsd ?? 0) + acceptanceCost,
     contactSheet: sheet?.path ?? null,
+    ...(learned.ran || learned.skipped !== undefined ? { learned } : {}),
   };
 
-  if (parsed.flags.json) {
-    printJson(payload);
-  } else {
-    console.log(
-      `\n${issueId}: ${verdict} (attempt ${attempt} of ${maxAttempts})` +
-        (judgeNote ? `\n  judge: ${judgeNote}` : "") +
-        `\n  ${payload.next}`,
-    );
-    const tally = acceptanceTally(ruledCriteria);
-    if (tally.total > 0) {
-      console.log(`  acceptance: ${tally.met}/${tally.total} met` +
-        (tally.unmet ? `, ${tally.unmet} failing` : "") +
-        (tally.notVerifiable ? `, ${tally.notVerifiable} not verifiable` : "") +
-        (tally.pending ? `, ${tally.pending} not checked` : ""));
-      for (const c of ruledCriteria) {
-        const mark = c.verdict === "met" ? "x" : c.verdict === "unmet" ? " " : c.verdict === "not-verifiable" ? "-" : "?";
-        console.log(`    [${mark}] ${c.text}`);
-      }
-    }
-    for (const s of spawned) {
-      console.log(
-        `  new issue ${s.issue.id}: ${s.issue.title} (${s.issue.severity})` +
-          (s.causedByThisFix ? ", on pixels this fix moved" : ""),
-      );
-    }
-    if (sheet) console.log(`\n${sheetNote(sheet)}`);
-  }
+  printFixOutcome({
+    json: !!parsed.flags.json,
+    payload,
+    issueId,
+    verdict,
+    attempt,
+    maxAttempts,
+    judgeNote,
+    ruledCriteria,
+    spawned,
+    sheet,
+  });
   emit("run-end", `${issueId}: ${verdict}`, { verdict });
   setCurrentLog(null);
   return exit;
