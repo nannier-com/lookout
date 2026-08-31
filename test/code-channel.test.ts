@@ -507,3 +507,72 @@ describe("the ruling resolves the kit the way filing does", () => {
     }
   });
 });
+
+// The code pass rules each criterion by what decided it, never blanket-met.
+describe("code-channel acceptance stays honest", () => {
+  test("a legacy screenshot criterion on a code issue goes not-verifiable, the rest carry notes", async () => {
+    const { r, file } = (() => {
+      const r = tmpProject("lookout-code-accept-");
+      write(r.projectDir, "package.json", JSON.stringify({ name: "app", private: true, workspaces: ["packages/*"] }));
+      write(r.projectDir, "packages/kit/package.json", JSON.stringify({ name: "@acme/kit", main: "./i.js" }));
+      write(r.projectDir, "packages/kit/src/atoms/Button.tsx", "export const Button = () => null;");
+      write(r.projectDir, "packages/kit/src/atoms/Card.tsx", "export const Card = () => null;");
+      write(r.projectDir, "src/Home.tsx", 'import { Button } from "@acme/kit";\nexport const Home = () => <Button/>;\n');
+      const file = write(r.projectDir, "src/Checkout.tsx", "export function PayCard() { return <button/>; }\n");
+      return { r, file };
+    })();
+    const handRoll: HandRoll = {
+      path: file, relPath: "src/Checkout.tsx", symbol: "PayCard",
+      elements: ["button"], candidate: "Button", line: 1, foundBy: "scan",
+    };
+    const f = handRollsToFindings([handRoll], "@acme/kit", "app")[0]! as BacklogFinding;
+    (f as { status: string }).status = "open";
+    f.firstSeen = nowIso();
+    f.lastSeen = nowIso();
+    f.fixAttempts = 0;
+    const before: Backlog = {
+      note: "", project: r.project, updatedAt: nowIso(),
+      findings: { [f.fingerprint]: f }, issues: {},
+    };
+    // Reconcile mints the issue and composes acceptance with the code
+    // universal; then plant a legacy screenshot criterion beside it, the way
+    // an issue filed before the code text existed would carry one.
+    const { reconcileIssues } = await import("../src/issues/registry.js");
+    reconcileIssues(before, nowIso());
+    const issueId = Object.keys(before.issues)[0]!;
+    const record = before.issues[issueId]!;
+    record.acceptance!.push({
+      id: "legacy1",
+      text: "Every screenshot this issue was filed against was re-captured, and at least one changed.",
+      source: "universal",
+      verdict: "pending",
+    });
+
+    // Fix the duplicate so the scan clears and the pass path runs.
+    write(r.projectDir, "src/Checkout.tsx", 'import { Button } from "@acme/kit";\nexport const PayCard = () => <Button/>;\n');
+    const code = await ruleCodeIssue(r, await findCluster(before, issueId), before, {
+      attempt: 1, maxAttempts: 2, issueId, commit: null, note: null, json: true,
+    });
+    expect(code).toBe(0);
+
+    const ruled = before.issues[issueId]!.acceptance!;
+    // The save's recomposition drops the legacy screenshot criterion: its id
+    // is not among the ids this all-code membership composes, so the record
+    // stops claiming a capture that never happened. What stays is the code
+    // universal, met with a note naming its oracle.
+    expect(ruled.find((c) => c.id === "legacy1")).toBeUndefined();
+    expect(ruled.some((c) => c.text.includes("screenshot"))).toBe(false);
+    const codeUniversal = ruled.find((c) => c.source === "universal")!;
+    expect(codeUniversal.verdict).toBe("met");
+    expect(codeUniversal.note).toContain("re-reading the source");
+    for (const c of ruled.filter((x) => x.source === "judge")) {
+      expect(c.verdict).toBe("met");
+      expect(c.note).toContain("re-reading the source");
+    }
+  });
+});
+
+async function findCluster(backlog: Backlog, id: string): Promise<FixCluster> {
+  const { findIssue } = await import("../src/issues/registry.js");
+  return findIssue(backlog, id, { statuses: ["open"] })!;
+}

@@ -25,6 +25,7 @@ import {
 import { MAX_VERIFY_SHOTS, verifyCriteria } from "../judge/criteria.js";
 import { loadSkill } from "../skills/load.js";
 import { emit } from "../report/events.js";
+import { recordIncident } from "../skills/incidents.js";
 import type { deterministicToFindings } from "../backlog/lib.js";
 import type { Backlog } from "../backlog/lib.js";
 import type { FixCluster } from "../fix/cluster.js";
@@ -37,6 +38,44 @@ export interface RuledAcceptance {
   /** The ones that stand in the way of a pass. */
   unmet: AcceptanceCriterion[];
   costUsd: number;
+  /** How much of the scope the model verifier actually saw. */
+  evidence: { used: number; total: number };
+}
+
+/**
+ * The shots the criteria verifier sees when the cap bites, most refuting
+ * first: (1) the issue's own evidence whose pixels changed this run, (2) its
+ * own unchanged evidence, (3) the rest of the scope, changed first. Within a
+ * tier, cover distinct formFactor x scheme pairs before spending slots on
+ * duplicates, so "visible in dark" cannot be ruled met with every dark shot
+ * cut. Exported for the tests; pure.
+ */
+export function rankVerifyShots(
+  shots: ShotRecord[],
+  ownShotIds: ReadonlySet<string>,
+  changedShots: ReadonlySet<string>,
+  cap: number,
+): ShotRecord[] {
+  const tierOf = (s: ShotRecord): number =>
+    ownShotIds.has(s.id) ? (changedShots.has(s.id) ? 0 : 1) : changedShots.has(s.id) ? 2 : 3;
+  const tiers: ShotRecord[][] = [[], [], [], []];
+  for (const s of shots) tiers[tierOf(s)]!.push(s);
+
+  const picked: ShotRecord[] = [];
+  const covered = new Set<string>();
+  for (const tier of tiers) {
+    const later: ShotRecord[] = [];
+    for (const s of tier) {
+      const pair = `${s.formFactor}|${s.scheme}`;
+      if (covered.has(pair)) later.push(s);
+      else {
+        covered.add(pair);
+        picked.push(s);
+      }
+    }
+    picked.push(...later);
+  }
+  return picked.slice(0, cap);
 }
 
 export async function ruleIssueAcceptance(args: {
@@ -69,18 +108,33 @@ export async function ruleIssueAcceptance(args: {
   const judgeable = judgeableCriteria(criteria);
   let judged = new Map<string, JudgedCriterion>();
   let acceptanceCost = 0;
+  let evidenceUsed = shotsById.size;
 
   if (judgeable.length > 0) {
-    // The issue's own views, capped: these criteria are about this defect, and
-    // the verifier needs the whole evidence set in one context.
+    // The issue's own views first, capped and RANKED: these criteria are about
+    // this defect, and when the cap bites, the shots most able to refute a
+    // "met" (changed pixels, uncovered form-factor/scheme pairs) must survive
+    // the cut. A plain slice took Map insertion order, which is capture order,
+    // so a 24-shot cluster could rule a dark-scheme criterion met because
+    // every dark shot fell past index 19, invisibly.
     const ownShotIds = new Set(
       cluster.members.flatMap((m) => m.evidence.map((e) => e.shotId)),
     );
-    const forCriteria = [...shotsById.values()]
-      .filter((sh) => ownShotIds.has(sh.id))
-      .slice(0, MAX_VERIFY_SHOTS);
-    const shotsForCriteria =
-      forCriteria.length > 0 ? forCriteria : [...shotsById.values()].slice(0, MAX_VERIFY_SHOTS);
+    const shotsForCriteria = rankVerifyShots(
+      [...shotsById.values()],
+      ownShotIds,
+      changedShots,
+      MAX_VERIFY_SHOTS,
+    );
+    evidenceUsed = shotsForCriteria.length;
+    if (shotsForCriteria.length < shotsById.size) {
+      emit(
+        "note",
+        `acceptance ruled against ${shotsForCriteria.length} of ${shotsById.size} shot(s); ` +
+          "changed evidence and uncovered form-factor/scheme pairs were kept first",
+        { used: shotsForCriteria.length, total: shotsById.size },
+      );
+    }
     try {
       const skill = await loadSkill(resolved, "verify-acceptance");
       const result = await verifyCriteria(
@@ -94,10 +148,19 @@ export async function ruleIssueAcceptance(args: {
       judged = matchJudged(judgeable, result.criteria);
       acceptanceCost = result.costUsd ?? 0;
     } catch (e) {
-      // A verifier that could not run leaves those criteria unruled rather than
-      // failing the issue: `stillOpen` is the primary gate, and an unreachable
-      // criterion is not evidence of anything.
+      // A verifier that could not run leaves those criteria unruled rather
+      // than failing the issue: `stillOpen` is the primary gate, and an
+      // unreachable criterion is not evidence of anything. Durable, though:
+      // the event log is truncated by the next capture, and a verifier that
+      // keeps dying is exactly what the incident log exists to show.
       emit("error", `acceptance criteria could not be ruled: ${(e as Error).message}`, {}, "error");
+      recordIncident({
+        at: nowIso(),
+        kind: "crash",
+        verb: "verify-fix",
+        message: `acceptance verifier failed: ${(e as Error).message.slice(0, 200)}`,
+        project: resolved.project,
+      });
     }
   }
 
@@ -123,5 +186,26 @@ export async function ruleIssueAcceptance(args: {
   if (record) record.acceptance = ruledCriteria;
   const unmet = blocksPass(ruledCriteria);
 
-  return { criteria: ruledCriteria, unmet, costUsd: acceptanceCost };
+  return {
+    criteria: ruledCriteria,
+    unmet,
+    costUsd: acceptanceCost,
+    evidence: { used: evidenceUsed, total: shotsById.size },
+  };
+}
+
+/**
+ * Judge-authored criteria this run cannot vouch for: never ruled, or last
+ * ruled by a different run. A pass may only rest on rulings earned against
+ * THIS attempt's evidence; a stale "met" is a check that did not happen now.
+ * The other sources are exempt because their rulings are recomputed
+ * mechanically above on every call.
+ */
+export function unruledJudgeCriteria(
+  criteria: AcceptanceCriterion[],
+  runIdNow: string,
+): AcceptanceCriterion[] {
+  return judgeableCriteria(criteria).filter(
+    (c) => c.verdict === "pending" || c.runId !== runIdNow,
+  );
 }

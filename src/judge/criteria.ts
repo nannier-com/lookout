@@ -6,7 +6,7 @@
  */
 import { LookoutError, type ShotRecord } from "../types.js";
 import { renderSkill } from "../skills/load.js";
-import { extractJson, invokeClaude } from "./engine.js";
+import { extractJson, invokeClaude, RETRY_SUFFIX } from "./engine.js";
 
 export type CriterionVerdict = "pass" | "fail" | "not-verifiable";
 
@@ -67,15 +67,32 @@ export async function verifyCriteria(
   }
 
   const prompt = buildVerifyPrompt(skillText, project, criteriaText, shots, evidenceDir);
-  const res = await invokeClaude({ prompt, cwd: evidenceDir, model });
 
-  let parsed: { criteria?: unknown; summary?: unknown };
-  try {
-    parsed = extractJson(res.text) as { criteria?: unknown; summary?: unknown };
-  } catch {
+  // The same one-retry the judge and the refuter get: an unruled criterion
+  // refuses a pass downstream, so a reply that merely wrapped its JSON in
+  // prose should not be the reason a verify-fix comes back not-ruled.
+  let parsed: { criteria?: unknown; summary?: unknown } | null = null;
+  let text = "";
+  let costUsd: number | undefined;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const res = await invokeClaude({
+      prompt: attempt === 0 ? prompt : prompt + RETRY_SUFFIX,
+      cwd: evidenceDir,
+      model,
+    });
+    text = res.text;
+    costUsd = (costUsd ?? 0) + (res.costUsd ?? 0);
+    try {
+      parsed = extractJson(res.text) as { criteria?: unknown; summary?: unknown };
+      break;
+    } catch {
+      // fall through to the retry, then to the error below
+    }
+  }
+  if (!parsed) {
     throw new LookoutError(
-      "criteria verifier reply was not parseable JSON",
-      `reply head: ${res.text.slice(0, 200)}`,
+      "criteria verifier reply was not parseable JSON after a retry",
+      `reply head: ${text.slice(0, 200)}`,
     );
   }
 
@@ -104,7 +121,7 @@ export async function verifyCriteria(
   return {
     criteria,
     summary: String(parsed.summary ?? "").slice(0, 300),
-    costUsd: res.costUsd,
-    raw: res.text,
+    costUsd,
+    raw: text,
   };
 }

@@ -26,7 +26,7 @@ import { unclosableMembers } from "../verify/closure.js";
 // implementations moved to src/verify/ to fix the verify -> verbs import
 // inversion.
 export { baselineHashes, withoutByDesign } from "../verify/evidence.js";
-import { ruleIssueAcceptance } from "../verify/acceptance.js";
+import { ruleIssueAcceptance, unruledJudgeCriteria } from "../verify/acceptance.js";
 import { gatherFreshEvidence } from "../verify/evidence.js";
 import { acceptanceTally } from "../issues/acceptance.js";
 import { ruleVerdict, type Verdict } from "../fix/rule.js";
@@ -226,6 +226,30 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
     unmetCriteria: unmet.length,
     unclosableMembers: unclosable.length,
   });
+
+  // A pass may not rest on unruled acceptance. If the verdict would be
+  // "passed" while judge-authored criteria are pending or carry another run's
+  // ruling, the acceptance verifier did not do its job THIS attempt, and
+  // "passed" would print with zero criteria actually checked. That is an
+  // infrastructure failure, not a fix failure: exit 2, nothing closes, and no
+  // attempt is recorded, so a dying verifier cannot walk a fixer to blocked.
+  const unruled = unruledJudgeCriteria(ruledCriteria, runIdNow);
+  if (verdict === "passed" && unruled.length > 0) {
+    await saveBacklog(resolved, backlog);
+    const what =
+      `the defect looks gone, but ${unruled.length} acceptance criteri` +
+      `${unruled.length === 1 ? "on was" : "a were"} never ruled this run; re-run verify-fix`;
+    emit("verdict", `${issueId}: not-ruled (${what})`, { issue: issueId, verdict: "not-ruled" }, "error");
+    if (parsed.flags.json) {
+      printJson({ issue: issueId, verdict: "not-ruled", unruled: unruled.map((c) => c.text), exit: 2 });
+    } else {
+      console.log(`
+${issueId}: not ruled. ${what}`);
+      for (const c of unruled) console.log(`  - ${c.text}`);
+    }
+    setCurrentLog(null);
+    return 2;
+  }
 
   const judgeNote = nothingChanged
     ? baselineShots === 0

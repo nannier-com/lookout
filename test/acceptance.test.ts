@@ -272,3 +272,109 @@ describe("`backlog check` requires them", () => {
     ).toContain("acceptance-missing");
   });
 });
+
+// The code channel's universal criterion, and the two guards that keep a pass
+// honest: a pass may not rest on rulings another run earned, and a capped
+// verifier must see the shots most able to refute it.
+import { CODE_RECAPTURE_CRITERION } from "../src/issues/acceptance.js";
+import { rankVerifyShots, unruledJudgeCriteria } from "../src/verify/acceptance.js";
+import type { ShotRecord } from "../src/types.js";
+
+describe("the code channel's universal criterion", () => {
+  test("an all-code issue never claims a screenshot was re-captured", () => {
+    const member = {
+      channel: "code",
+      category: "consistency",
+      attribute: "hand-rolled",
+      source: { relPath: "src/A.tsx", symbol: "Btn", path: "/x/src/A.tsx", line: 1 },
+      problem: "hand-rolled",
+      expected: "compose the kit",
+    } as never;
+    const criteria = composeAcceptance([member]);
+    const universal = criteria.find((c) => c.source === "universal")!;
+    expect(universal.text).toBe(CODE_RECAPTURE_CRITERION);
+    expect(universal.text).not.toContain("screenshot");
+  });
+});
+
+describe("what a pass may rest on", () => {
+  const judge = (over: Partial<AcceptanceCriterion>): AcceptanceCriterion =>
+    ({ id: "c1", text: "focus ring visible", source: "judge", verdict: "pending", ...over }) as AcceptanceCriterion;
+
+  test("a pending judge criterion refuses the pass", () => {
+    expect(unruledJudgeCriteria([judge({})], "run-now")).toHaveLength(1);
+  });
+
+  test("a met earned by ANOTHER run refuses it too: passes are earned per attempt", () => {
+    const stale = judge({ verdict: "met", runId: "run-before", ruledAt: "t" });
+    expect(unruledJudgeCriteria([stale], "run-now")).toHaveLength(1);
+  });
+
+  test("this run's rulings stand, whatever they say", () => {
+    const met = judge({ verdict: "met", runId: "run-now" });
+    const nv = judge({ id: "c2", verdict: "not-verifiable", runId: "run-now" });
+    expect(unruledJudgeCriteria([met, nv], "run-now")).toHaveLength(0);
+  });
+
+  test("mechanically ruled sources are exempt: they are recomputed every call", () => {
+    const derived = { id: "d1", text: "t", source: "derived", verdict: "pending" } as AcceptanceCriterion;
+    const universal = { id: "u1", text: "t", source: "universal", verdict: "pending" } as AcceptanceCriterion;
+    expect(unruledJudgeCriteria([derived, universal], "run-now")).toHaveLength(0);
+  });
+});
+
+describe("which shots a capped verifier sees", () => {
+  const vShot = (id: string, formFactor: string, scheme: string): ShotRecord =>
+    ({
+      id,
+      formFactor,
+      scheme,
+      target: "app",
+      route: "/",
+      routeName: "r",
+      state: "rest",
+      platform: "web",
+      path: `${id}.png`,
+      hash: id,
+      bytes: 1,
+      width: 1,
+      height: 1,
+      animated: false,
+      capturedAt: "",
+      runId: "t",
+      deterministicFindings: [],
+    }) as ShotRecord;
+
+  test("changed member evidence outranks everything, unchanged scope comes last", () => {
+    const shots = [
+      vShot("scope-still", "desktop", "light"),
+      vShot("own-still", "desktop", "light"),
+      vShot("own-moved", "desktop", "dark"),
+      vShot("scope-moved", "phone", "light"),
+    ];
+    const out = rankVerifyShots(
+      shots,
+      new Set(["own-still", "own-moved"]),
+      new Set(["own-moved", "scope-moved"]),
+      4,
+    );
+    expect(out.map((s) => s.id)).toEqual(["own-moved", "own-still", "scope-moved", "scope-still"]);
+  });
+
+  test("a dark shot survives the cap even when capture order buried it", () => {
+    // The failure this prevents: 'visible in dark' ruled met because every
+    // dark shot fell past the cap in Map insertion order.
+    const shots = [
+      ...Array.from({ length: 6 }, (_, i) => vShot(`light-${i}`, "desktop", "light")),
+      vShot("dark-late", "desktop", "dark"),
+    ];
+    const out = rankVerifyShots(shots, new Set(), new Set(), 2);
+    expect(out.map((s) => s.id)).toEqual(["light-0", "dark-late"]);
+  });
+
+  test("the cap is respected and an uncapped scope is untouched", () => {
+    const shots = [vShot("a", "desktop", "light"), vShot("b", "phone", "dark")];
+    expect(rankVerifyShots(shots, new Set(), new Set(), 20)).toHaveLength(2);
+    expect(rankVerifyShots(shots, new Set(), new Set(), 1)).toHaveLength(1);
+  });
+});

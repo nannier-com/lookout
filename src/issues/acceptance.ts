@@ -48,9 +48,18 @@ export interface AcceptanceCriterion {
   runId?: string;
 }
 
-/** The one criterion every issue has, whatever channel found it. */
+/** The universal criterion for anything photographed. */
 export const RECAPTURE_CRITERION =
   "Every screenshot this issue was filed against was re-captured, and at least one changed.";
+
+/**
+ * The universal criterion for an issue no screenshot was ever involved in.
+ * A code cluster used to carry the screenshot one and have it blanket-marked
+ * met by the code pass: a checked box for a capture that never happened, in
+ * the record that exists so nobody answers "is it fixed" from memory.
+ */
+export const CODE_RECAPTURE_CRITERION =
+  "The oracle that filed this re-read the source, and no longer sees it.";
 
 /**
  * Keyed by what the criterion SAYS, not by which finding contributed it. Two
@@ -151,7 +160,12 @@ export function composeAcceptance(
     }
   }
 
-  const universal = criterion("universal", RECAPTURE_CRITERION);
+  // Code findings can never share a cluster with visual ones (the cluster key
+  // embeds the channel), so "every member is code" is a stable property of
+  // the issue, not of this call. The changed text mints a new id, so a legacy
+  // screenshot criterion on an old code issue simply drops out here.
+  const allCode = members.length > 0 && members.every((m) => m.channel === "code");
+  const universal = criterion("universal", allCode ? CODE_RECAPTURE_CRITERION : RECAPTURE_CRITERION);
   if (!seen.has(universal.id)) out.push(previous.get(universal.id) ?? universal);
   return out;
 }
