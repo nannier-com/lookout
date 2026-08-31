@@ -16,6 +16,7 @@ import { loadConfig, lookoutDir } from "../config.js";
 import { loadReport } from "../capture/store.js";
 import { reconcileIssues } from "../issues/registry.js";
 import { materializeIssues } from "../issues/store.js";
+import { loadFrames } from "../issues/frames.js";
 import {
   aiToFindings,
   checkBacklog,
@@ -262,7 +263,14 @@ export async function backlog(parsed: Parsed): Promise<number> {
     const mdPath = markdownPath(resolved);
     const md = existsSync(mdPath) ? await readFile(mdPath, "utf8") : null;
     const report = await loadReport(resolved);
-    const problems = checkBacklog(b, { mdOnDisk: md, latestReport: report });
+    // What is frozen, per issue. Read here rather than inside the checker so
+    // that stays a pure function of the backlog, which is what lets the tests
+    // hand it one.
+    const framesByIssue: Record<string, number> = {};
+    for (const id of Object.keys(b.issues ?? {})) {
+      framesByIssue[id] = (await loadFrames(resolved, id)).before.length;
+    }
+    const problems = checkBacklog(b, { mdOnDisk: md, latestReport: report, framesByIssue });
     if (parsed.flags.json) {
       printJson({ ok: problems.length === 0, problems });
     } else if (problems.length === 0) {

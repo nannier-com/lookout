@@ -274,6 +274,33 @@ describe("the issue folder", () => {
     expect(doc.generated).toContain("Safe to delete");
   });
 
+  // `backlog check` is where the guarantee is checked rather than assumed: an
+  // issue with a screenshot behind it and no frozen frame has lost its only
+  // picture of the defect, and nothing else on disk says so.
+  test("backlog check reports an issue with no pre-fix screenshot", () => {
+    const b = backlogOf([finding()]);
+    reconcileIssues(b, "t");
+    const id = Object.keys(b.issues)[0]!;
+
+    const missing = checkBacklog(b, { mdOnDisk: null, latestReport: null, framesByIssue: { [id]: 0 } });
+    expect(missing.filter((p) => p.kind === "frames-missing")).toHaveLength(1);
+    expect(missing.find((p) => p.kind === "frames-missing")!.message).toContain(id);
+
+    const frozen = checkBacklog(b, { mdOnDisk: null, latestReport: null, framesByIssue: { [id]: 1 } });
+    expect(frozen.filter((p) => p.kind === "frames-missing")).toEqual([]);
+  });
+
+  test("a code-channel issue is never asked for a screenshot it cannot have", () => {
+    const b = backlogOf([
+      finding({ channel: "code", platform: undefined, formFactor: undefined, scheme: undefined } as Partial<BacklogFinding>),
+    ]);
+    reconcileIssues(b, "t");
+    const id = Object.keys(b.issues)[0]!;
+
+    const problems = checkBacklog(b, { mdOnDisk: null, latestReport: null, framesByIssue: { [id]: 0 } });
+    expect(problems.filter((p) => p.kind === "frames-missing")).toEqual([]);
+  });
+
   test("every issue on the board carries its number and its folder", async () => {
     const r = tmpProject("lookout-issues-");
     const b = backlogOf([finding(), finding({ fingerprint: "z", category: "spacing", attribute: "gap" })]);

@@ -9,6 +9,7 @@
  */
 import { CATEGORIES } from "../judge/rubric.js";
 import { clusterKeyOf } from "../fix/cluster.js";
+import { wasPhotographed } from "./ingest.js";
 import { isIssueId } from "../issues/id.js";
 import { renderMarkdown } from "./report.js";
 import type { CaptureReport } from "../types.js";
@@ -25,14 +26,24 @@ export interface CheckProblem {
     | "drift-resolved"
     | "issue-missing"
     | "issue-schema"
-    | "acceptance-missing";
+    | "acceptance-missing"
+    | "frames-missing";
   fingerprint?: string;
   message: string;
 }
 
 export function checkBacklog(
   backlog: Backlog,
-  opts: { mdOnDisk: string | null; latestReport: CaptureReport | null },
+  opts: {
+    mdOnDisk: string | null;
+    latestReport: CaptureReport | null;
+    /**
+     * Pre-fix frames frozen per issue id. Omitted by a caller that cannot read
+     * the evidence store, and then the frames are not checked at all rather
+     * than reported missing on no evidence.
+     */
+    framesByIssue?: Record<string, number>;
+  },
 ): CheckProblem[] {
   const problems: CheckProblem[] = [];
   for (const [fp, f] of Object.entries(backlog.findings)) {
@@ -86,6 +97,28 @@ export function checkBacklog(
         kind: "issue-missing",
         fingerprint: fp,
         message: `no issue id for root cause "${key}"; run \`lookout backlog regen\``,
+      });
+    }
+  }
+
+  // Every issue with a screenshot behind it should hold a pre-fix frame. One is
+  // frozen when the issue is filed, so a missing frame means either an issue
+  // filed before lookout froze anything, or evidence cleaned out of the store
+  // before a save could copy it. Without it the card can only show that view's
+  // current pixels, which stop being the defect at the next capture.
+  if (opts.framesByIssue) {
+    const photographed = new Set<string>();
+    for (const f of Object.values(backlog.findings)) {
+      if (wasPhotographed(f)) photographed.add(clusterKeyOf(f));
+    }
+    for (const record of Object.values(issues)) {
+      if (!photographed.has(record.key)) continue;
+      if ((opts.framesByIssue[record.id] ?? 0) > 0) continue;
+      problems.push({
+        kind: "frames-missing",
+        message:
+          `issue ${record.id} has no pre-fix screenshot; nothing froze one before ` +
+          `the store was re-captured, and the card can only show these views as they are now`,
       });
     }
   }

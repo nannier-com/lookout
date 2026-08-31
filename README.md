@@ -211,9 +211,12 @@ widget trips several at once.
 
 Each issue gets a six-digit id and a folder under `.lookout/issues/<id>/`, and
 `Issue.md` in that folder is the self-contained document a fix session is
-handed: what is wrong and where, the screenshots (copied into `img/` and
+handed: what is wrong and where, the screenshots (copied into `img/pre/` and
 listed by absolute path), the acceptance criteria it will be graded against,
-and what lookout has ruled so far. lookout writes the folders and rules on
+and what lookout has ruled so far. The pictures are frozen when the issue is
+filed rather than read live, because the evidence store keeps one file per
+view and overwrites it on every capture: without that, a dossier opened after
+the next run describes the defect using a picture of whatever replaced it. lookout writes the folders and rules on
 the outcomes; who fixes an issue, and how, is not lookout's call.
 
 When a fix is claimed, lookout rules on the claim:
@@ -229,19 +232,27 @@ sees now. Exit `3` means the issue exhausted `--max-attempts` (default 2) and
 is recorded as `blocked` with a reason. A fix session never grades its own
 work.
 
-### What a fixed issue keeps
+### Pre and post fix, on every issue
 
 Proving a defect gone destroys the evidence of it. The evidence store writes
-each view back to the path it came from, so the re-capture that clears an issue
-overwrites the only picture of what was wrong, and a card showing "where lookout
-saw it" ends up showing the fixed screen.
+each view back to the path it came from, so any capture of that route overwrites
+the picture of what was wrong, and a card reading the store can only claim to
+show the defect until the next run.
 
-So `verify-fix` freezes both sides. The **before** is copied aside just before it
-re-captures, once per issue, so a third attempt still compares against the defect
-as it was filed rather than as the last attempt left it. The **after** is copied
-when a ruling passes, which is the only moment lookout will say the screen is
-fixed. They live under `evidence/fix-frames/<id>/`, which no capture writes into, and
-the page pairs them per view.
+So every issue is frozen when it is filed. The **pre-fix** frame is copied aside
+by the save that files the finding, which is the last moment the store still
+holds the pixels the judge ruled on, and it is written once: a third fix attempt
+still compares against the defect as filed rather than as the last attempt left
+it. The **post-fix** frame is copied when `verify-fix` rules a fix passed, which
+is the only moment lookout will say the screen is fixed. They live under
+`evidence/fix-frames/<id>/`, which no capture writes into, and the card pairs
+them per view, saying which half is missing while an issue is still open.
+
+An issue that has already spent a fix attempt is never backfilled: something has
+claimed to change that screen since it was filed, so its store frames are of
+unknown vintage and filing them as the defect would be a picture of somebody's
+fix under the wrong label. `lookout backlog check` lists issues with no pre-fix
+frame instead.
 
 A fixed issue also carries **the commit it landed in**, linked to wherever the
 repository lives: GitHub, GitLab, Bitbucket and Azure by their own URL shapes,
@@ -480,9 +491,10 @@ what it tried and lost, is on the second area of `lookout ui`.
   conformance.json    committed if you want the reading pass cached across machines
   issues/<id>/     committed: one folder per issue, named by its six-digit id
                      Issue.json, Issue.md, state.json committed;
-                     img/ gitignored with the evidence
+                     img/pre/ and img/post/ gitignored with the evidence
   issues/archive/<id>/  committed: issues filed away, same folder, moved whole
-  evidence/fix-frames/<id>/  gitignored: the frames either side of a fix
+  evidence/fix-frames/<id>/  gitignored: the frames either side of a fix,
+                     frozen when the issue is filed and when a fix is ruled
   skills/          committed: this project's layer over lookout's shipped skills
   evidence/        gitignored: screenshots + capture-report.json + judge-report.json
 ```
