@@ -63,7 +63,6 @@ export default tseslint.config(
   // and none of them may grow. Raising one of these numbers is not how to add
   // code to a file on this list.
   ...Object.entries({
-    "src/backlog/lib.ts": 530,
     "src/design/conformance.ts": 422,
     "src/design/detect.ts": 403,
     "src/judge/engine.ts": 306,

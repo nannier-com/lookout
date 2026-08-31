@@ -16,7 +16,7 @@
  * willing to say the screen is fixed.
  *
  * They live in the evidence store because that is what the ui serves and what
- * `/thumb/` resizes, and under a reserved `frozen/` prefix that no capture
+ * `/thumb/` resizes, and under a reserved `fix-frames/` prefix that no capture
  * writes into, so nothing overwrites them the way the store overwrites
  * everything else. A manifest beside them carries what each frame is a picture
  * of; parsing that back out of a flattened filename would be guessing.
@@ -53,9 +53,15 @@ export interface FrameSet {
 
 const EMPTY: FrameSet = { schema: 1, before: [], after: [] };
 
-/** `frozen/<id>`, evidence-relative: the prefix no capture writes into. */
+/**
+ * `fix-frames/<id>`, evidence-relative: the prefix no capture writes into.
+ *
+ * Not `frozen/`, which would have been the obvious name and is already taken:
+ * `lookout skills freeze` keeps a frozen regression set, and two unrelated
+ * things wearing one word is how somebody ends up deleting the wrong directory.
+ */
 export function framesRel(id: string): string {
-  return join("frozen", id);
+  return join("fix-frames", id);
 }
 
 export function framesDir(resolved: ResolvedConfig, id: string): string {

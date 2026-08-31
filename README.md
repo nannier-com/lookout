@@ -229,6 +229,46 @@ sees now. Exit `3` means the issue exhausted `--max-attempts` (default 2) and
 is recorded as `blocked` with a reason. A fix session never grades its own
 work.
 
+### What a fixed issue keeps
+
+Proving a defect gone destroys the evidence of it. The evidence store writes
+each view back to the path it came from, so the re-capture that clears an issue
+overwrites the only picture of what was wrong, and a card showing "where lookout
+saw it" ends up showing the fixed screen.
+
+So `verify-fix` freezes both sides. The **before** is copied aside just before it
+re-captures, once per issue, so a third attempt still compares against the defect
+as it was filed rather than as the last attempt left it. The **after** is copied
+when a ruling passes, which is the only moment lookout will say the screen is
+fixed. They live under `evidence/fix-frames/<id>/`, which no capture writes into, and
+the page pairs them per view.
+
+A fixed issue also carries **the commit it landed in**, linked to wherever the
+repository lives: GitHub, GitLab, Bitbucket and Azure by their own URL shapes,
+any other forge by the `/commit/<sha>` convention with its host shown beside it,
+and a bare sha when the checkout has no remote. "Fixed in" is a verdict lookout
+reached; "Claimed at" is an attempt still open.
+
+### Filing an issue away
+
+A confirmed fix is not work any more, and the board is for work. `lookout ui`
+offers **Archive** on a done issue, where an open one offers to hand off to a
+coding tool:
+
+```
+.lookout/issues/<id>/  ->  .lookout/issues/archive/<id>/
+```
+
+The record decides which side the folder belongs on and the next save moves it,
+so the two cannot drift, and anything holding an id finds the folder wherever it
+is. Archiving records *why*, so an issue somebody fixed is never described as one
+somebody adjudicated intentional.
+
+Two things it will not do. It refuses while any finding is still open, because
+hiding live work is the one failure an archive can have. And an archived issue
+whose defect comes back un-archives itself, folder included, on the save that
+reopens it. Archived cards carry a restore button for everything else.
+
 ## Safety defaults
 
 - Targets must be localhost unless `--allow-remote` is passed explicitly.
@@ -441,6 +481,8 @@ what it tried and lost, is on the second area of `lookout ui`.
   issues/<id>/     committed: one folder per issue, named by its six-digit id
                      Issue.json, Issue.md, state.json committed;
                      img/ gitignored with the evidence
+  issues/archive/<id>/  committed: issues filed away, same folder, moved whole
+  evidence/fix-frames/<id>/  gitignored: the frames either side of a fix
   skills/          committed: this project's layer over lookout's shipped skills
   evidence/        gitignored: screenshots + capture-report.json + judge-report.json
 ```

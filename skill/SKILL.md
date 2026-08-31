@@ -78,6 +78,18 @@ practical notes that are easier to hit than to work out.
   found by a reading pass rather than by the scanner, and those are ruled by
   running that pass again over the same file, which costs a model call per
   `verify-fix`. Fixing the file is what closes them; nothing else does.
+- A fixed issue keeps both sides of its fix: the frame lookout filed it against
+  and the frame that cleared it, under `.lookout/evidence/fix-frames/<id>/`. If
+  you need to show somebody what changed, those are the two files, and they are
+  the only copy of the before: the evidence store overwrote the original the
+  moment the fix was verified.
+- The commit that cleared an issue is on the card and in `Issue.md`, linked to
+  the repository's own forge. Report it accurately when you claim a fix
+  (`verify-fix --commit <sha>`): that sha is what the link is built from.
+- A done issue can be archived from `lookout ui`, which moves its folder to
+  `.lookout/issues/archive/<id>/`. Read an archived issue there rather than
+  concluding it was deleted. Archiving refuses while anything is still open, and
+  an issue un-archives itself if its defect comes back.
 - Authenticated targets sign in via the project's `signIn` hook, which clicks a
   demo account rather than typing credentials. If a run comes back full of
   findings about a login screen, read the `off-origin` finding before believing

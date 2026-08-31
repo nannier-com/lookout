@@ -98,7 +98,7 @@ describe("freezing the frames either side of a fix", () => {
 
     const frozen = await freezeFrames(r, c, "before");
     expect(frozen).toHaveLength(1);
-    expect(frozen[0]!.path).toBe("frozen/246813/before/web-app-settings--desktop-dark.png");
+    expect(frozen[0]!.path).toBe("fix-frames/246813/before/web-app-settings--desktop-dark.png");
     expect(frozen[0]!.route).toBe("/settings");
     expect(frozen[0]!.formFactor).toBe("desktop");
 
@@ -190,7 +190,7 @@ describe("the board carries both sides", () => {
     expect(entry.before).toHaveLength(1);
     expect(entry.after).toHaveLength(1);
     // Evidence-relative, because that is what the page's own routes serve.
-    expect(entry.before[0]!.path).toBe(`frozen/${id}/before/web-app-settings--desktop-dark.png`);
-    expect(entry.after[0]!.absPath).toContain(".lookout/evidence/frozen/");
+    expect(entry.before[0]!.path).toBe(`fix-frames/${id}/before/web-app-settings--desktop-dark.png`);
+    expect(entry.after[0]!.absPath).toContain(".lookout/evidence/fix-frames/");
   });
 });
