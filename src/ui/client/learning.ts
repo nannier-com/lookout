@@ -60,12 +60,16 @@ function paintGate(l: Learning): void {
       + ', frozen ' + when(f.frozenAt) + '.'
     : 'Nothing is frozen, so an amendment here can only be written down as a proposal. '
       + '<code>lookout skills freeze</code> builds the set out of findings already adjudicated.';
+  const since = p.lastImproveAt ? ' since the last improve (' + when(p.lastImproveAt) + ')' : '';
   const pending = p.total
-    ? '<div style="margin-top:6px">Waiting to be learned from: <b>' + p.total + '</b> signal'
-      + (p.total === 1 ? '' : 's') + ' ('
-      + p.bySkill.map((b: { skill: string; count: number }) => esc(b.skill) + " " + b.count).join(", ") + ').</div>'
-    : '<div style="margin-top:6px">Nothing new to learn from yet: no refutation, adjudication '
-      + 'or blocked issue has been recorded since the last pass.</div>';
+    ? '<div style="margin-top:6px"><b>' + p.total + '</b> new signal' + (p.total === 1 ? '' : 's')
+      + since + ' ('
+      + p.bySkill.map((b: { skill: string; count: number }) => esc(b.skill) + " " + b.count).join(", ")
+      + '). Threshold ' + p.threshold + '; the next <code>lookout check</code> learns from them'
+      + (f ? '' : ', but only as a proposal until <code>lookout skills freeze</code> builds the gate')
+      + '.</div>'
+    : '<div style="margin-top:6px">Nothing new to learn from' + since + ': no refutation, '
+      + 'adjudication or blocked issue has been recorded since the last pass.</div>';
   const html = '<div class="' + (f ? '' : 'none') + '">' + frozen + '</div>' + pending;
   paint("lgate", html, html);
 }
@@ -96,12 +100,23 @@ function paintHistory(l: Learning): void {
 }
 
 function paintIncidents(l: Learning): void {
-  const rows = l.code.incidents.map((g: IncidentGroup) =>
-    '<div class="inc' + (g.count > 2 ? ' hot' : '') + '">'
-    + '<span class="ct">' + esc(g.count) + '\u00d7</span>'
-    + '<span class="msg">' + esc(g.message)
-    + '<span class="kd"> ' + esc(g.kind) + (g.verb ? " \u00b7 during lookout " + esc(g.verb) : "")
-    + " \u00b7 last " + when(g.latestAt) + '</span></span></div>').join("");
+  // Words, not styling: the "hot" class used to be the page's entire account
+  // of a failure worth acting on.
+  const rows = l.code.incidents.map((g: IncidentGroup) => {
+    const hot = g.recurred || g.count > 2;
+    const state = g.needsPerson
+      ? ' \u00b7 two heal attempts reverted; this one needs a person'
+      : g.recurred
+        ? ' \u00b7 healed before and it came back; worth a <code>lookout self-heal</code> (manual)'
+        : hot
+          ? ' \u00b7 recurring; worth a <code>lookout self-heal</code> (manual)'
+          : '';
+    return '<div class="inc' + (hot ? ' hot' : '') + '">'
+      + '<span class="ct">' + esc(g.count) + '\u00d7</span>'
+      + '<span class="msg">' + esc(g.message)
+      + '<span class="kd"> ' + esc(g.kind) + (g.verb ? " \u00b7 during lookout " + esc(g.verb) : "")
+      + " \u00b7 last " + when(g.latestAt) + state + '</span></span></div>';
+  }).join("");
   const html = rows
     || '<div class="empty">Nothing has gone wrong with lookout itself on this machine.</div>';
   paint("lincidents", html, html);

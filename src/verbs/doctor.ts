@@ -130,14 +130,53 @@ export async function doctor(parsed: Parsed): Promise<number> {
 
   const requiredFailing = checks.filter((c) => c.required && !c.ok);
 
+  // lookout itself: the machine-wide record of its own failures. Doctor is
+  // the once-per-machine human verb, which makes it where a MANUAL verb's
+  // nudge belongs; nothing here runs anything.
+  const { activeGroups, readHeals } = await import("../skills/heal-select.js");
+  const { readIncidents } = await import("../skills/incidents.js");
+  const groups = activeGroups(readIncidents(), readHeals());
+  const hot = groups.filter((g) => g.recurred || g.count >= 3);
+  const self = {
+    activeGroups: groups.length,
+    hot: hot.length,
+    top: groups[0]
+      ? {
+          kind: groups[0].kind,
+          message: groups[0].message,
+          count: groups[0].count,
+          lastSeen: groups[0].latest.at,
+          recurred: groups[0].recurred,
+        }
+      : null,
+  };
+
   if (parsed.flags.json) {
-    printJson({ ok: requiredFailing.length === 0, checks });
+    printJson({ ok: requiredFailing.length === 0, checks, self });
   } else {
     console.log("lookout doctor\n");
     for (const c of checks) {
       const mark = c.ok ? "ok " : c.required ? "MISSING" : "absent ";
       console.log(row(c.name, `${mark}  ${c.detail}`));
       if (!c.ok && c.fix) console.log(row("", `fix: ${c.fix}`));
+    }
+    console.log("\nlookout itself");
+    if (groups.length === 0) {
+      console.log(row("  incidents", "none active in the last 30 days"));
+    } else {
+      console.log(row("  incidents", `${groups.length} active group(s), ${hot.length} recurring`));
+      if (self.top) {
+        console.log(
+          row(
+            "  heaviest",
+            `[${self.top.kind}] ${self.top.count}x ${self.top.message.slice(0, 70)}` +
+              (self.top.recurred ? " (healed before; came back)" : ""),
+          ),
+        );
+      }
+      if (hot.length > 0) {
+        console.log(row("", "worth a `lookout self-heal` (manual; it edits lookout's own source)"));
+      }
     }
     console.log(
       requiredFailing.length === 0

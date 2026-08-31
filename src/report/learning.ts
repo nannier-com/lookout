@@ -25,7 +25,10 @@ import { readFile, readdir } from "node:fs/promises";
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { lookoutDir } from "../config.js";
-import { clusterIncidents, incidentsPath, lookoutHome, readIncidents } from "../skills/incidents.js";
+import { incidentsPath, lookoutHome, readIncidents } from "../skills/incidents.js";
+import { activeGroups, healsPath, readHeals } from "../skills/heal-select.js";
+import { loadWatermark, newSignals, seenPath } from "../skills/watermark.js";
+import { DEFAULT_THRESHOLD } from "../skills/auto-improve.js";
 import { loadSkill } from "../skills/load.js";
 import { loadRegressionSet, regressionManifestPath } from "../skills/regression.js";
 import { bySkill, gatherSignals } from "../skills/signals.js";
@@ -61,10 +64,15 @@ export interface LearningEntry {
 export interface IncidentGroup {
   kind: string;
   message: string;
+  /** Occurrences in the window, after the latest heal when one exists. */
   count: number;
   latestAt: string;
   verb: string | null;
   detail: string | null;
+  /** Healed before, and it came back: the loudest state there is. */
+  recurred: boolean;
+  /** Two reverted heal attempts on record; self-heal skips it. */
+  needsPerson: boolean;
 }
 
 /** A heal that was written, failed a gate, and was reverted. */
@@ -93,8 +101,13 @@ export interface Learning {
     history: LearningEntry[];
     /** The evidence that gates an amendment, or null when nothing is frozen. */
     frozen: { cases: number; claims: number; frozenAt: string } | null;
-    /** What lookout would learn from next, and has not yet. */
-    pending: { total: number; bySkill: { skill: string; count: number }[] };
+    /** NEW signals no improve pass has seen, which is what the trigger counts. */
+    pending: {
+      total: number;
+      bySkill: { skill: string; count: number }[];
+      lastImproveAt: string | null;
+      threshold: number;
+    };
   };
   /** The source track: lookout's own code, pooled across every project. */
   code: {
@@ -128,6 +141,8 @@ export function learningKey(resolved: ResolvedConfig): string {
     join(lookoutDir(resolved), "skills"),
     regressionManifestPath(resolved),
     incidentsPath(),
+    healsPath(),
+    seenPath(resolved),
     lockPath(),
     join(lookoutHome(), "self-heal"),
   ]) {
@@ -304,18 +319,33 @@ export async function buildLearning(resolved: ResolvedConfig): Promise<Learning>
     frozen = null;
   }
 
-  let pending: Learning["instructions"]["pending"] = { total: 0, bySkill: [] };
+  let pending: Learning["instructions"]["pending"] = {
+    total: 0,
+    bySkill: [],
+    lastImproveAt: null,
+    threshold: DEFAULT_THRESHOLD,
+  };
   try {
+    // NEW signals only: the number can go DOWN now that improve consumes what
+    // it is shown, which is what makes it safe to put on a badge at all. The
+    // all-time count only ever grew, and was deliberately kept off it.
     const signals = await gatherSignals(resolved);
+    const mark = await loadWatermark(resolved);
+    const fresh = newSignals(mark, signals);
     pending = {
-      total: signals.length,
-      bySkill: [...bySkill(signals)].map(([skill, s]) => ({ skill, count: s.length })),
+      total: fresh.length,
+      bySkill: [...bySkill(fresh)].map(([skill, s]) => ({ skill, count: s.length })),
+      lastImproveAt: mark.lastImproveAt,
+      threshold: resolved.config.learn?.threshold ?? DEFAULT_THRESHOLD,
     };
   } catch {
     // Signals are derived from the backlog, which the board already reports on.
   }
 
-  const incidents = clusterIncidents(readIncidents())
+  // Active pressure, recurred-first: a healed group that stayed quiet is
+  // settled history (the attempts and commits sections still tell it), and a
+  // fix that did not stick is the loudest state there is.
+  const incidents = activeGroups(readIncidents(), readHeals())
     .slice(0, MAX_INCIDENT_GROUPS)
     .map((g) => ({
       kind: g.kind,
@@ -324,6 +354,8 @@ export async function buildLearning(resolved: ResolvedConfig): Promise<Learning>
       latestAt: g.latest.at,
       verb: g.latest.verb ?? null,
       detail: g.latest.detail ?? null,
+      recurred: g.recurred,
+      needsPerson: g.failedAttempts >= 2,
     }));
 
   return {
@@ -346,11 +378,17 @@ export function learningBadge(l: Learning): {
   applied: number;
   proposed: number;
   incidents: number;
+  /** New signals waiting for the trigger; can go down, which earns its spot. */
+  pendingNew: number;
+  /** Active groups loud enough to be worth a manual self-heal. */
+  hot: number;
 } {
   return {
     running: l.running.improve || l.running.heal,
     applied: l.instructions.history.filter((h) => h.action === "applied").length,
     proposed: l.instructions.skills.filter((s) => s.proposalPath).length,
     incidents: l.code.incidents.reduce((n, g) => n + g.count, 0),
+    pendingNew: l.instructions.pending.total,
+    hot: l.code.incidents.filter((g) => g.recurred || g.count >= 3).length,
   };
 }

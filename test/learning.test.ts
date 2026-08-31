@@ -98,12 +98,19 @@ describe("what lookout has changed about itself", () => {
 
   test("recurring failures are folded together, newest occurrence kept", async () => {
     const home = tmpHome();
+    // Recent dates: the page shows ACTIVE pressure now (a 30-day window),
+    // because an all-time count made a bug fixed months ago outrank the one
+    // that broke yesterday. The folding-by-shape intent is unchanged.
+    const day = 86_400_000;
+    const at = (daysAgo: number) => new Date(Date.now() - daysAgo * day).toISOString();
+    const first = at(3);
+    const second = at(2);
     writeFileSync(
       join(home, "incidents.jsonl"),
       [
-        { at: "2026-01-01T00:00:00.000Z", kind: "judge-unparseable", message: "the reply at line 12 was not json", verb: "check" },
-        { at: "2026-01-02T00:00:00.000Z", kind: "judge-unparseable", message: "the reply at line 88 was not json", verb: "check" },
-        { at: "2026-01-03T00:00:00.000Z", kind: "crash", message: "boom", verb: "capture" },
+        { at: first, kind: "judge-unparseable", message: "the reply at line 12 was not json", verb: "check" },
+        { at: second, kind: "judge-unparseable", message: "the reply at line 88 was not json", verb: "check" },
+        { at: at(1), kind: "crash", message: "boom", verb: "capture" },
       ]
         .map((i) => JSON.stringify(i))
         .join("\n") + "\n",
@@ -113,8 +120,20 @@ describe("what lookout has changed about itself", () => {
     // Line numbers differ between occurrences of one bug; the shape does not.
     expect(l.code.incidents[0]!.count).toBe(2);
     expect(l.code.incidents[0]!.kind).toBe("judge-unparseable");
-    expect(l.code.incidents[0]!.latestAt).toBe("2026-01-02T00:00:00.000Z");
+    expect(l.code.incidents[0]!.latestAt).toBe(second);
+    expect(l.code.incidents[0]!.recurred).toBe(false);
     expect(learningBadge(l).incidents).toBe(3);
+  });
+
+  test("a month-old flood leaves the page's pressure view", async () => {
+    const home = tmpHome();
+    writeFileSync(
+      join(home, "incidents.jsonl"),
+      JSON.stringify({ at: "2026-01-01T00:00:00.000Z", kind: "crash", message: "ancient", verb: "check" }) + "\n",
+    );
+    const l = await buildLearning(tmpProject());
+    expect(l.code.incidents).toHaveLength(0);
+    expect(learningBadge(l).hot).toBe(0);
   });
 
   test("a reverted heal carries the gates that killed it and a readable time", async () => {

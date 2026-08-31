@@ -242,6 +242,21 @@ export async function check(parsed: Parsed): Promise<number> {
   const sheet = await runContactSheet(resolved, [...shotsById.values()], findingsByShot);
   outcome.contactSheet = sheet?.path ?? null;
 
+  // One line about lookout itself, when its own failures are recurring: a
+  // cheap file read, an ignorable sentence, and the only place a project run
+  // mentions the machine-wide log at all.
+  if (!parsed.flags.json && !parsed.flags.quiet) {
+    const { activeGroups, readHeals } = await import("../skills/heal-select.js");
+    const { readIncidents } = await import("../skills/incidents.js");
+    const hot = activeGroups(readIncidents(), readHeals()).filter((g) => g.recurred || g.count >= 3);
+    if (hot.length > 0) {
+      console.log(
+        `\nlookout itself: ${hot.length} recurring failure(s) on this machine; ` +
+          "`lookout self-heal` reads the log (manual)",
+      );
+    }
+  }
+
   if (parsed.flags.json) {
     printJson({ ...outcome, ...(learned ? { learned } : {}) });
   } else {
