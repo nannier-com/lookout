@@ -58,16 +58,9 @@ export default tseslint.config(
     files: ["src/**/*.ts"],
     rules: { "max-lines": ["error", { max: 300, skipBlankLines: true, skipComments: true }] },
   },
-  // The files that were already over the ceiling when it went in, each pinned
-  // at the size it was. This is debt, written down: any of them may be split,
-  // and none of them may grow. Raising one of these numbers is not how to add
-  // code to a file on this list.
-  ...Object.entries({
-    "src/design/detect.ts": 403,
-  }).map(([file, max]) => ({
-    files: [file],
-    rules: { "max-lines": ["error", { max, skipBlankLines: true, skipComments: true }] },
-  })),
+  // No exceptions. The list of files that predated the ceiling is empty: every
+  // one of them has been split, and a new pin would be a decision to keep debt
+  // rather than a record of inheriting it.
   {
     rules: {
       // Forgotten awaits in capture/judge pipelines produce silent misorderings.

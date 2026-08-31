@@ -3,7 +3,9 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { detect, importsOf, scanHandRolls } from "../src/design/detect.js";
+import { detect } from "../src/design/detect.js";
+import { importsOf } from "../src/design/detect-tree.js";
+import { scanHandRolls } from "../src/design/detect-handrolls.js";
 import { applyDeclaration } from "../src/design/resolve.js";
 import { tmpProject } from "./tmp-project.js";
 import type { ResolvedConfig } from "../src/types.js";
