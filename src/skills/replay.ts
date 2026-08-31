@@ -3,8 +3,20 @@
  *
  * This is the gate, and it runs the real pipeline rather than a simplified one:
  * the judge files, then the adversarial refuter gets to kill findings before
- * anything is counted, because that is what happens in a real run and an
- * amendment to either of them has to be graded the same way.
+ * anything is counted, once per view-group batch exactly as `check` runs it
+ * (src/check/batches.ts), because an amendment to either skill has to be graded
+ * in the context shape and index space it will actually run in.
+ *
+ * One deliberate divergence from `check`: the judge is NOT shown the "ALREADY
+ * FILED" aid that production builds from the live backlog (src/check/plan.ts).
+ * That aid exists to keep the judge's freehand `attribute` stable, and the gate
+ * ignores the attribute on purpose, matching on category alone
+ * (src/skills/regression.ts). Rebuilding the aid from the frozen claims would
+ * hand the judge the answer key: every must-file claim would appear as an
+ * already-open defect the aid instructs the judge to re-file by name, so an
+ * amendment that blinded the judge could still pass the "lost" check by
+ * parroting the list. Each frozen claim was first filed by a judge that had no
+ * such aid; the replay holds every candidate to the same conditions.
  */
 import { batchShots, judgeBatch, type AiFinding } from "../judge/engine.js";
 import { loadRubric } from "../judge/rubric.js";
@@ -59,23 +71,23 @@ export async function replayRegression(
   const refute = await loadSkill(resolved, "refute-finding");
 
   let costUsd = 0;
-  const raw: AiFinding[] = [];
+  const shotsById = new Map(shots.map((s) => [s.id, s]));
+  const findings: AiFinding[] = [];
   for (const batch of batchShots(shots)) {
     const res = await judgeBatch(rubric.text, resolved.project, batch, dir, model, {
       handoff: rubric.handoff,
     });
     costUsd += res.costUsd ?? 0;
-    raw.push(...res.findings);
-  }
-
-  // The pipeline as it actually runs: the refuter gets to kill findings before
-  // anything is filed, so an amendment to it is gated the same way.
-  const shotsById = new Map(shots.map((s) => [s.id, s]));
-  let findings = raw;
-  if (raw.length > 0) {
-    const verified = await verifyFindings(refute.text, raw, shotsById, dir, model);
+    if (res.findings.length === 0) continue;
+    // The pipeline as it actually runs: one refuter call per view-group batch,
+    // holding only that batch's findings, so an amendment to refute-finding is
+    // graded against the same context window production will give it. Unlike
+    // production there is no catch here: a refuter that cannot run means the
+    // gate cannot grade, and amend.ts answers that by rolling the candidate
+    // back rather than counting unrefuted findings as a verdict.
+    const verified = await verifyFindings(refute.text, res.findings, shotsById, dir, model);
     costUsd += verified.costUsd ?? 0;
-    findings = verified.confirmed;
+    findings.push(...verified.confirmed);
   }
 
   return { violations: evaluateReplay(usable, findings), findings, costUsd };
