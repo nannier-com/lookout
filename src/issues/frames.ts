@@ -8,12 +8,18 @@
  * it existed are gone too. The card kept showing a strip labelled "where
  * lookout saw it" that was, by then, a picture of the fixed screen.
  *
- * So two frames per view are frozen out of the way. The BEFORE is taken just
- * before a ruling re-captures anything, and only once: later attempts on the
- * same issue keep the original, because the thing worth comparing against is
- * the defect as filed, not as it looked after somebody's first try at it. The
- * AFTER is taken when a ruling passes, which is the only moment lookout is
- * willing to say the screen is fixed.
+ * So two frames per view are frozen out of the way. The BEFORE is taken when
+ * the issue is filed, and only once: later attempts on the same issue keep the
+ * original, because the thing worth comparing against is the defect as filed,
+ * not as it looked after somebody's first try at it. The AFTER is taken when a
+ * ruling passes, which is the only moment lookout is willing to say the screen
+ * is fixed.
+ *
+ * Filing time is the earliest moment the pixels are guaranteed to be the
+ * defect's, and it is why `ensureBeforeFrames` runs from every backlog save
+ * rather than from `verify-fix` alone. An issue nobody ever asks lookout to
+ * verify used to reach the board with no before frame at all, and the card fell
+ * back to the live store, which the next `check` had already overwritten.
  *
  * They live in the evidence store because that is what the ui serves and what
  * `/thumb/` resizes, and under a reserved `fix-frames/` prefix that no capture
@@ -148,4 +154,29 @@ export async function freezeFrames(
   if (frames.length === 0) return [];
   await saveFrames(resolved, cluster.id, { ...existing, schema: 1, [side]: frames });
   return frames;
+}
+
+/**
+ * The pre-fix frames for this issue, frozen now if nothing has frozen them yet.
+ *
+ * Called from every backlog save, which is what makes "every issue has a
+ * picture of its own defect" a property of the system rather than a thing
+ * `verify-fix` happens to do on its way past. A save runs after the capture the
+ * findings were judged from, so the files it copies are the defect's own
+ * pixels, and it is a no-op from the second save onwards.
+ *
+ * An issue that has already spent a fix attempt is left alone. Its frames in
+ * the store are of unknown vintage: something has claimed to change that screen
+ * since the finding was filed, so copying them now would file a picture of
+ * somebody's fix under a label that says "the defect". Those issues report no
+ * pre-fix frame instead, which is true, and `backlog check` lists them.
+ */
+export async function ensureBeforeFrames(
+  resolved: ResolvedConfig,
+  cluster: FixCluster,
+): Promise<FrameSet> {
+  const existing = await loadFrames(resolved, cluster.id);
+  if (existing.before.length > 0 || cluster.attemptsSpent > 0) return existing;
+  const before = await freezeFrames(resolved, cluster, "before");
+  return before.length > 0 ? { ...existing, before } : existing;
 }

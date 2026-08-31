@@ -5,7 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { freezeFrames, loadFrames, framesDir } from "../src/issues/frames.js";
+import { ensureBeforeFrames, freezeFrames, loadFrames, framesDir } from "../src/issues/frames.js";
 import { buildBoard } from "../src/report/board.js";
 import type { FixCluster } from "../src/fix/cluster.js";
 import type { BacklogFinding } from "../src/backlog/lib.js";
@@ -192,5 +192,51 @@ describe("the board carries both sides", () => {
     // Evidence-relative, because that is what the page's own routes serve.
     expect(entry.before[0]!.path).toBe(`fix-frames/${id}/before/web-app-settings--desktop-dark.png`);
     expect(entry.after[0]!.absPath).toContain(".lookout/evidence/fix-frames/");
+  });
+});
+
+// The before frame used to be taken by `verify-fix` alone, so an issue nobody
+// ever asked lookout to verify reached the board with no picture of its own
+// defect, and the card fell back to a store the next capture had overwritten.
+describe("every issue gets a picture of its own defect", () => {
+  const preFile = (r: ResolvedConfig): string =>
+    join(framesDir(r, "246813"), "before", "web-app-settings--desktop-dark.png");
+
+  test("freezes the before on an issue nothing has tried to fix yet", async () => {
+    const r = project();
+    shotFile(r, "web/app/settings--desktop-dark.png", "the defect");
+
+    const set = await ensureBeforeFrames(r, cluster([member()]));
+
+    expect(set.before).toHaveLength(1);
+    expect(readFileSync(preFile(r), "utf8")).toBe("the defect");
+  });
+
+  test("keeps the first freeze when the store has moved on", async () => {
+    const r = project();
+    shotFile(r, "web/app/settings--desktop-dark.png", "the defect");
+    await ensureBeforeFrames(r, cluster([member()]));
+
+    // Any later capture of the same view overwrites the store in place.
+    shotFile(r, "web/app/settings--desktop-dark.png", "re-captured later");
+    await ensureBeforeFrames(r, cluster([member()]));
+
+    expect(readFileSync(preFile(r), "utf8")).toBe("the defect");
+  });
+
+  test("does not backfill an issue that has already spent an attempt", async () => {
+    const r = project();
+    // Something has claimed to change this screen since the finding was filed,
+    // so the store holds pixels of unknown vintage. Filing them as "the defect"
+    // would put a picture of somebody's fix under the wrong label.
+    shotFile(r, "web/app/settings--desktop-dark.png", "somebody's first try");
+
+    const set = await ensureBeforeFrames(
+      r,
+      cluster([member({ fixAttempts: 1 })], { attemptsSpent: 1 }),
+    );
+
+    expect(set.before).toEqual([]);
+    expect(await loadFrames(r, "246813")).toEqual({ schema: 1, before: [], after: [] });
   });
 });

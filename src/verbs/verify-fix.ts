@@ -27,7 +27,7 @@ import { setStatus, type Backlog, type BacklogFinding } from "../backlog/lib.js"
 import { loadReport } from "../capture/store.js";
 import { loadBacklog, saveBacklog } from "./backlog.js";
 import { DEFAULT_MAX_ATTEMPTS } from "./check.js";
-import { freezeFrames } from "../issues/frames.js";
+import { ensureBeforeFrames, freezeFrames } from "../issues/frames.js";
 import { sheetNote } from "../capture/sheet.js";
 import { LookoutError } from "../types.js";
 import { execFileAsync, nowIso, num, printJson, runId as makeRunId, str, type Parsed } from "../util.js";
@@ -202,9 +202,11 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
 
   // The last moment the defect still exists in a file. The capture below writes
   // each view back to the path it came from, so a frame not copied aside now is
-  // a frame nothing can show afterwards. Written once per issue: a third
-  // attempt still compares against the defect as it was filed.
-  await freezeFrames(preResolved, cluster, "before");
+  // a frame nothing can show afterwards. Normally the save that filed the issue
+  // froze this already; what is left here is the backstop for an issue filed
+  // before frames existed, and it defers to the same rule, so an issue that has
+  // already spent an attempt is not handed a "before" of unknown vintage.
+  await ensureBeforeFrames(preResolved, cluster);
 
   // 1. Re-capture and re-judge this cluster's own routes, fold the result into
   // the backlog, and work out what actually moved.

@@ -4,7 +4,8 @@
  *   .lookout/issues/418203/
  *     Issue.json        generated: the record, machine-readable
  *     Issue.md          generated: the same thing for a person or an agent
- *     img/              generated: the screenshots it was filed against
+ *     img/pre/          generated: the defect, as the issue was filed
+ *     img/post/         generated: the same views once a fix was ruled on
  *     state.json        truth: attempts, written by verify-fix
  *     handoff.command   written when somebody opens the issue in a tool
  *
@@ -17,10 +18,17 @@
  * the evidence store stays the canonical home; but a dossier whose pictures are
  * links into a directory the project gitignores is a dossier full of dead links
  * the first time somebody cleans it. Stale pixels beat missing ones.
+ *
+ * They are copied from the FROZEN frames rather than from the live store. img/
+ * used to mirror whatever the store held, re-copying any file the store had
+ * touched more recently, so the folder that says "the screenshots it was filed
+ * against" quietly became a picture of the fixed screen the first time anything
+ * re-captured that route. The frames under `evidence/fix-frames/` are the two
+ * moments worth keeping, and this folder is their local copy.
  */
 import { copyFile, mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
-import { existsSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync } from "node:fs";
+import { basename, join } from "node:path";
 import { evidenceDir } from "../config.js";
 import { wasPhotographed, type Backlog, type BacklogFinding, type IssueRecord } from "../backlog/lib.js";
 import type { FixCluster } from "../fix/cluster.js";
@@ -34,12 +42,18 @@ import {
   ISSUE_RECORD_FILE,
 } from "./paths.js";
 import { renderIssueDocument } from "./document.js";
+import { ensureBeforeFrames, type Frame, type FrameSet } from "./frames.js";
 import type { ResolvedConfig } from "../types.js";
+
+/** Which side of the fix a dossier picture is of. */
+export type ShotSide = "pre" | "post";
 
 /** One screenshot as the dossier records it. */
 export interface IssueShot {
-  /** Filename inside img/, flattened from the evidence-relative path. */
+  /** Filename inside img/<side>/, flattened from the evidence-relative path. */
   file: string;
+  /** Which subfolder it is in, and what it is a picture of. */
+  side: ShotSide;
   route: string;
   formFactor: string;
   scheme: string;
@@ -83,44 +97,101 @@ function statusOf(members: BacklogFinding[]): IssueDocument["status"] {
   return "archived";
 }
 
-/**
- * Copy in the screenshots this issue was filed against, and drop any that no
- * longer belong to it. Unchanged files are left alone: a save runs on every
- * merge, and re-copying megabytes of identical pixels would make the cheap
- * operation the expensive one.
- */
-async function syncShots(resolved: ResolvedConfig, id: string, cluster: FixCluster): Promise<IssueShot[]> {
-  const evDir = evidenceDir(resolved);
-  const dir = issueImgDir(resolved, id);
-  await mkdir(dir, { recursive: true });
+/** One picture to copy in: where it is now, and what it should be called here. */
+interface ShotSource {
+  file: string;
+  path: string;
+  route: string;
+  formFactor: string;
+  scheme: string;
+  state: string;
+}
 
-  const shots: IssueShot[] = [];
-  const wanted = new Set<string>();
+/** The frozen frames of one side, as copy sources. Their basename is already flat. */
+function frozenSources(frames: Frame[]): ShotSource[] {
+  return frames.map((f) => ({
+    file: basename(f.path),
+    path: f.path,
+    route: f.route,
+    formFactor: f.formFactor,
+    scheme: f.scheme,
+    state: f.state ?? "",
+  }));
+}
+
+/**
+ * The live store paths, which is all there is for an issue nothing could freeze.
+ *
+ * A code-channel finding has no screenshot at all, so it contributes nothing
+ * here and the issue's folder simply has no pictures in it.
+ */
+function liveSources(cluster: FixCluster): ShotSource[] {
+  const out: ShotSource[] = [];
+  const seen = new Set<string>();
   for (const m of cluster.members) {
     const ev = m.evidence[m.evidence.length - 1];
-    // Source findings have no image to copy into img/.
-    if (!ev || !wasPhotographed(m)) continue;
-    const file = flatShotName(ev.path);
-    if (wanted.has(file)) continue;
-    wanted.add(file);
-    shots.push({ file, route: m.route, formFactor: m.formFactor, scheme: m.scheme, state: m.state });
+    if (!ev || !wasPhotographed(m) || seen.has(ev.path)) continue;
+    seen.add(ev.path);
+    out.push({
+      file: flatShotName(ev.path),
+      path: ev.path,
+      route: m.route,
+      formFactor: m.formFactor,
+      scheme: m.scheme,
+      state: m.state,
+    });
+  }
+  return out;
+}
 
-    const src = join(evDir, ev.path);
-    const dest = join(dir, file);
-    if (!existsSync(src)) continue;
-    try {
-      const a = statSync(src);
-      const b = existsSync(dest) ? statSync(dest) : null;
-      if (b && b.size === a.size && b.mtimeMs >= a.mtimeMs) continue;
-      await copyFile(src, dest);
-    } catch {
+/**
+ * Copy the frozen frames in, one subfolder per side of the fix.
+ *
+ * The frozen frames are the authority, so where they exist this folder is a
+ * faithful copy of them: files are overwritten and strays are pruned. That
+ * costs nothing on a repeat, because a frozen before is written once and never
+ * changes, and it keeps the dossier and the card showing the same picture of
+ * the same view.
+ *
+ * Where they do not exist, the live store is a guess at what the defect looked
+ * like, and a guess neither overwrites nor prunes anything: a file already in
+ * `img/pre/` is the older picture, and on an issue nothing could freeze it may
+ * be the only copy of the defect left anywhere.
+ */
+async function syncShots(
+  resolved: ResolvedConfig,
+  id: string,
+  cluster: FixCluster,
+  frames: FrameSet,
+): Promise<IssueShot[]> {
+  const evDir = evidenceDir(resolved);
+  const dir = issueImgDir(resolved, id);
+  const frozen = frames.before.length > 0;
+  const sides: [ShotSide, ShotSource[]][] = [
+    ["pre", frozen ? frozenSources(frames.before) : liveSources(cluster)],
+    ["post", frozenSources(frames.after)],
+  ];
+
+  const shots: IssueShot[] = [];
+  for (const [side, sources] of sides) {
+    const sideDir = join(dir, side);
+    const wanted = new Set<string>();
+    for (const s of sources) {
+      if (wanted.has(s.file)) continue;
+      wanted.add(s.file);
+      shots.push({ file: s.file, side, route: s.route, formFactor: s.formFactor, scheme: s.scheme, state: s.state });
+      const src = join(evDir, s.path);
+      const dest = join(sideDir, s.file);
+      if (!existsSync(src) || (side === "pre" && !frozen && existsSync(dest))) continue;
+      await mkdir(sideDir, { recursive: true });
       // A screenshot that cannot be copied does not stop the record being
       // written; the document names the evidence store's path as well.
+      await copyFile(src, dest).catch(() => {});
     }
-  }
-
-  for (const entry of await readdir(dir).catch(() => [])) {
-    if (entry.endsWith(".png") && !wanted.has(entry)) await rm(join(dir, entry), { force: true });
+    if (side === "pre" && !frozen) continue;
+    for (const entry of await readdir(sideDir).catch(() => [] as string[])) {
+      if (entry.endsWith(".png") && !wanted.has(entry)) await rm(join(sideDir, entry), { force: true });
+    }
   }
   return shots;
 }
@@ -147,17 +218,28 @@ async function migrateLegacyLayout(dir: string): Promise<void> {
   for (const name of ["issue.json", "issue.json.tmp", "ISSUE.md", "ISSUE.md.tmp"]) {
     if (entries.includes(name)) await rm(join(dir, name), { force: true });
   }
-  if (!entries.includes("shots")) return;
-
-  const legacy = join(dir, "shots");
   const img = join(dir, "img");
-  await mkdir(img, { recursive: true });
-  for (const file of await readdir(legacy).catch(() => [] as string[])) {
-    if (!existsSync(join(img, file))) {
-      await rename(join(legacy, file), join(img, file)).catch(() => {});
+  if (entries.includes("shots")) {
+    const legacy = join(dir, "shots");
+    await mkdir(img, { recursive: true });
+    for (const file of await readdir(legacy).catch(() => [] as string[])) {
+      if (!existsSync(join(img, file))) {
+        await rename(join(legacy, file), join(img, file)).catch(() => {});
+      }
     }
+    await rm(legacy, { recursive: true, force: true });
   }
-  await rm(legacy, { recursive: true, force: true });
+
+  // img/ held one flat pile before there were two sides to a picture. Those
+  // files are the older copy of the defect, which is exactly what `pre` means,
+  // so they are moved rather than dropped: for an issue filed before frames
+  // existed, this pile is the only picture of it anybody kept.
+  const pre = join(img, "pre");
+  for (const file of await readdir(img).catch(() => [] as string[])) {
+    if (!file.endsWith(".png")) continue;
+    await mkdir(pre, { recursive: true });
+    if (!existsSync(join(pre, file))) await rename(join(img, file), join(pre, file)).catch(() => {});
+  }
 }
 
 /** Write one issue's folder: its record, its document, and its screenshots. */
@@ -179,7 +261,11 @@ export async function materializeIssue(
   }
   await mkdir(dir, { recursive: true });
   await migrateLegacyLayout(dir);
-  const shots = await syncShots(resolved, record.id, cluster);
+  // Freeze the defect before copying anything: this is the moment the store
+  // still holds the pixels the finding was judged from, and every write path
+  // reaches it, so no issue arrives on the board without a picture of itself.
+  const frames = await ensureBeforeFrames(resolved, cluster);
+  const shots = await syncShots(resolved, record.id, cluster, frames);
 
   const doc: IssueDocument = {
     generated: GENERATED,

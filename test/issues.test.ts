@@ -10,6 +10,8 @@ import { ISSUE_ID_MAX, ISSUE_ID_MIN, isIssueId, mintIssueId } from "../src/issue
 import { issueByKey, issuesOf, reconcileIssues } from "../src/issues/registry.js";
 import { checkBacklog } from "../src/backlog/lib.js";
 import { issueDir, issueImgDir } from "../src/issues/paths.js";
+import { freezeFrames, loadFrames } from "../src/issues/frames.js";
+import { evidenceDir } from "../src/config.js";
 import { loadBacklog, saveBacklog } from "../src/verbs/backlog.js";
 import { emptyBacklog, type Backlog, type BacklogFinding } from "../src/backlog/lib.js";
 import { tmpProject } from "./tmp-project.js";
@@ -193,9 +195,9 @@ describe("the issue folder", () => {
 
     // The pixels come with it: a dossier that points into a gitignored
     // directory is a dossier full of dead links the first time it is cleaned.
-    const shots = readdirSync(issueImgDir(r, id));
+    const shots = readdirSync(join(issueImgDir(r, id), "pre"));
     expect(shots).toEqual(["web-app-dash-rest--desktop-dark.png"]);
-    expect(readFileSync(join(issueImgDir(r, id), shots[0]!), "utf8")).toBe("png");
+    expect(readFileSync(join(issueImgDir(r, id), "pre", shots[0]!), "utf8")).toBe("png");
   });
 
   test("drops a screenshot that is no longer this issue's evidence", async () => {
@@ -205,9 +207,60 @@ describe("the issue folder", () => {
     await saveBacklog(r, b);
     const id = Object.keys(b.issues)[0]!;
 
-    writeFileSync(join(issueImgDir(r, id), "stale.png"), "old");
+    writeFileSync(join(issueImgDir(r, id), "pre", "stale.png"), "old");
     await saveBacklog(r, b);
-    expect(readdirSync(issueImgDir(r, id))).toEqual(["web-app-dash-rest--desktop-dark.png"]);
+    expect(readdirSync(join(issueImgDir(r, id), "pre"))).toEqual(["web-app-dash-rest--desktop-dark.png"]);
+  });
+
+  // A save is the last moment the store still holds the pixels the finding was
+  // judged from, so it is where the defect is frozen. Before this, an issue
+  // nobody verified had its only copy overwritten by the next capture.
+  test("a save freezes the defect, and img/pre is a copy of what it froze", async () => {
+    const r = tmpProject("lookout-issues-");
+    writeShot(r, "web/app/dash/rest--desktop-dark.png", "the defect");
+    const b = backlogOf([finding()]);
+    await saveBacklog(r, b);
+    const id = Object.keys(b.issues)[0]!;
+
+    const frames = await loadFrames(r, id);
+    expect(frames.before).toHaveLength(1);
+    expect(readFileSync(join(evidenceDir(r), frames.before[0]!.path), "utf8")).toBe("the defect");
+    expect(readFileSync(join(issueImgDir(r, id), "pre", "web-app-dash-rest--desktop-dark.png"), "utf8"))
+      .toBe("the defect");
+  });
+
+  test("re-capturing the view does not change what the issue was filed against", async () => {
+    const r = tmpProject("lookout-issues-");
+    writeShot(r, "web/app/dash/rest--desktop-dark.png", "the defect");
+    const b = backlogOf([finding()]);
+    await saveBacklog(r, b);
+    const id = Object.keys(b.issues)[0]!;
+
+    // What a later `check` does: same view, same path, new pixels.
+    writeShot(r, "web/app/dash/rest--desktop-dark.png", "the fixed screen");
+    await saveBacklog(r, b);
+
+    expect(readFileSync(join(issueImgDir(r, id), "pre", "web-app-dash-rest--desktop-dark.png"), "utf8"))
+      .toBe("the defect");
+  });
+
+  test("a ruled fix puts the other side of the comparison in img/post", async () => {
+    const r = tmpProject("lookout-issues-");
+    writeShot(r, "web/app/dash/rest--desktop-dark.png", "the defect");
+    const b = backlogOf([finding()]);
+    await saveBacklog(r, b);
+    const id = Object.keys(b.issues)[0]!;
+
+    writeShot(r, "web/app/dash/rest--desktop-dark.png", "the fixed screen");
+    await freezeFrames(r, issuesOf(b).find((c) => c.id === id)!, "after");
+    await saveBacklog(r, b);
+
+    const img = issueImgDir(r, id);
+    expect(readdirSync(join(img, "post"))).toEqual(["web-app-dash-rest--desktop-dark.png"]);
+    expect(readFileSync(join(img, "post", "web-app-dash-rest--desktop-dark.png"), "utf8"))
+      .toBe("the fixed screen");
+    expect(readFileSync(join(img, "pre", "web-app-dash-rest--desktop-dark.png"), "utf8"))
+      .toBe("the defect");
   });
 
   test("the record is a projection: deleting it costs nothing", async () => {
@@ -269,8 +322,8 @@ describe("a legacy folder migrates on save", () => {
     expect(doc.id).toBe(id);
     // The wanted shot was refreshed from the evidence store; the stale one
     // was moved across and then pruned like any other orphan.
-    expect(readdirSync(issueImgDir(r, id))).toEqual(["web-app-dash-rest--desktop-dark.png"]);
-    expect(readFileSync(join(issueImgDir(r, id), "web-app-dash-rest--desktop-dark.png"), "utf8")).toBe("png");
+    expect(readdirSync(join(issueImgDir(r, id), "pre"))).toEqual(["web-app-dash-rest--desktop-dark.png"]);
+    expect(readFileSync(join(issueImgDir(r, id), "pre", "web-app-dash-rest--desktop-dark.png"), "utf8")).toBe("png");
   });
 
   test("moved pixels survive an evidence clean", async () => {
@@ -289,9 +342,9 @@ describe("a legacy folder migrates on save", () => {
 
     await saveBacklog(r, b);
 
-    expect(readdirSync(issueImgDir(r, id))).toEqual(["web-app-dash-rest--desktop-dark.png"]);
+    expect(readdirSync(join(issueImgDir(r, id), "pre"))).toEqual(["web-app-dash-rest--desktop-dark.png"]);
     expect(
-      readFileSync(join(issueImgDir(r, id), "web-app-dash-rest--desktop-dark.png"), "utf8"),
+      readFileSync(join(issueImgDir(r, id), "pre", "web-app-dash-rest--desktop-dark.png"), "utf8"),
     ).toBe("old-pixels");
   });
 
