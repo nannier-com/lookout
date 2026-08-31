@@ -1,6 +1,6 @@
 {
   "name": "@nannier-com/lookout",
-  "version": "0.29.12",
+  "version": "0.29.13",
   "description": "Project-agnostic visual AI tester: captures what an app actually renders, judges it against UI best practices and per-project rules via the local Claude Code CLI, verifies acceptance criteria, and tracks findings in an adjudicated backlog.",
   "license": "MIT",
   "repository": {
