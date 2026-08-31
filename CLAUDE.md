@@ -15,13 +15,23 @@ make that safe.
 | you are changing | it lives in |
 | --- | --- |
 | how a screen is captured | `src/capture/` (web, native, checks, contact sheet, store) |
-| what the judge is asked | `skills/<name>/SKILL.md`, never a string literal in code |
-| how a judgement is made | `src/judge/` (engine, rubric, verify, ledger, criteria) |
-| how findings become issues | `src/backlog/`, `src/issues/`, `src/fix/` |
+| what an AI capability is asked | `skills/<name>/SKILL.md`, never a string literal in code |
+| how lookout talks to the CLI at all | `src/judge/claude.ts` |
+| the judge's prompt or its reply contract | `src/judge/engine.ts` |
+| what a view group or a batch is | `src/judge/grouping.ts` |
+| the rubric, the refuter, the ledger, criteria | `src/judge/` |
+| a finding's identity, or how a channel is ingested | `src/backlog/fingerprint.ts`, `src/backlog/ingest.ts` |
+| what happens when a finding is seen again | `src/backlog/merge.ts` |
+| the backlog's shapes, its validation, its markdown | `src/backlog/lib.ts`, `check.ts`, `report.ts` |
+| how findings become issues you act on | `src/issues/`, `src/fix/` |
 | one step of `check` | `src/check/` (scope, plan, batches, outcome) |
-| the local page | `src/ui/` for the server, `src/ui/client/` for the browser |
+| one step of `verify-fix` | `src/verify/` (evidence, acceptance, code) |
+| what the board contains | `src/report/board-types.ts` |
+| how the board is derived | `src/report/board-durable.ts` (state), `board-live.ts` (narration) |
+| the local page's server | `src/ui/` (routes, payload, evidence, run, project, session) |
+| the local page in the browser | `src/ui/client/` |
+| how lookout amends its own instructions | `src/skills/` (history, replay, amend, signals, regression) |
 | what a verb prints or exits with | `src/verbs/<verb>.ts` |
-| what lookout knows about itself | `src/report/learning.ts`, `src/skills/` |
 
 A verb file is the shape of one command: parse flags, call into the modules
 above, print, choose an exit code. When a verb starts holding the logic itself,
@@ -30,8 +40,9 @@ that is the signal to cut a directory for it, the way `check/` was cut.
 ## Rules the tooling enforces
 
 - **300 code lines per file** (`max-lines`, comments and blanks not counted).
-  Seven files predate the ceiling and are pinned at their current size in
-  `eslint.config.mjs`: they may be split, they may not grow.
+  Two files still predate the ceiling and are pinned at their current size in
+  `eslint.config.mjs`: they may be split, they may not grow. Raising one of
+  those numbers is not how to add code to a file on that list.
 - **`src/ui/client/` is browser code.** No node globals, and no value import
   from outside that directory: server types come in through `import type`, which
   the compiler erases. Both rules are in `eslint.config.mjs` and both were
