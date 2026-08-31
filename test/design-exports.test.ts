@@ -5,7 +5,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { exportedSymbols, readKitExports } from "../src/design/exports.js";
-import { detect, kitEquivalent } from "../src/design/detect.js";
+import { detect } from "../src/design/detect.js";
+import { kitEquivalent } from "../src/design/detect-handrolls.js";
 import { tmpProject } from "./tmp-project.js";
 import type { DetectedKit } from "../src/design/inventory.js";
 

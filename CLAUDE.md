@@ -40,9 +40,9 @@ that is the signal to cut a directory for it, the way `check/` was cut.
 ## Rules the tooling enforces
 
 - **300 code lines per file** (`max-lines`, comments and blanks not counted).
-  Two files still predate the ceiling and are pinned at their current size in
-  `eslint.config.mjs`: they may be split, they may not grow. Raising one of
-  those numbers is not how to add code to a file on that list.
+  No file is exempt: the ones that predated the ceiling have all been split, and
+  `eslint.config.mjs` carries no pins. Adding one would be a decision to keep
+  debt rather than a record of inheriting it, so split the file instead.
 - **`src/ui/client/` is browser code.** No node globals, and no value import
   from outside that directory: server types come in through `import type`, which
   the compiler erases. Both rules are in `eslint.config.mjs` and both were

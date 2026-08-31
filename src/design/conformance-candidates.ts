@@ -10,7 +10,7 @@
 import { readFile } from "node:fs/promises";
 import { relative } from "node:path";
 import { hashText } from "./conformance-cache.js";
-import { appSourceFiles } from "./detect.js";
+import { appSourceFiles } from "./detect-tree.js";
 import { primaryKit, type DesignInventory, type HandRoll } from "./inventory.js";
 import type { Candidate } from "./conformance-types.js";
 
