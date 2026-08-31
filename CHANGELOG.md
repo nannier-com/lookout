@@ -1,5 +1,29 @@
 # @nannier-com/lookout
 
+## 0.29.12
+
+### Patch Changes
+
+- fe74dfe: Split `src/design/conformance.ts` into the three jobs it was already doing, and
+  drop it from the debt list in `eslint.config.mjs`: choosing which files are
+  worth a model's attention (`conformance-candidates`), putting one batch to the
+  model and refusing to believe the reply (`conformance-batch`), and running the
+  sweep around both. Behaviour is unchanged, verified by running
+  `lookout design-system --audit` fresh and cached against a fixture project.
+- fe74dfe: The page's stylesheet follows its script. `client/shell.css` carries the colour
+  tokens, the rail and the run controls; `client/board.css` carries a card and
+  everything inside one. They are edited for different reasons, and after the
+  script became nine modules the single stylesheet was the last file two people
+  doing unrelated UI work would have collided in.
+
+  Also documents a verification step that was missing: the page's assets are files
+  the build copies, so a build that stopped copying them would pass every gate and
+  serve a blank page to anyone who installed the package. Packing the tarball and
+  running it from a throwaway install is now written down as the check, and was
+  run: `npm pack` ships all eleven client files, and the ui served from the
+  installed binary passes the same sixteen interaction checks, serving its script
+  byte for byte from the built module rather than transpiling it.
+
 ## 0.29.11
 
 ### Patch Changes
