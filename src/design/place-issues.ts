@@ -59,7 +59,7 @@ export async function placeNewIssues(
   resolved: ResolvedConfig,
   backlog: Backlog,
   inv: DesignInventory,
-  opts: { model?: string; limit?: number } = {},
+  opts: { model?: string; limit?: number; only?: string[] } = {},
 ): Promise<PlacementRun> {
   const kit = primaryKit(inv);
   const limit = opts.limit ?? 12;
@@ -77,8 +77,12 @@ export async function placeNewIssues(
   const staleWhy = new Map<string, string>();
   const stale: ReturnType<typeof issuesOf> = [];
   const fresh: ReturnType<typeof issuesOf> = [];
+  const only = opts.only ? new Set(opts.only) : null;
   for (const c of issuesOf(backlog, { statuses: ["open"] })) {
     if (c.channel === "code") continue;
+    // A caller that names ids ("the issues this route just filed") bounds the
+    // sweep to them; everything else waits for a full check.
+    if (only && !only.has(c.id)) continue;
     const record = backlog.issues?.[c.id];
     if (!record) continue;
     if (!record.placement) {
