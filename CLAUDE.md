@@ -58,13 +58,15 @@ Gates, in the order they fail cheapest first: `bun run typecheck`, `bun run lint
 
 Green gates are not enough for two kinds of change:
 
-- **Anything the page renders.** Screenshot it. Start the ui against a fixture
-  project (`bun src/cli.ts ui --port <n>` with `LOOKOUT_HOME` pointed at a
-  throwaway directory), drive it with Playwright, which is already a dependency,
-  and compare against shots taken before the change. Check both colour schemes
-  and a narrow viewport. If the change touches wiring rather than styling, drive
-  the interactions too: a filter click, the tool toggle, the settings panel, the
-  rail. Two real bugs have been found this way that every gate passed over.
+- **Anything the page renders.** `tools/ui-check` is that gate, and it is four
+  commands rather than a description: `fixture` builds a throwaway project with
+  something in every part of the page, `serve` points the ui at it, `shots
+  <label>` captures eight views across both colour schemes and a narrow
+  viewport, `diff <a> <b>` compares them pixel by pixel and crops whatever
+  moved, and `drive` clicks through the page asserting what each control does.
+  Capture before your change and after it: a refactor should come out
+  ALL IDENTICAL, because the fixture's one clock is frozen. Three real bugs have
+  been found this way that every other gate passed over.
 - **A verb.** The suite covers the modules, not the composition: nothing calls
   `runCheck`, for instance. Run the verb for real against a served page, with
   `LOOKOUT_CLAUDE_BIN` pointed at `test/mock-claude.ts` so no model is called.

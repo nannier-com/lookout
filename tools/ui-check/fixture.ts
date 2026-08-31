@@ -1,0 +1,240 @@
+/**
+ * A project on disk with a plausible past, so the page has something to draw.
+ *
+ * Everything the ui can show is represented: an open issue with evidence and
+ * acceptance criteria, one adjudicated as intentional, a history of lookout
+ * amending its own instructions including a rollback, a frozen set to gate the
+ * next amendment, a machine-wide incident log, a reverted self-heal attempt and
+ * a checkout with two heals that stuck. Without all of that a screenshot proves
+ * only that the empty states render.
+ *
+ * Timestamps are fixed in the past on purpose. The one clock the page shows is
+ * a relative "seen" time, and everything else has to be stable or a pixel
+ * comparison between two runs is meaningless.
+ */
+import { execFileSync } from "node:child_process";
+import { mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import sharp from "sharp";
+
+const AT = "2026-08-28T14:02:11.000Z";
+
+/**
+ * The age of the evidence, frozen.
+ *
+ * The one clock the page shows is "seen <duration>", derived from the mtime of
+ * the newest screenshot an issue was filed against. Left alone that advances in
+ * real time, so two captures minutes apart differ by a hundred pixels of digits
+ * and every comparison becomes a judgement call about whether that was the
+ * clock. Backdated far enough that the duration renders in whole days, it only
+ * moves once a day, and a refactor that changed nothing reads as identical.
+ */
+const EVIDENCE_MTIME = new Date("2025-01-01T00:00:00.000Z");
+
+/** A page-shaped image, so a thumbnail looks like a screenshot of something. */
+async function shot(path: string, bg: string, bar: string): Promise<void> {
+  const svg = Buffer.from(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="900">
+      <rect width="1280" height="900" fill="${bg}"/>
+      <rect x="0" y="0" width="1280" height="72" fill="${bar}"/>
+      <rect x="40" y="140" width="520" height="34" rx="8" fill="#8b8f99" opacity="0.45"/>
+      <rect x="40" y="200" width="900" height="18" rx="6" fill="#8b8f99" opacity="0.3"/>
+      <rect x="40" y="232" width="820" height="18" rx="6" fill="#8b8f99" opacity="0.3"/>
+      <rect x="40" y="300" width="300" height="120" rx="12" fill="#8b8f99" opacity="0.2"/>
+    </svg>`,
+  );
+  await sharp(svg).png().toFile(path);
+}
+
+function finding(over: Record<string, unknown>): Record<string, unknown> {
+  return {
+    target: "app",
+    route: "/",
+    state: "rest",
+    platform: "web",
+    formFactor: "desktop",
+    scheme: "dark",
+    severity: "high",
+    channel: "ai",
+    confidence: "high",
+    verified: true,
+    acceptance: [],
+    firstSeen: AT,
+    lastSeen: AT,
+    evidence: [
+      { shotId: "web/app/root/rest/desktop/dark", path: "web/app/root/rest--desktop-dark.png", hash: "h1", at: AT },
+    ],
+    ...over,
+  };
+}
+
+export async function buildFixture(root: string): Promise<{ project: string; home: string; checkout: string }> {
+  rmSync(root, { recursive: true, force: true });
+  const project = join(root, "project");
+  const home = join(root, "home");
+  const checkout = join(root, "checkout");
+  const lk = join(project, ".lookout");
+  const ev = join(lk, "evidence");
+  for (const d of [project, home, lk, ev, join(ev, "web", "app", "root", "rest")]) {
+    mkdirSync(d, { recursive: true });
+  }
+
+  writeFileSync(
+    join(lk, "config.ts"),
+    'export default { targets: [{ name: "app", url: "http://127.0.0.1:5999", routes: ["/", "/settings"] }] };\n',
+  );
+  for (const [name, bg, bar] of [
+    ["rest--desktop-dark.png", "#101318", "#181c24"],
+    ["rest--desktop-light.png", "#ffffff", "#f2f3f6"],
+  ] as const) {
+    const path = join(ev, "web", "app", "root", name);
+    await shot(path, bg, bar);
+    utimesSync(path, EVIDENCE_MTIME, EVIDENCE_MTIME);
+  }
+
+  writeFileSync(
+    join(lk, "backlog.json"),
+    JSON.stringify(
+      {
+        project: "fixture-app",
+        generatedAt: AT,
+        findings: {
+          "app.root.rest.desktop.dark.contrast.body-text": finding({
+            fingerprint: "app.root.rest.desktop.dark.contrast.body-text",
+            category: "contrast",
+            attribute: "body-text",
+            status: "open",
+            title: "Body text sits at 3.1:1 against the page background",
+            problem: "Paragraph text is mid grey on near-black, below the 4.5:1 minimum.",
+            expected: "Body copy at 4.5:1 or better.",
+            observed: "Measured 3.1:1 across the article body.",
+          }),
+          "app.root.rest.desktop.dark.color-scheme.no-dark-theme": finding({
+            fingerprint: "app.root.rest.desktop.dark.color-scheme.no-dark-theme",
+            category: "color-scheme",
+            attribute: "no-dark-theme",
+            severity: "medium",
+            status: "by-design",
+            reason: "The marketing site is deliberately light-only; the product app is where the dark theme lives.",
+            title: "Dark scheme does not apply anywhere on the page",
+            problem: "The OS colour scheme is ignored.",
+            expected: "A dark rendering.",
+            observed: "The light rendering, unchanged.",
+          }),
+        },
+        issues: {},
+      },
+      null,
+      2,
+    ),
+  );
+
+  // What lookout has done to its own instructions here.
+  const skills = join(lk, "skills");
+  mkdirSync(join(skills, "design-placement"), { recursive: true });
+  mkdirSync(join(skills, "visual-judge"), { recursive: true });
+  writeFileSync(
+    join(skills, "visual-judge", "SKILL.md"),
+    `---\nname: visual-judge\ndescription: fixture-app's own rules for visual-judge\nversion: 3\n---\n\n` +
+      `## 2026-08-24: Stop filing the marketing site's light-only rendering\n\nThis project ships a light-only ` +
+      `marketing site on purpose.\n`,
+  );
+  writeFileSync(
+    join(skills, "design-placement", "PROPOSED.md"),
+    "## 2026-08-29: prefer the kit's own spacing scale when placing a fix\n",
+  );
+  writeFileSync(
+    join(skills, "history.jsonl"),
+    [
+      { at: "2026-08-21T09:14:02.000Z", skill: "visual-judge", action: "no-change", summary: "Nothing in the signals contradicts the rubric as written." },
+      {
+        at: "2026-08-22T16:41:55.000Z",
+        skill: "visual-judge",
+        action: "rolled-back",
+        summary: "Treat any control under 40px as a tap-target defect.",
+        evidence: ["issue 14"],
+        violations: [
+          { kind: "lost", shotId: "web/app/root/rest/desktop/dark", category: "contrast", why: "The confirmed contrast defect on these pixels was no longer filed." },
+        ],
+      },
+      { at: "2026-08-24T11:07:30.000Z", skill: "visual-judge", action: "applied", version: 3, summary: "Stop filing the marketing site's light-only rendering.", evidence: ["app.root.rest.desktop.dark.color-scheme.no-dark-theme"] },
+      { at: "2026-08-29T18:22:09.000Z", skill: "design-placement", action: "proposed", summary: "Prefer the kit's own spacing scale when placing a fix.", evidence: ["issue 21"] },
+    ]
+      .map((e) => JSON.stringify(e))
+      .join("\n") + "\n",
+  );
+
+  mkdirSync(join(lk, "regression", "shots"), { recursive: true });
+  writeFileSync(
+    join(lk, "regression", "manifest.json"),
+    JSON.stringify(
+      {
+        note: "fixture",
+        frozenAt: "2026-08-20T10:00:00.000Z",
+        cases: [
+          {
+            shotId: "web/app/root/rest/desktop/dark",
+            file: "web-app-root-rest--desktop-dark.png",
+            target: "app",
+            route: "/",
+            routeName: "root",
+            state: "rest",
+            formFactor: "desktop",
+            scheme: "dark",
+            platform: "web",
+            width: 1280,
+            height: 900,
+            mustFile: [{ category: "contrast", attribute: "body-text", why: "the verifier confirmed it" }],
+            mustNotFile: [{ category: "color-scheme", attribute: "no-dark-theme", why: "ruled intentional by a person" }],
+          },
+        ],
+      },
+      null,
+      2,
+    ),
+  );
+
+  // What has gone wrong with lookout itself, machine-wide.
+  writeFileSync(
+    join(home, "incidents.jsonl"),
+    [
+      { at: "2026-08-25T12:00:00.000Z", kind: "judge-unparseable", verb: "check", message: "the judge reply at offset 2048 was not json" },
+      { at: "2026-08-26T12:00:00.000Z", kind: "judge-unparseable", verb: "check", message: "the judge reply at offset 917 was not json" },
+      { at: "2026-08-27T12:00:00.000Z", kind: "judge-unparseable", verb: "check", message: "the judge reply at offset 4400 was not json" },
+      { at: "2026-08-28T12:00:00.000Z", kind: "operator-error", verb: "verify-fix", message: "no issue with id 42" },
+      { at: "2026-08-29T12:00:00.000Z", kind: "self-heal-rollback", verb: "self-heal", message: "self-heal reverted: test failed" },
+    ]
+      .map((i) => JSON.stringify(i))
+      .join("\n") + "\n",
+  );
+
+  const attempt = join(home, "self-heal", "2026-08-29T12-00-04-118Z");
+  mkdirSync(attempt, { recursive: true });
+  writeFileSync(join(attempt, "report.json"), JSON.stringify({ summary: "Retry the judge once more before giving up on the reply.", cause: "One retry is not enough when the model opens with prose." }));
+  writeFileSync(join(attempt, "gates.txt"), "=== typecheck (pass): bun run typecheck\nok\n\n=== test (FAIL): bun test\n1 failing\n");
+  writeFileSync(join(attempt, "attempt.diff"), "diff --git a/src/judge/engine.ts b/src/judge/engine.ts\n");
+
+  // A checkout with heals that stuck, so the commits panel has something in it.
+  mkdirSync(join(checkout, "src"), { recursive: true });
+  const git = (args: string[]) =>
+    execFileSync("git", ["-c", "user.name=lookout", "-c", "user.email=lookout@example.com", ...args], {
+      cwd: checkout,
+      stdio: "ignore",
+    });
+  git(["init", "-q"]);
+  for (const [n, subject] of [
+    ["1", "fix: retry the judge once more before giving up on the reply"],
+    ["2", "fix: keep the contact sheet when a capture finds nothing"],
+  ] as const) {
+    writeFileSync(join(checkout, "src", "engine.ts"), `export const x = ${n};\n`);
+    git(["add", "-A"]);
+    git([
+      "commit",
+      "-q",
+      "-m",
+      `${subject}\n\nFound by \`lookout self-heal\` reading the incident log. Not pushed: that is a person's call.`,
+    ]);
+  }
+
+  return { project, home, checkout };
+}

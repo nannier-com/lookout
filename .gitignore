@@ -14,3 +14,4 @@ LICENSE
 
 # Local agent config; never part of the published project.
 .claude/
+.lookout-ui-check/
