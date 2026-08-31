@@ -250,11 +250,18 @@ export async function check(parsed: Parsed): Promise<number> {
           model: str(parsed.flags.model),
           limit: num(parsed.flags["max-placements"]),
         });
-        if (run.placed > 0 || run.skipped > 0) {
-          await saveBacklog(resolved, merged.backlog);
+        if (run.placed > 0) await saveBacklog(resolved, merged.backlog);
+        // Every slot the sweep consumed is said out loud. An all-fail run
+        // used to print nothing at all, and a cap of zero promised leftovers
+        // "for the next run" that the cap guaranteed would never come.
+        if (run.limit === 0 && run.skipped > 0) {
+          backlogNote += `; placement: off (cap 0); ${run.skipped} issue(s) unplaced`;
+        } else if (run.placed + run.failed + run.skipped > 0 || run.costUsd > 0) {
           backlogNote +=
             `; placement: ${run.placed} issue(s) located in ${kit.name}` +
-            (run.skipped > 0 ? `, ${run.skipped} left for the next run` : "");
+            (run.failed > 0 ? `, ${run.failed} failed` : "") +
+            (run.skipped > 0 ? `, ${run.skipped} beyond this run's cap` : "") +
+            (run.costUsd > 0 ? ` (~$${run.costUsd.toFixed(4)})` : "");
         }
       }
     }

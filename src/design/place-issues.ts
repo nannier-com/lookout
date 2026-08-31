@@ -20,7 +20,12 @@ import type { ResolvedConfig } from "../types.js";
 
 export interface PlacementRun {
   placed: number;
+  /** Candidates beyond this run's cap; the next sweep takes them. */
   skipped: number;
+  /** Calls that produced no placement: a miss is counted, never silent. */
+  failed: number;
+  /** The cap this run resolved, so the summary can say "off (cap 0)". */
+  limit: number;
   costUsd: number;
 }
 
@@ -40,26 +45,38 @@ export async function placeNewIssues(
   opts: { model?: string; limit?: number } = {},
 ): Promise<PlacementRun> {
   const kit = primaryKit(inv);
-  if (!kit) return { placed: 0, skipped: 0, costUsd: 0 };
+  const limit = opts.limit ?? 12;
+  if (!kit) return { placed: 0, skipped: 0, failed: 0, limit, costUsd: 0 };
 
-  const open = issuesOf(backlog).filter((c) => {
+  // Open issues only, and never the code channel. issuesOf defaults to every
+  // status, which spent the cap on fixed and by-design issues nobody will
+  // fix, starving the fresh ones; and a code finding's document already
+  // renders "Where it is" with the exact path, line and symbol, so asking a
+  // model where it belongs paid for an answer the record carried.
+  const open = issuesOf(backlog, { statuses: ["open"] }).filter((c) => {
+    if (c.channel === "code") return false;
     const record = backlog.issues?.[c.id];
     return record && !record.placement;
   });
   // A cap, because this costs a model call each and a first run on a neglected
   // project can file dozens. The rest get placed on the next sweep, and the
   // count is reported rather than silently dropped.
-  const limit = opts.limit ?? 12;
   const todo = open.slice(0, limit);
   let costUsd = 0;
   let placed = 0;
+  let failed = 0;
 
   for (const cluster of todo) {
     const record = backlog.issues?.[cluster.id];
     if (!record) continue;
     try {
-      const p = await placeDefect(resolved, cluster, inv, opts.model);
-      if (!p) continue;
+      const { placement: p, costUsd: callCost } = await placeDefect(resolved, cluster, inv, opts.model);
+      costUsd += callCost;
+      if (!p) {
+        failed++;
+        emit("note", `placement failed for ${cluster.id}; asked again next check`, { issue: cluster.id });
+        continue;
+      }
       record.placement = {
         kind: p.placement,
         primaryPath: p.primaryPath,
@@ -73,7 +90,6 @@ export async function placeNewIssues(
         kitEditable: kit.editable,
         at: new Date().toISOString(),
       };
-      costUsd += p.costUsd ?? 0;
       placed++;
       // Narration, not structure: the board is not reconstructed from placement,
       // so it rides the "note" kind rather than earning one of its own.
@@ -82,11 +98,16 @@ export async function placeNewIssues(
         `${cluster.id}: fix belongs ${p.placement}${p.primaryPath ? ` (${p.primaryPath})` : ""}`,
         { issue: cluster.id, placement: p.placement, path: p.primaryPath },
       );
-    } catch {
-      // Advice, not evidence. Losing it costs the issue a section.
+    } catch (e) {
+      // Advice, not evidence. Losing it costs the issue a section, and the
+      // miss is counted so an all-fail sweep cannot report as a no-op.
+      failed++;
+      emit("note", `placement failed for ${cluster.id}: ${(e as Error).message.slice(0, 160)}`, {
+        issue: cluster.id,
+      });
       continue;
     }
   }
 
-  return { placed, skipped: Math.max(0, open.length - todo.length), costUsd };
+  return { placed, skipped: Math.max(0, open.length - todo.length), failed, limit, costUsd };
 }

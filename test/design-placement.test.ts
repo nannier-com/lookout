@@ -292,3 +292,124 @@ describe("placing new issues in a run", () => {
     expect(run.costUsd).toBe(0);
   });
 });
+
+// The candidate set and the failure accounting: placement spends on live,
+// locatable work only, and every slot the sweep consumed is accounted for.
+describe("who gets a placement slot", () => {
+  function aiFinding(fp: string, key: string, status = "open", extra: Record<string, unknown> = {}) {
+    return {
+      fingerprint: fp, target: "app", route: `/${fp}`, state: "rest",
+      platform: "web", formFactor: "desktop", scheme: "dark",
+      category: "contrast", attribute: key, severity: "high",
+      status, reason: status === "by-design" ? "intentional, per brand" : null,
+      title: "t", problem: "p", expected: "e", observed: "o",
+      channel: "ai", confidence: "high", verified: true, evidence: [],
+      firstSeen: "r", lastSeen: "r", fixAttempts: 0, fixedIn: null,
+      ...extra,
+    };
+  }
+
+  const inv = (): DesignInventory => ({
+    schema: 2, at: "now", project: "demo",
+    kits: [{
+      id: "@acme/kit", name: "@acme/kit", via: "dependency",
+      evidence: ["dependency @acme/kit@1"], editable: true,
+      packageRoot: "/repo/packages/kit",
+      componentRoots: ["/repo/packages/kit/src/atoms"],
+      importPrefixes: ["@acme/kit"], exports: [],
+    }],
+    tokens: [], appRoots: ["/repo/src"], handRolls: [], adoption: null, notes: [],
+  });
+
+  async function backlogOf(findings: Record<string, unknown>) {
+    const { reconcileIssues } = await import("../src/issues/registry.js");
+    const b = { note: "", project: "demo", updatedAt: "now", findings, issues: {} } as never;
+    reconcileIssues(b, "now");
+    return b as { issues: Record<string, { placement?: IssuePlacement }> };
+  }
+
+  test("only open, non-code issues are placed; closed and code-channel ones are not", async () => {
+    const { placeNewIssues } = await import("../src/design/place-issues.js");
+    const r = tmpProject("lookout-place-cand-");
+    const backlog = await backlogOf({
+      live: aiFinding("live", "a"),
+      done: aiFinding("done", "b", "fixed"),
+      meant: aiFinding("meant", "c", "by-design"),
+      rolled: aiFinding("rolled", "d", "open", {
+        channel: "code",
+        route: "src/X.tsx",
+        source: { path: "/repo/src/X.tsx", relPath: "src/X.tsx", symbol: "X", line: 1, foundBy: "scan" },
+      }),
+    });
+    const before = process.env.LOOKOUT_CLAUDE_BIN;
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    try {
+      const run = await placeNewIssues(r, backlog as never, inv());
+      expect(run.placed).toBe(1);
+      const placements = Object.values(backlog.issues).filter((i) => i.placement);
+      expect(placements).toHaveLength(1);
+    } finally {
+      if (before === undefined) delete process.env.LOOKOUT_CLAUDE_BIN;
+      else process.env.LOOKOUT_CLAUDE_BIN = before;
+    }
+  });
+
+  test("the cap holds and the leftovers are counted, not dropped", async () => {
+    const { placeNewIssues } = await import("../src/design/place-issues.js");
+    const r = tmpProject("lookout-place-cap-");
+    const backlog = await backlogOf({
+      one: aiFinding("one", "a"),
+      two: aiFinding("two", "b"),
+    });
+    const before = process.env.LOOKOUT_CLAUDE_BIN;
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    try {
+      const run = await placeNewIssues(r, backlog as never, inv(), { limit: 1 });
+      expect(run.placed).toBe(1);
+      expect(run.skipped).toBe(1);
+      expect(run.failed).toBe(0);
+    } finally {
+      if (before === undefined) delete process.env.LOOKOUT_CLAUDE_BIN;
+      else process.env.LOOKOUT_CLAUDE_BIN = before;
+    }
+  });
+
+  test("a reply that is not the contract is a counted failure that still carries its cost", async () => {
+    const { placeNewIssues } = await import("../src/design/place-issues.js");
+    const r = tmpProject("lookout-place-fail-");
+    const backlog = await backlogOf({ one: aiFinding("one", "a") });
+    const beforeBin = process.env.LOOKOUT_CLAUDE_BIN;
+    const beforeReply = process.env.MOCK_PLACEMENT;
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    process.env.MOCK_PLACEMENT = "no contract here";
+    try {
+      const run = await placeNewIssues(r, backlog as never, inv());
+      expect(run.placed).toBe(0);
+      expect(run.failed).toBe(1);
+      expect(run.skipped).toBe(0);
+      expect(run.costUsd).toBeGreaterThan(0);
+    } finally {
+      if (beforeBin === undefined) delete process.env.LOOKOUT_CLAUDE_BIN;
+      else process.env.LOOKOUT_CLAUDE_BIN = beforeBin;
+      if (beforeReply === undefined) delete process.env.MOCK_PLACEMENT;
+      else process.env.MOCK_PLACEMENT = beforeReply;
+    }
+  });
+
+  test("a cap of zero places nothing and says so, spending nothing", async () => {
+    const { placeNewIssues } = await import("../src/design/place-issues.js");
+    const r = tmpProject("lookout-place-zero-");
+    const backlog = await backlogOf({ one: aiFinding("one", "a") });
+    process.env.LOOKOUT_CLAUDE_BIN = join(import.meta.dir, "no-such-claude-binary");
+    try {
+      const run = await placeNewIssues(r, backlog as never, inv(), { limit: 0 });
+      expect(run.placed).toBe(0);
+      expect(run.failed).toBe(0);
+      expect(run.skipped).toBe(1);
+      expect(run.limit).toBe(0);
+      expect(run.costUsd).toBe(0);
+    } finally {
+      delete process.env.LOOKOUT_CLAUDE_BIN;
+    }
+  });
+});

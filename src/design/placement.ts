@@ -40,8 +40,6 @@ export interface Placement {
   blastRadius: string;
   alsoRead: string[];
   notes: string;
-  /** What it cost, for the run summary. */
-  costUsd?: number;
 }
 
 /** The inventory as the skill sees it: facts, in the order they matter. */
@@ -94,8 +92,8 @@ export async function placeDefect(
   cluster: FixCluster,
   inv: DesignInventory,
   model = "sonnet",
-): Promise<Placement | null> {
-  if (inv.kits.length === 0) return null;
+): Promise<{ placement: Placement | null; costUsd: number }> {
+  if (inv.kits.length === 0) return { placement: null, costUsd: 0 };
 
   const skill = await loadSkill(resolved, "design-placement");
   const prompt = renderSkill(skill.text, {
@@ -116,24 +114,29 @@ export async function placeDefect(
 
   // A reply that is not the contract is a miss, not a crash: placement is
   // advice bolted onto an issue document, and an issue with no placement
-  // section is strictly better than a run that died trying to add one.
+  // section is strictly better than a run that died trying to add one. The
+  // cost is returned either way: a failed call still spent the money, and a
+  // sweep that hid that reported an all-fail run as free.
+  const cost = res.costUsd ?? 0;
   let parsed: Partial<Placement>;
   try {
     parsed = extractJson(res.text) as Partial<Placement>;
   } catch {
-    return null;
+    return { placement: null, costUsd: cost };
   }
-  if (!parsed?.placement) return null;
+  if (!parsed?.placement) return { placement: null, costUsd: cost };
 
   return {
-    placement: parsed.placement,
-    primaryPath: parsed.primaryPath ?? null,
-    symbol: parsed.symbol ?? null,
-    reason: parsed.reason ?? "",
-    otherCallers: typeof parsed.otherCallers === "number" ? parsed.otherCallers : null,
-    blastRadius: parsed.blastRadius ?? "",
-    alsoRead: Array.isArray(parsed.alsoRead) ? parsed.alsoRead : [],
-    notes: parsed.notes ?? "",
-    costUsd: res.costUsd,
+    placement: {
+      placement: parsed.placement,
+      primaryPath: parsed.primaryPath ?? null,
+      symbol: parsed.symbol ?? null,
+      reason: parsed.reason ?? "",
+      otherCallers: typeof parsed.otherCallers === "number" ? parsed.otherCallers : null,
+      blastRadius: parsed.blastRadius ?? "",
+      alsoRead: Array.isArray(parsed.alsoRead) ? parsed.alsoRead : [],
+      notes: parsed.notes ?? "",
+    },
+    costUsd: cost,
   };
 }
