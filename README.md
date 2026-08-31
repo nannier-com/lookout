@@ -441,7 +441,18 @@ verifier refuted, findings a person adjudicated by-design and wrote a reason
 for, defects that survived every attempt, acceptance criteria that could not be
 decided from a screenshot, and replies that failed the output contract. It
 writes the amendment that would have prevented the most of them into this
-project's layer.
+project's layer. Each pass sees only signals no earlier pass was shown
+(`.lookout/skills/signals-seen.json` is the committed watermark;
+`--all-signals` replays everything), so the same evidence never pays twice.
+
+You rarely run it by hand: `lookout check` and `lookout verify-fix` run it
+themselves once enough new evidence accumulates. Three new signals, or a
+single new by-design adjudication, and the run ends by learning from them.
+Decline it with `--no-improve` for one run or `learn: { auto: false }` in the
+config for good; `learn.threshold` and `learn.cooldownHours` (default 3 and
+24) tune it, and CI environments never auto-learn. When nothing frozen could
+grade an amendment, the automatic path spends nothing; a manual run needs
+`--propose` to pay for an outcome that can only be an unapplied `PROPOSED.md`.
 
 It applies automatically, and what makes that safe is the gate. `.lookout/regression/`
 holds screenshots whose verdicts were settled when the pixels were fresh: what a
@@ -458,20 +469,31 @@ rebuilds them from the evidence store.
 ### Healing itself
 
 ```bash
-lookout self-heal --project ~/code/some-app
+lookout self-heal
 ```
 
 Failures lookout hits are appended to `~/.lookout/incidents.jsonl`, pooled
-across every project on the machine and never truncated: crashes, operator
-errors, judge replies that could not be parsed, findings rejected at ingestion.
-`self-heal` groups them, fixes the cause of one group in lookout's own checkout,
-and is not believed about any of it.
+across every project on the machine: crashes, operator errors, judge replies
+that could not be parsed, findings rejected at ingestion. (The log compacts
+entries older than 90 days once it outgrows 2000 lines; nothing else ever
+rewrites it.) `self-heal` groups them and picks the one group the run works
+on itself: the heaviest active pressure in the last 30 days, where a group
+healed before that came back outranks everything, and one with two reverted
+attempts on record waits for a person. It fixes that group's cause in
+lookout's own checkout, and is not believed about any of it. Committed heals
+are marked in `~/.lookout/heals.jsonl`, so a settled group stops being
+offered. This verb never runs itself: it edits the code that does the
+judging, and starting it stays a person's deliberate act.
 
 The subprocess may read and edit inside the checkout and may not run a single
 command. lookout runs `tsc --noEmit`, `eslint`, `bun test` and the build itself,
-plus a replay of that project's frozen regression set when `--project` names
-one. Any gate failing reverts everything, keeps the diff and the gate output
-under `~/.lookout/self-heal/<stamp>/`, and records the rollback as an incident.
+plus a replay of frozen regression sets from up to two recent projects that
+hold one (`--project` names one explicitly); when no project on the machine
+can grade the judge, the commit says so. A reply that breaks the report
+contract forfeits its edits outright: reverted, kept with the raw reply for
+a person, recorded as an incident. Any gate failing reverts everything, keeps
+the diff and the gate output under `~/.lookout/self-heal/<stamp>/`, and
+records the rollback as an incident.
 Every gate passing commits the change alone with a patch changeset, and does not
 push: a local commit is one `git revert` away.
 
@@ -495,7 +517,8 @@ what it tried and lost, is on the second area of `lookout ui`.
   issues/archive/<id>/  committed: issues filed away, same folder, moved whole
   evidence/fix-frames/<id>/  gitignored: the frames either side of a fix,
                      frozen when the issue is filed and when a fix is ruled
-  skills/          committed: this project's layer over lookout's shipped skills
+  skills/          committed: this project's layer over lookout's shipped skills,
+                     plus signals-seen.json, the learned-from watermark
   evidence/        gitignored: screenshots + capture-report.json + judge-report.json
 ```
 

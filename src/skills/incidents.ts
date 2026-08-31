@@ -4,9 +4,10 @@
  * `events.jsonl` cannot serve this. It is narration of one run and every
  * capture truncates it, so the failure that happened yesterday in another
  * project is gone by the time anybody could act on it. Incidents are the
- * opposite: append-only, never truncated, and pooled across every project on
- * this machine, because the thing they describe is lookout, not the app it was
- * looking at.
+ * opposite: append-only and pooled across every project on this machine,
+ * because the thing they describe is lookout, not the app it was looking at.
+ * The one writer allowed to rewrite it is self-heal's compaction (entries
+ * older than 90 days, only once the log outgrows 2000 lines), under its lock.
  *
  * They live under the operator's home rather than in any repository. A failure
  * in someone's project is not that project's business to commit, and lookout's
