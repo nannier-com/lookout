@@ -136,7 +136,7 @@ export function buildJudgePrompt(
   });
 }
 
-const RETRY_SUFFIX =
+export const RETRY_SUFFIX =
   "\n\nYour previous reply could not be parsed. Reply with NOTHING but the fenced ```json block.";
 
 export async function judgeBatch(

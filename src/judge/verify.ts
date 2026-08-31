@@ -15,7 +15,15 @@
  */
 import type { ShotRecord } from "../types.js";
 import { renderSkill } from "../skills/load.js";
-import { extractJson, invokeClaude, groupShots, viewGroupId, type AiFinding } from "./engine.js";
+import {
+  extractJson,
+  invokeClaude,
+  groupShots,
+  viewGroupId,
+  RETRY_SUFFIX,
+  type AiFinding,
+} from "./engine.js";
+import { recordIncident } from "../skills/incidents.js";
 
 /**
  * Whether a finding is worth a refuting pass. Every AI finding is.
@@ -106,20 +114,46 @@ export async function verifyFindings(
 
   const prompt = buildRefutePrompt(skillText, serious, shotsById, evidenceDir);
 
-  const res = await invokeClaude({ prompt, cwd: evidenceDir, model });
+  // The same one-retry the judge gets: a model that wraps its JSON in prose
+  // is still answering, and one that fails twice is recorded rather than
+  // silently shrugged off. The refuter used to have neither, so the judge's
+  // failure was an incident and the refuter's was invisible.
   let verdicts: { index: number; verdict: string; note?: string }[] = [];
-  try {
-    const parsed = extractJson(res.text) as { verdicts?: unknown };
-    if (Array.isArray(parsed.verdicts)) {
-      verdicts = parsed.verdicts as { index: number; verdict: string; note?: string }[];
+  let costUsd = 0;
+  let parsedOk = false;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const res = await invokeClaude({
+      prompt: attempt === 0 ? prompt : prompt + RETRY_SUFFIX,
+      cwd: evidenceDir,
+      model,
+    });
+    costUsd += res.costUsd ?? 0;
+    try {
+      const parsed = extractJson(res.text) as { verdicts?: unknown };
+      if (Array.isArray(parsed.verdicts)) {
+        verdicts = parsed.verdicts as { index: number; verdict: string; note?: string }[];
+      }
+      parsedOk = true;
+      break;
+    } catch {
+      if (attempt === 1) {
+        recordIncident({
+          at: new Date().toISOString(),
+          kind: "judge-unparseable",
+          verb: "check",
+          message: "refuter: reply was not parseable JSON after a retry",
+          detail: res.text.slice(0, 1000),
+        });
+      }
     }
-  } catch {
+  }
+  if (!parsedOk) {
     // Unparseable verifier output: keep every serious finding, unverified,
     // rather than silently dropping defects.
     return {
       confirmed: [...serious.map((f) => ({ ...f, verified: false })), ...rest],
       refuted: [],
-      costUsd: res.costUsd,
+      costUsd,
     };
   }
 
@@ -137,5 +171,5 @@ export async function verifyFindings(
     // says which of those happened.
     confirmed.push({ ...f, verified: v?.verdict === "confirmed", verifierNote: v?.note });
   });
-  return { confirmed, refuted, costUsd: res.costUsd };
+  return { confirmed, refuted, costUsd };
 }

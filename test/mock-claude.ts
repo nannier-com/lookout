@@ -43,6 +43,23 @@ if (mode === "auto") {
 
 const shotIds = [...promptText.matchAll(/^- shotId: (.+)$/gm)].map((m) => m[1]!);
 
+// One flaky reply, then normal service: the retry paths are exercised by
+// pointing MOCK_FLAKY_FILE at a path that does not exist yet. First
+// invocation creates it and answers garbage; every later one behaves.
+if (process.env.MOCK_FLAKY_FILE) {
+  let first = false;
+  try {
+    readFileSync(process.env.MOCK_FLAKY_FILE);
+  } catch {
+    first = true;
+    writeFileSync(process.env.MOCK_FLAKY_FILE, "flaked once\n");
+  }
+  if (first) {
+    console.log(JSON.stringify({ result: "no json here, only vibes" }));
+    process.exit(0);
+  }
+}
+
 let result = "";
 if (mode === "placement") {
   // MOCK_PLACEMENT overrides the whole verdict; the default names the kit path

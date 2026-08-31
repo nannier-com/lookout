@@ -5,6 +5,8 @@
 // claim resting on a named principle is the judge's most valuable output and its
 // most refutable, at any severity.
 import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildRefutePrompt, needsRefuting, verifyFindings } from "../src/judge/verify.js";
 import { loadSkill } from "../src/skills/load.js";
@@ -168,5 +170,42 @@ describe("what the refuter is shown", () => {
     expect(res.confirmed[0]!.verified).toBe(false);
     expect(res.refuted).toHaveLength(0);
     delete process.env.LOOKOUT_CLAUDE_BIN;
+  });
+});
+
+describe("the refuter's retry", () => {
+  test("one garbage reply is retried, and the second answer stands", async () => {
+    const flaky = join(mkdtempSync(join(tmpdir(), "flaky-")), "state");
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    process.env.MOCK_MODE = "verify";
+    process.env.MOCK_FLAKY_FILE = flaky;
+    try {
+      const f = finding({ severity: "critical" });
+      const shots = new Map([[f.shotId, shot(f.shotId)]]);
+      const res = await verifyFindings(refute.text, [f], shots, "/tmp", "sonnet");
+      // verify mode confirms index 0, so the retried call lands a verdict.
+      expect(res.confirmed[0]?.verified).toBe(true);
+    } finally {
+      delete process.env.MOCK_FLAKY_FILE;
+    }
+  });
+
+  test("two garbage replies record an incident and keep every finding unverified", async () => {
+    const home = mkdtempSync(join(tmpdir(), "lookout-home-"));
+    process.env.LOOKOUT_HOME = home;
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    process.env.MOCK_MODE = "ask";
+    try {
+      const f = finding({ severity: "critical" });
+      const shots = new Map([[f.shotId, shot(f.shotId)]]);
+      const res = await verifyFindings(refute.text, [f], shots, "/tmp", "sonnet");
+      expect(res.confirmed).toHaveLength(1);
+      expect(res.confirmed[0]?.verified).toBe(false);
+      expect(res.refuted).toHaveLength(0);
+      const log = readFileSync(join(home, "incidents.jsonl"), "utf8");
+      expect(log).toContain("refuter: reply was not parseable JSON after a retry");
+    } finally {
+      delete process.env.LOOKOUT_HOME;
+    }
   });
 });
