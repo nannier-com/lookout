@@ -7,10 +7,9 @@
  * the server that touch a path a browser supplied, so they are kept together
  * with the check that a URL cannot leave its root however it is spelled.
  */
-import type { IncomingMessage, ServerResponse } from "node:http";
-import { createReadStream, existsSync, statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { extname, resolve, sep } from "node:path";
-import { MIME } from "./http.js";
+import { MIME, text } from "./http.js";
 
 export interface EvidenceRoots {
   /** The capture workspace: every live shot, the sheets, the run log. */
@@ -42,60 +41,50 @@ export function safeEvidencePath(roots: EvidenceRoots, rel: string): string | nu
  * page for the whole run. Thumbnails are generated on demand and cropped the
  * same way the contact sheet crops, so the grid matches what the sheet shows.
  */
-export function serveThumb(req: IncomingMessage, res: ServerResponse, roots: EvidenceRoots, url: URL): void {
+export async function serveThumb(req: Request, roots: EvidenceRoots, url: URL): Promise<Response> {
   const p = safeEvidencePath(roots, url.pathname.slice("/thumb/".length));
-  if (!p) {
-    res.writeHead(404).end("not found");
-    return;
-  }
-  void (async () => {
-    try {
-      const w = Math.min(600, Math.max(120, Number(url.searchParams.get("w") ?? 380)));
-      // A screenshot is cropped to its top, which is the part that carries the
-      // defect. A contact sheet is already a composite, so cropping it hides
-      // the very tiles it was built to show: fit the whole thing instead.
-      const whole = url.searchParams.get("fit") === "inside";
-      const h = Math.round(w * (whole ? 1.2 : 0.8));
-      const st = statSync(p);
-      const key = `${p}|${st.mtimeMs}|${st.size}|${w}|${whole ? "in" : "cover"}`;
-      const etag = `"${Buffer.from(key).toString("base64url").slice(0, 32)}"`;
-      if (req.headers["if-none-match"] === etag) {
-        res.writeHead(304).end();
-        return;
-      }
-      let buf = thumbCache.get(key);
-      if (!buf) {
-        const sharp = (await import("sharp")).default;
-        buf = await sharp(p)
-          .resize(w, h, {
-            fit: whole ? "inside" : "cover",
-            position: "top",
-            withoutEnlargement: true,
-          })
-          .webp({ quality: 72 })
-          .toBuffer();
-        if (thumbCache.size > 400) thumbCache.clear();
-        thumbCache.set(key, buf);
-      }
-      res.writeHead(200, { "content-type": "image/webp", etag, "cache-control": "no-cache" });
-      res.end(buf);
-    } catch {
-      if (!res.headersSent) res.writeHead(500);
-      res.end();
+  if (!p) return text(404, "not found");
+  try {
+    const w = Math.min(600, Math.max(120, Number(url.searchParams.get("w") ?? 380)));
+    // A screenshot is cropped to its top, which is the part that carries the
+    // defect. A contact sheet is already a composite, so cropping it hides
+    // the very tiles it was built to show: fit the whole thing instead.
+    const whole = url.searchParams.get("fit") === "inside";
+    const h = Math.round(w * (whole ? 1.2 : 0.8));
+    const st = statSync(p);
+    const key = `${p}|${st.mtimeMs}|${st.size}|${w}|${whole ? "in" : "cover"}`;
+    const etag = `"${Buffer.from(key).toString("base64url").slice(0, 32)}"`;
+    if (req.headers.get("if-none-match") === etag) return new Response(null, { status: 304 });
+    let buf = thumbCache.get(key);
+    if (!buf) {
+      const sharp = (await import("sharp")).default;
+      buf = await sharp(p)
+        .resize(w, h, {
+          fit: whole ? "inside" : "cover",
+          position: "top",
+          withoutEnlargement: true,
+        })
+        .webp({ quality: 72 })
+        .toBuffer();
+      if (thumbCache.size > 400) thumbCache.clear();
+      thumbCache.set(key, buf);
     }
-  })();
+    return new Response(new Uint8Array(buf), {
+      headers: { "content-type": "image/webp", etag, "cache-control": "no-cache" },
+    });
+  } catch {
+    return new Response(null, { status: 500 });
+  }
 }
 
 /** The screenshot itself, streamed as it is on disk. */
-export function serveEvidence(res: ServerResponse, roots: EvidenceRoots, url: URL): void {
+export function serveEvidence(roots: EvidenceRoots, url: URL): Response {
   const p = safeEvidencePath(roots, url.pathname.slice("/evidence/".length));
-  if (!p) {
-    res.writeHead(404).end("not found");
-    return;
-  }
-  res.writeHead(200, {
-    "content-type": MIME[extname(p).toLowerCase()] ?? "application/octet-stream",
-    "cache-control": "no-store",
+  if (!p) return text(404, "not found");
+  return new Response(Bun.file(p), {
+    headers: {
+      "content-type": MIME[extname(p).toLowerCase()] ?? "application/octet-stream",
+      "cache-control": "no-store",
+    },
   });
-  createReadStream(p).pipe(res);
 }

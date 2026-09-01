@@ -23,10 +23,10 @@
  * `.html` file rather than a string also puts it where an editor can lint and
  * format it, which the template literal never allowed.
  */
-import type { ServerResponse } from "node:http";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { clientDir } from "./assets.js";
+import { text } from "./http.js";
 
 /** The shell as it is on disk right now, not as it was when the server started. */
 export function pageHtml(): string {
@@ -40,15 +40,14 @@ export function pageHtml(): string {
  * hardest kind of failure to diagnose. This says which file is missing instead,
  * the same answer a missing stylesheet already gets.
  */
-export function servePage(res: ServerResponse): void {
+export function servePage(): Response {
   let html: string;
   try {
     html = pageHtml();
   } catch (e) {
-    res.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
-    res.end(`lookout could not read its page shell: ${(e as Error).message}`);
-    return;
+    return text(500, `lookout could not read its page shell: ${(e as Error).message}`);
   }
-  res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
-  res.end(html);
+  return new Response(html, {
+    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
+  });
 }

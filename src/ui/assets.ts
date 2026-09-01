@@ -19,11 +19,10 @@
  * reload loop on this page needs no build step at all. An install never takes
  * that path, because the emitted file is right there.
  */
-import type { ServerResponse } from "node:http";
-import { createReadStream, existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { extname, join } from "node:path";
-import { MIME } from "./http.js";
+import { MIME, text } from "./http.js";
 
 export function clientDir(): string {
   return fileURLToPath(new URL("./client/", import.meta.url));
@@ -56,33 +55,28 @@ export function clientAsset(name: string): { path: string; transpile: boolean } 
   return existsSync(source) ? { path: source, transpile: true } : null;
 }
 
-export function serveClient(res: ServerResponse, name: string): void {
+export function serveClient(name: string): Response {
   const asset = clientAsset(name);
   if (!asset) {
     // Say which file is missing. A page whose script did not install is a blank
     // screen, and a blank screen with a 404 in a console nobody opened is the
     // hardest kind of failure to diagnose.
-    res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
-    res.end(`lookout has no page asset ${name}; the install looks incomplete`);
-    return;
+    return text(404, `lookout has no page asset ${name}; the install looks incomplete`);
   }
-  const head = {
+  const headers = {
     "content-type": MIME[extname(name).toLowerCase()] ?? "application/octet-stream",
     // Never cached: a rebuild during a fix session has to reach the open tab on
     // a reload, and these files are read off local disk anyway.
     "cache-control": "no-store",
   };
-  if (!asset.transpile) {
-    res.writeHead(200, head);
-    createReadStream(asset.path).pipe(res);
-    return;
-  }
+  if (!asset.transpile) return new Response(Bun.file(asset.path), { headers });
   try {
     const ts = readFileSync(asset.path, "utf8");
-    res.writeHead(200, head);
-    res.end(new Bun.Transpiler({ loader: "ts", target: "browser" }).transformSync(ts));
+    return new Response(
+      new Bun.Transpiler({ loader: "ts", target: "browser" }).transformSync(ts),
+      { headers },
+    );
   } catch (e) {
-    res.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
-    res.end(`lookout could not read ${name}: ${(e as Error).message}`);
+    return text(500, `lookout could not read ${name}: ${(e as Error).message}`);
   }
 }

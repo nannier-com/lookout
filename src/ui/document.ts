@@ -12,10 +12,9 @@
  * materialised has nothing to serve here. The card is told that instead of
  * being given a link that answers 404.
  */
-import type { ServerResponse } from "node:http";
-import { createReadStream, existsSync, statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { ISSUE_DOC_FILE, issueDocPath } from "../issues/paths.js";
-import { MIME } from "./http.js";
+import { MIME, text } from "./http.js";
 import type { ResolvedConfig } from "../types.js";
 
 /**
@@ -46,25 +45,20 @@ export function issueDocFile(resolved: ResolvedConfig, pathname: string): string
 }
 
 /** The document, streamed as it is on disk. */
-export function serveIssueDoc(
-  res: ServerResponse,
-  resolved: ResolvedConfig,
-  pathname: string,
-): void {
+export function serveIssueDoc(resolved: ResolvedConfig, pathname: string): Response {
   const file = issueDocFile(resolved, pathname);
   if (!file) {
     // Say what is missing rather than "not found". An issue with no document is
     // an issue whose folder was never written, and that is worth reading in a
     // browser tab instead of guessing at from a bare 404.
-    res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
-    res.end(`lookout has no ${ISSUE_DOC_FILE} for that issue`);
-    return;
+    return text(404, `lookout has no ${ISSUE_DOC_FILE} for that issue`);
   }
-  res.writeHead(200, {
-    "content-type": MIME[".md"]!,
-    // Rewritten on every backlog save, so a cached copy is a stale account of
-    // an issue somebody may be in the middle of fixing.
-    "cache-control": "no-store",
+  return new Response(Bun.file(file), {
+    headers: {
+      "content-type": MIME[".md"]!,
+      // Rewritten on every backlog save, so a cached copy is a stale account of
+      // an issue somebody may be in the middle of fixing.
+      "cache-control": "no-store",
+    },
   });
-  createReadStream(file).pipe(res);
 }

@@ -41,8 +41,25 @@ export function currentProjectOrNull(): ResolvedConfig | null {
   return project;
 }
 
+/**
+ * What to redo when lookout is pointed somewhere else.
+ *
+ * The page can change projects, and two things have to follow it: the board
+ * cache, which would otherwise serve the previous project's issues, and the
+ * watcher, which would otherwise be watching the previous project's
+ * directories. The cache is invalidated at the call site because that reads as
+ * part of switching; the watcher is not, because it is started once by the verb
+ * and nothing in the switch should have to know it exists.
+ */
+const listeners: (() => void)[] = [];
+
+export function onProjectChange(fn: () => void): void {
+  listeners.push(fn);
+}
+
 export function setCurrentProject(next: ResolvedConfig): void {
   project = next;
+  for (const fn of listeners) fn();
 }
 
 export const session: {
