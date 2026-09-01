@@ -10,6 +10,28 @@ Several sessions often work in this repo at once, sometimes in worktrees under
 `.claude/worktrees/`, all sharing one `.git`. Most of what follows exists to
 make that safe.
 
+## Project-agnostic, by construction
+
+lookout judges other people's projects and is specific to none of them. Two
+rules keep it that way, and a change that breaks either is wrong even when
+every gate is green:
+
+- **No judged project is special.** Nothing in this repo may name, detect, or
+  special-case a particular project: no hard-coded project names, paths,
+  ports, URLs, or per-project branches in code, skills, or defaults.
+  Everything project-specific reaches lookout through that project's own
+  layer: its `lookout.config.ts`, its rubric, its `.lookout/` skill
+  amendments.
+- **lookout's own requirements never live inside a judged project.** Whatever
+  lookout needs in order to run ships with the package (code, skills, the
+  base rubric, the reply contracts) or lives in `LOOKOUT_HOME`, default
+  `~/.lookout` (incidents, heals, self-heal runs, ui settings). What lookout
+  writes into a project's `.lookout/` is data about that project and belongs
+  to it: evidence, the backlog, the ledger, issues, its amendments. If
+  lookout would fail against a fresh checkout of a brand-new project because
+  a file it needs exists only inside some other project, that file is in the
+  wrong place; move it into the package or `LOOKOUT_HOME`.
+
 ## Where a change goes
 
 | you are changing | it lives in |
