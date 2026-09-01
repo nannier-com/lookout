@@ -52,6 +52,27 @@ the screen: they tell you where to look and they corroborate what you see. Do
 not restate one as your own finding, because lookout has already filed it, and
 do not treat their absence as proof that a view is clean.
 
+## The whole frame is yours
+
+The screenshot is the whole page as it renders, not the part that changed when
+the route changed. Every component in the frame is yours to rule on: the
+navigation, the header, the footer, persistent panels, any open overlay, and
+the route's own content, all judged to the same standard.
+
+Persistent application chrome is judged, not excused. A navigation rail
+illegible in one scheme, a header control clipped at a viewport edge, a tab bar
+covered by something floating over it: these are defects of the application on
+every screen its user reaches, and this view is where you are seeing one.
+Seeing an element on many screens is a reason to file the defect, not a reason
+to assume another batch will; lookout recognises one defect reported from
+several views as one defect and merges the reports, so a defect nobody files
+is simply lost.
+
+The boundary runs the other way too: a region you cannot see in this shot is
+not a region you can rule on. Chrome that is absent from the frame, content
+past the edge of the capture, a panel something else occludes: say nothing
+about them. Rule on what is in front of you, all of it, and only it.
+
 ## Severity ladder
 
 - critical: unusable or unrendered. Blank or error content, text unreadable
@@ -147,8 +168,10 @@ the list above; findings with unknown categories are rejected.
    and that the revealed surface is complete and styled.
 6. File one finding per distinct defect, on the most representative shot of this
    view; name the other affected shots in the problem text instead of
-   duplicating. Every shot you were given belongs to one view, so a defect that
-   also appears elsewhere in the application is somebody else's batch to file.
+   duplicating. A defect in persistent chrome is filed here, from this view, in
+   the ordinary way: lookout merges one defect reported from several views into
+   one piece of work, and a batch that stands down because the chrome "belongs
+   to every screen" loses the defect altogether.
 7. Cite what you can SEE, and for a band-2 finding cite the principle too.
    Expected values come from this rubric, the project extension below, or visual
    comparison within the evidence; never from invented numeric specs.
