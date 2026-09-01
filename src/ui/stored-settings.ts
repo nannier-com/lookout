@@ -27,9 +27,19 @@ export interface UiSettings {
    * zero-config `--url`.
    */
   baseUrl: string | null;
+  /**
+   * The project directory whose calls to action may be clicked, or null.
+   *
+   * Consent is stored WITH the directory it was given for rather than as a
+   * bare boolean, so pointing the page at a second project does not carry the
+   * first one's yes across. Navigation discovery actuates what it plans,
+   * destructive controls included, and that is a promise about one repository
+   * on one dev stack, not a preference about the reader.
+   */
+  navigationFor: string | null;
 }
 
-export const EMPTY_SETTINGS: UiSettings = { projectDir: null, baseUrl: null };
+export const EMPTY_SETTINGS: UiSettings = { projectDir: null, baseUrl: null, navigationFor: null };
 
 export function settingsPath(): string {
   return join(lookoutHome(), "ui.json");
@@ -43,6 +53,8 @@ export async function loadSettings(): Promise<UiSettings> {
     return {
       projectDir: typeof raw.projectDir === "string" ? raw.projectDir : null,
       baseUrl: typeof raw.baseUrl === "string" && raw.baseUrl.trim() ? raw.baseUrl.trim() : null,
+      navigationFor:
+        typeof raw.navigationFor === "string" && raw.navigationFor.trim() ? raw.navigationFor.trim() : null,
     };
   } catch {
     // Unreadable settings are not worth failing to start over; the page will
@@ -57,6 +69,18 @@ export async function saveSettings(s: UiSettings): Promise<void> {
   const tmp = `${p}.tmp`;
   await writeFile(tmp, JSON.stringify(s, null, 2));
   await rename(tmp, p);
+}
+
+/**
+ * Whether this project's calls to action may be clicked on the next run.
+ *
+ * One function because two places ask: the settings view the page paints its
+ * toggle from, and the spawn that decides whether to pass --navigation. Two
+ * spellings of the same comparison is how a page comes to show a control that
+ * is on while the run it starts is off.
+ */
+export function navigationConsented(s: UiSettings, projectDir: string | null): boolean {
+  return !!projectDir && s.navigationFor === projectDir;
 }
 
 /** A base URL is only usable if it parses and names a host. */

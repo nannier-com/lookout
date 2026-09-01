@@ -13,6 +13,7 @@ import { preflight, resolveTargets } from "../targets.js";
 import { currentProject, currentProjectOrNull, session, setCurrentProject } from "./session.js";
 import { forgetNarration } from "./narration.js";
 import { forgetBoard } from "./payload.js";
+import { navigationConsented } from "./stored-settings.js";
 import { execFileAsync } from "../util.js";
 
 /**
@@ -54,6 +55,14 @@ export interface SettingsView {
   configPath: string | null;
   project: string | null;
   configured: boolean;
+  /**
+   * Whether this project's calls to action may be clicked on the next run.
+   *
+   * Resolved here rather than handed over raw, because what is stored is the
+   * directory consent was given for: the page should not have to compare two
+   * paths to know whether the control beside play is on.
+   */
+  navigation: boolean;
   targets: { name: string; url: string; routes: number; up: boolean; status: number | null }[];
   error: string | null;
 }
@@ -106,9 +115,11 @@ export async function settingsView(): Promise<SettingsView> {
       error = (e as Error).message;
     }
   }
+  const dir = session.settings.projectDir ?? project?.projectDir ?? null;
   return {
-    projectDir: session.settings.projectDir ?? project?.projectDir ?? null,
+    projectDir: dir,
     baseUrl: session.settings.baseUrl,
+    navigation: navigationConsented(session.settings, dir),
     configPath: project?.configPath ?? null,
     project: project?.project ?? null,
     configured,

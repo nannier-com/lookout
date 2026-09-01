@@ -123,6 +123,13 @@ document.addEventListener("click", (e) => {
     return;
   }
   if (hit(e, "#findfix")) { void findAndFix(); return; }
+  // Consent is stored on the server against the project it was given for, not
+  // in this browser: it authorizes a run that clicks the application's own
+  // controls, and the run is the server's to start.
+  if (hit(e, "#navToggle")) {
+    void saveConfigState({ navigation: !page.config.navigation });
+    return;
+  }
   if (hit(e, "#cog")) { toggleSettings(); return; }
   if (hit(e, "#streamFold")) { toggleJudge(); return; }
   if (hit(e, "#pickProject")) {

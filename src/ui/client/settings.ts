@@ -48,7 +48,7 @@ export async function loadConfigState(): Promise<void> {
   paintSettings();
 }
 
-export async function saveConfigState(body: Record<string, string>): Promise<void> {
+export async function saveConfigState(body: Record<string, string | boolean>): Promise<void> {
   const res = await fetch("/api/settings", {
     method: "POST",
     headers: { "content-type": "application/json" },

@@ -75,6 +75,14 @@ export async function handle(req: Request, server: Server<undefined>): Promise<R
       if (typeof body.projectDir === "string" && body.projectDir.trim()) {
         session.settings.projectDir = body.projectDir.trim();
       }
+      // Consent to click this project's calls to action, stored against the
+      // directory it was given for. Read after projectDir above, so a request
+      // that points lookout somewhere new and says yes in the same breath
+      // consents to the new project rather than to the one being left.
+      if (typeof body.navigation === "boolean") {
+        const dir = session.settings.projectDir ?? resolved.projectDir;
+        session.settings.navigationFor = body.navigation ? dir : null;
+      }
       await saveSettings(session.settings);
       // Re-resolve so the new base URL reaches the targets immediately.
       if (session.settings.projectDir) await useProject(session.settings.projectDir);

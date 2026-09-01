@@ -54,6 +54,7 @@ export const page: {
     configured: false,
     projectDir: null,
     baseUrl: null,
+    navigation: false,
     configPath: null,
     project: null,
     targets: [],

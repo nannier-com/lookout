@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { downReason, preflight, resolveTargets } from "../targets.js";
 import { pushNow } from "./live.js";
 import { session } from "./session.js";
+import { navigationConsented } from "./stored-settings.js";
 import type { ResolvedConfig } from "../types.js";
 
 export async function startCheck(project: ResolvedConfig): Promise<{ started: boolean; reason?: string }> {
@@ -41,7 +42,14 @@ export async function startCheck(project: ResolvedConfig): Promise<{ started: bo
   // --first: one run, stopping at the first issue. The loop this button serves
   // is find one, fix one, verify it, so judging on for another eight minutes to
   // hand back twenty-six more answers a question nobody has asked yet.
-  const child = spawn(process.execPath, [cli, "check", "--quiet", "--first"], {
+  const args = [cli, "check", "--quiet", "--first"];
+  // The toggle beside the button, spent one run at a time. It is passed only
+  // for the project it was given for, so a page pointed somewhere new starts
+  // from no again: what this authorizes is clicking the application's own
+  // controls, destructive ones included, and that is a promise about one
+  // repository rather than a preference the page carries around.
+  if (navigationConsented(session.settings, project.projectDir)) args.push("--navigation");
+  const child = spawn(process.execPath, args, {
     cwd: project.projectDir,
     // stderr is kept, not discarded: it carries the only explanation a failed
     // run ever produces.

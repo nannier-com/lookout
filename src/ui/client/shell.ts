@@ -62,6 +62,40 @@ export function paintPlay(): void {
       ? "Find and fix: one check of " + (page.config.projectDir || page.project.projectDir) +
         ", stopping at the first issue"
       : "Open settings (the cog) and choose a project first";
+  // The toggle is drawn with play because it changes what pressing play does,
+  // and every repaint path that reaches one should reach the other.
+  paintNav();
+}
+
+/**
+ * The calls-to-action toggle, beside play.
+ *
+ * On, the next run clicks this project's own buttons and links and photographs
+ * what they open, so the judge sees the menus, drawers and dialogs no shot of a
+ * route at rest can reach. That is worth a control on the page rather than a
+ * line in a config file, because it is the only thing this button can start
+ * that touches the application instead of reading it: everything planned gets
+ * actuated, destructive controls included, and ordering the clicks by risk is
+ * not the same as declining to make them. Anyone about to press play should be
+ * able to see which of the two runs they are about to spend.
+ *
+ * Off is the state a project starts in, and pointing the page at a different
+ * project puts it back there.
+ */
+export function paintNav(): void {
+  const btn = el("navToggle") as HTMLButtonElement;
+  const on = page.config.navigation;
+  btn.disabled = !page.project.configured;
+  btn.classList.toggle("on", on);
+  btn.setAttribute("aria-pressed", String(on));
+  btn.setAttribute("aria-label", on ? "Calls to action will be clicked" : "Click the calls to action");
+  btn.title = !page.project.configured
+    ? "Choose a project first"
+    : on
+      ? "Calls to action: ON. The next run clicks this project's buttons and links and "
+        + "photographs what they open, destructive controls included."
+      : "Calls to action: off. Runs photograph each route at rest. Turn this on to click "
+        + "this project's buttons and links, destructive controls included.";
 }
 
 /**
