@@ -68,6 +68,18 @@ ${startHint}      routes: ["/"],
   //   },
   // },
 
+  // Navigation discovery: lookout enumerates each route's buttons, links, and
+  // CTAs, an AI planner curates them, and check captures the resulting states.
+  // WARNING: when enabled, lookout clicks everything by default, destructive
+  // controls included; point targets at a disposable environment and list
+  // anything untouchable in exclude.
+  // navigation: {
+  //   enabled: true,
+  //   maxStatesPerRoute: 5,     // judged interaction states per route
+  //   maxChecksPerRoute: 8,     // link verification clicks (no judging cost)
+  //   exclude: ["Sign out"],    // selectors or accessible-name substrings
+  // },
+
   // Project-specific judging rules, relative to this file.
   // rubric: "./rubric.md",
   // neverFile: ["the marketing hero intentionally overflows on phone"],

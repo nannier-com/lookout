@@ -172,15 +172,25 @@ export function requireUp(statuses: TargetStatus[]): void {
  * judged (and its findings refreshed) forever. Web only: native target
  * resolution is a different shape, and a conservative predicate that never
  * prunes a native shot beats one that guesses.
+ *
+ * `plannedStates` is navigation discovery's slice of configured intent: the
+ * synthesized states `.lookout/navigation.json` currently names per
+ * `target|route` key. A state a plan stopped naming is retired here exactly
+ * like one removed from a route's `states`.
  */
 export function shotInConfig(
   shot: { platform: string; target: string; route: string; state: string },
   targets: ResolvedTarget[],
+  plannedStates?: ReadonlyMap<string, ReadonlySet<string>>,
 ): boolean {
   if (shot.platform !== "web") return true;
   const t = targets.find((x) => x.def.name === shot.target);
   if (!t) return false;
   const r = t.routes.find((x) => x.path === shot.route);
   if (!r) return false;
-  return shot.state === "rest" || r.states.includes(shot.state);
+  return (
+    shot.state === "rest" ||
+    r.states.includes(shot.state) ||
+    (plannedStates?.get(`${shot.target}|${shot.route}`)?.has(shot.state) ?? false)
+  );
 }

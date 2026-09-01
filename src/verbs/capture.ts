@@ -9,6 +9,7 @@ import { assertTargetsAllowed, loadConfig } from "../config.js";
 import { preflight, requireUp, resolveTargets } from "../targets.js";
 import { captureWeb, type WebCaptureOptions } from "../capture/web.js";
 import { mergeRun, loadReport } from "../capture/store.js";
+import { plannedStateIndex } from "../navigate/store.js";
 import { buildContactSheet, sheetNote } from "../capture/sheet.js";
 import { emit, EventLog, setCurrentLog } from "../report/events.js";
 import type { FormFactor, Scheme, ShotRecord } from "../types.js";
@@ -110,12 +111,22 @@ export async function runCapture(parsed: Parsed): Promise<{
     shots = web.shots;
     // An unscoped capture sees the config's whole intent, so it is the one
     // moment stored shots for since-removed routes or states can be retired.
+    // Navigation-planned states are part of that intent while the plan names
+    // them, so pruning consults the plan index the same way scope does.
     const unscoped = !parsed.flags.targets && !parsed.flags.routes;
-    const { pruned } = await mergeRun(resolved, web.run, web.shots, {
-      ...(unscoped
-        ? { pruneNotIn: resolveTargets(resolved.config, undefined, undefined, resolved.configPath) }
-        : {}),
-    });
+    const { pruned } = await mergeRun(
+      resolved,
+      web.run,
+      web.shots,
+      unscoped
+        ? {
+            pruneNotIn: resolveTargets(resolved.config, undefined, undefined, resolved.configPath),
+            plannedStates: resolved.config.navigation?.enabled
+              ? await plannedStateIndex(resolved)
+              : undefined,
+          }
+        : {},
+    );
     if (pruned > 0) {
       const line = `pruned ${pruned} shot(s) for routes or states no longer configured`;
       if (!quiet) console.log(line);

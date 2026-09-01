@@ -42,6 +42,32 @@ export interface RouteDef {
    * an image is the one form every design tool can produce.
    */
   design?: string;
+  /** Per-route opt-out of navigation discovery (config.navigation). */
+  navigation?: boolean;
+}
+
+/**
+ * Navigation discovery: lookout enumerates a route's interactive affordances
+ * (buttons, links, CTAs), the plan-navigation skill curates them into a cached
+ * plan, and capture executes the plan as first-class states the judges rule
+ * on.
+ *
+ * WARNING: when enabled, lookout actuates every planned affordance by
+ * default, destructive controls included; risk classification orders the
+ * clicks, it does not prevent them. Point targets at a disposable
+ * environment and list anything untouchable in `exclude`.
+ */
+export interface NavigationConfig {
+  /** Default false while the capability earns default-on (the shellScoping precedent). */
+  enabled?: boolean;
+  /** Shot-producing interaction states the planner may pick per route. Default 5. */
+  maxStatesPerRoute?: number;
+  /** Link-verification clicks per route (no shots, no judging cost). Default 8. */
+  maxChecksPerRoute?: number;
+  /** CSS selectors or accessible-name substrings never actuated. */
+  exclude?: string[];
+  /** CSS selectors always offered to the planner. */
+  include?: string[];
 }
 
 export interface TargetDef {
@@ -187,6 +213,8 @@ export interface LookoutConfig {
     /** Minimum hours between automatic improves. Default 24. */
     cooldownHours?: number;
   };
+  /** Navigation discovery; see NavigationConfig for the click-everything warning. */
+  navigation?: NavigationConfig;
 }
 
 /**

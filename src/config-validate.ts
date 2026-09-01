@@ -60,6 +60,20 @@ export function validateConfig(raw: unknown, path: string): LookoutConfig {
         if (r.design !== undefined && typeof r.design !== "string") {
           fail(path, `targets[${i}].routes[${j}].design must be a path string`);
         }
+        for (const key of ["name", "element"] as const) {
+          if (r[key] !== undefined && typeof r[key] !== "string") {
+            fail(path, `targets[${i}].routes[${j}].${key} must be a string`);
+          }
+        }
+        if (
+          r.states !== undefined &&
+          (!Array.isArray(r.states) || r.states.some((s) => typeof s !== "string"))
+        ) {
+          fail(path, `targets[${i}].routes[${j}].states must be an array of recipe names`);
+        }
+        if (r.navigation !== undefined && typeof r.navigation !== "boolean") {
+          fail(path, `targets[${i}].routes[${j}].navigation must be a boolean`);
+        }
         return r as unknown as RouteDef;
       });
     }
@@ -144,6 +158,27 @@ export function validateConfig(raw: unknown, path: string): LookoutConfig {
     fail(path, "shellScoping must be a boolean");
   }
 
+  let navigation: LookoutConfig["navigation"];
+  if (raw.navigation !== undefined) {
+    if (!isRecord(raw.navigation)) fail(path, "navigation must be an object");
+    const n = raw.navigation;
+    if (n.enabled !== undefined && typeof n.enabled !== "boolean") {
+      fail(path, "navigation.enabled must be a boolean");
+    }
+    for (const key of ["maxStatesPerRoute", "maxChecksPerRoute"] as const) {
+      if (n[key] !== undefined && (typeof n[key] !== "number" || n[key] < 0)) {
+        fail(path, `navigation.${key} must be a non-negative number`);
+      }
+    }
+    for (const key of ["exclude", "include"] as const) {
+      const v = n[key];
+      if (v !== undefined && (!Array.isArray(v) || v.some((x) => typeof x !== "string"))) {
+        fail(path, `navigation.${key} must be an array of strings`);
+      }
+    }
+    navigation = n as LookoutConfig["navigation"];
+  }
+
   let learn: LookoutConfig["learn"];
   if (raw.learn !== undefined) {
     if (!isRecord(raw.learn)) fail(path, "learn must be an object");
@@ -204,5 +239,6 @@ export function validateConfig(raw: unknown, path: string): LookoutConfig {
     designSystem,
     native: raw.native as LookoutConfig["native"],
     learn,
+    navigation,
   };
 }

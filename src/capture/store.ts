@@ -77,6 +77,8 @@ export async function mergeRun(
      * it never prunes.
      */
     pruneNotIn?: import("../targets.js").ResolvedTarget[];
+    /** Synthesized states navigation.json still names, per target|route key. */
+    plannedStates?: ReadonlyMap<string, ReadonlySet<string>>;
   } = {},
 ): Promise<{ report: CaptureReport; pruned: number }> {
   const existing = (await loadReport(resolved)) ?? {
@@ -93,7 +95,7 @@ export async function mergeRun(
   if (opts.pruneNotIn) {
     const { shotInConfig } = await import("../targets.js");
     const before = kept.length;
-    kept = kept.filter((s) => shotInConfig(s, opts.pruneNotIn!));
+    kept = kept.filter((s) => shotInConfig(s, opts.pruneNotIn!, opts.plannedStates));
     pruned = before - kept.length;
   }
   const report: CaptureReport = {

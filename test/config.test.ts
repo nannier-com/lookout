@@ -43,6 +43,29 @@ describe("validateConfig", () => {
     ).toThrow(/signIn/);
   });
 
+  test("navigation block: booleans, non-negative caps, string lists", () => {
+    const t = [{ name: "app", url: "http://localhost:1" }];
+    const c = validateConfig(
+      { targets: t, navigation: { enabled: true, maxStatesPerRoute: 5, exclude: ["Sign out"] } },
+      "t",
+    );
+    expect(c.navigation?.enabled).toBe(true);
+    expect(validateConfig({ targets: t }, "t").navigation).toBeUndefined();
+    expect(() => validateConfig({ targets: t, navigation: { enabled: "yes" } }, "t")).toThrow(/navigation\.enabled/);
+    expect(() => validateConfig({ targets: t, navigation: { maxStatesPerRoute: -1 } }, "t")).toThrow(/maxStatesPerRoute/);
+    expect(() => validateConfig({ targets: t, navigation: { exclude: [1] } }, "t")).toThrow(/navigation\.exclude/);
+  });
+
+  test("route fields are validated, not cast through", () => {
+    const route = (r: unknown) =>
+      validateConfig({ targets: [{ name: "app", url: "http://localhost:1", routes: [r] }] }, "t");
+    expect(route({ path: "/", states: ["menu-open"], navigation: false })).toBeTruthy();
+    expect(() => route({ path: "/", states: [42] })).toThrow(/states/);
+    expect(() => route({ path: "/", name: 3 })).toThrow(/name/);
+    expect(() => route({ path: "/", element: {} })).toThrow(/element/);
+    expect(() => route({ path: "/", navigation: "on" })).toThrow(/navigation/);
+  });
+
   test("rejects a bad scheme mode and an unknown viewport key", () => {
     expect(() =>
       validateConfig({ targets: [{ name: "a", url: "http://localhost:1" }], scheme: { mode: "x" } }, "t"),

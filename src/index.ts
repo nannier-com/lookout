@@ -14,6 +14,7 @@ export type {
   SchemeConfig,
   StateRecipe,
   NativeAppConfig,
+  NavigationConfig,
   LookoutConfig,
   ResolvedConfig,
   DeterministicFinding,

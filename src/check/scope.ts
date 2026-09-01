@@ -12,6 +12,7 @@ import { loadConfig } from "../config.js";
 import { resolveTargets, shotInConfig } from "../targets.js";
 import { emit } from "../report/events.js";
 import { loadReport } from "../capture/store.js";
+import { plannedStateIndex } from "../navigate/store.js";
 import { runCapture } from "../verbs/capture.js";
 import { LookoutError, type ResolvedConfig, type ShotRecord } from "../types.js";
 import { list, str, type Parsed } from "../util.js";
@@ -48,7 +49,10 @@ export async function resolveScope(parsed: Parsed): Promise<CheckScope> {
   const configured = resolveTargets(resolved.config, undefined, undefined, resolved.configPath);
   const onlyTargets = list(parsed.flags.targets);
   const onlyRoutes = list(parsed.flags.routes);
-  const inConfig = report.shots.filter((s) => shotInConfig(s, configured));
+  const planned = resolved.config.navigation?.enabled
+    ? await plannedStateIndex(resolved)
+    : undefined;
+  const inConfig = report.shots.filter((s) => shotInConfig(s, configured, planned));
   const dropped = report.shots.filter((s) => s.platform === "web").length -
     inConfig.filter((s) => s.platform === "web").length;
   if (dropped > 0) {
