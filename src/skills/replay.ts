@@ -19,6 +19,7 @@
  * such aid; the replay holds every candidate to the same conditions.
  */
 import { batchShots, judgeBatch, type AiFinding } from "../judge/engine.js";
+import { PANELS } from "../judge/panels.js";
 import { loadJudges } from "../judge/rubric.js";
 import { verifyFindings } from "../judge/verify.js";
 import { loadSkill } from "./load.js";
@@ -64,10 +65,22 @@ export const GATED_SKILLS = new Set([
 // cannot grade.
 
 
+export interface ReplayScope {
+  /**
+   * The skill the candidate amendment touched. A panel amendment changed only
+   * that panel's prompt, so only that panel replays: every other judge's
+   * bytes, and therefore its verdicts, are identical to the run that settled
+   * the claims. An amendment to the core or the refuter changes every
+   * prompt, so every claim-owning panel replays.
+   */
+  amendedSkill?: string;
+}
+
 export async function replayRegression(
   resolved: ResolvedConfig,
   set: RegressionSet,
   model: string,
+  scope: ReplayScope = {},
 ): Promise<{ violations: Violation[]; findings: AiFinding[]; costUsd: number }> {
   const usable = { ...set, cases: usableCases(resolved, set) };
   if (usable.cases.length === 0) {
@@ -90,9 +103,19 @@ export async function replayRegression(
   const claimed = new Set(
     usable.cases.flatMap((c) => [...c.mustFile, ...c.mustNotFile].map((cl) => cl.category)),
   );
-  const active = (await loadJudges(resolved)).filter(
+  const claimOwning = (await loadJudges(resolved)).filter(
     (j) => !j.def.designOnly && j.def.categories.some((c) => claimed.has(c)),
   );
+  const isPanel = PANELS.some((p) => p.name === scope.amendedSkill);
+  const active = isPanel
+    ? claimOwning.filter((j) => j.def.name === scope.amendedSkill)
+    : claimOwning;
+  if (isPanel && active.length === 0) {
+    throw new LookoutError(
+      `the frozen set holds no claims in ${scope.amendedSkill}'s categories, so nothing can grade it`,
+      "settle a verdict in its lane and run `lookout skills freeze`",
+    );
+  }
 
   let costUsd = 0;
   const shotsById = new Map(shots.map((s) => [s.id, s]));
@@ -120,5 +143,20 @@ export async function replayRegression(
     findings.push(...verified.confirmed);
   }
 
-  return { violations: evaluateReplay(usable, findings), findings, costUsd };
+  // mustFile claims are graded only for the panels that ran: an inactive
+  // panel's prompt is byte-identical to the run that settled its claims, so
+  // its silence here proves nothing and must not read as "lost". That also
+  // retires frozen design-parity claims, which no replay can satisfy (the
+  // cases carry no design reference). mustNotFile claims stay whole: the lane
+  // rule means only a claim's owner can re-file it, and if a panel somehow
+  // filed out of lane anyway, suppressing the violation would hide two bugs.
+  const activeCats = new Set(active.flatMap((j) => j.def.categories as readonly string[]));
+  const graded = {
+    ...usable,
+    cases: usable.cases.map((c) => ({
+      ...c,
+      mustFile: c.mustFile.filter((cl) => activeCats.has(cl.category)),
+    })),
+  };
+  return { violations: evaluateReplay(graded, findings), findings, costUsd };
 }

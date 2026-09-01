@@ -80,6 +80,7 @@ const TWO_GROUPS = [
 afterEach(() => {
   delete process.env.LOOKOUT_CLAUDE_BIN;
   delete process.env.MOCK_ARGV_FILE;
+  delete process.env.MOCK_VERIFY;
 });
 
 describe("replay fidelity to the production pipeline", () => {
@@ -111,6 +112,91 @@ describe("replay fidelity to the production pipeline", () => {
       expect(p).toContain("#0 ");
       expect(p).not.toContain("#1 ");
     }
+  });
+
+  test("a panel amendment replays only that panel; the family replays every claim-owner", async () => {
+    // Claims in two lanes: contrast (judge-visibility) and hierarchy
+    // (judge-craft). The mock judge files whichever category the prompt's own
+    // vocabulary offers, so each panel re-files its own claim.
+    const cases = [
+      frozenCase({
+        mustFile: [
+          { category: "contrast", attribute: "body-text", why: "confirmed" },
+          { category: "hierarchy", attribute: "entry-point", why: "confirmed" },
+        ],
+      }),
+    ];
+    const judgeCalls = async (amendedSkill?: string): Promise<string[]> => {
+      const { resolved, set } = frozenProject(cases);
+      process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+      // The pooled refuter sees both panels' findings in one call; the mock's
+      // default confirms only index 0, which would kill the second lane's
+      // re-file and fake a "lost" verdict.
+      process.env.MOCK_VERIFY = JSON.stringify({
+        verdicts: [
+          { index: 0, verdict: "confirmed", note: "visible" },
+          { index: 1, verdict: "confirmed", note: "visible" },
+        ],
+      });
+      const argvFile = join(resolved.projectDir, "argv.jsonl");
+      process.env.MOCK_ARGV_FILE = argvFile;
+      const outcome = await replayRegression(resolved, set, "sonnet", { amendedSkill });
+      expect(outcome.violations).toEqual([]);
+      return readFileSync(argvFile, "utf8")
+        .trim()
+        .split("\n")
+        .map((l) => (JSON.parse(l) as string[]).join(" "))
+        .filter((p) => p.includes("- shotId: "));
+    };
+
+    // Scoped to the craft panel: one judge call, and the visibility claim is
+    // out of scope rather than "lost", because that panel's prompt is
+    // byte-identical to the run that settled it.
+    const craftOnly = await judgeCalls("judge-craft");
+    expect(craftOnly).toHaveLength(1);
+    expect(craftOnly[0]).toContain("- hierarchy:");
+    expect(craftOnly[0]).not.toContain("- contrast:");
+
+    // An amendment to the core replays exactly the claim-owning panels: two
+    // lanes hold claims, so two judges run, not five.
+    const family = await judgeCalls("visual-judge");
+    expect(family).toHaveLength(2);
+  });
+
+  test("a suppressed verdict re-filed by its owner still violates under any scope", async () => {
+    const { resolved, set } = frozenProject([
+      frozenCase({
+        mustNotFile: [{ category: "hierarchy", attribute: "entry-point", why: "intended" }],
+      }),
+    ]);
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    const outcome = await replayRegression(resolved, set, "sonnet", { amendedSkill: "judge-craft" });
+    expect(outcome.violations).toHaveLength(1);
+    expect(outcome.violations[0]?.category).toBe("hierarchy");
+  });
+
+  test("a panel with no claims in its lane cannot be graded, and says so", async () => {
+    const { resolved, set } = frozenProject(TWO_GROUPS);
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    await expect(
+      replayRegression(resolved, set, "sonnet", { amendedSkill: "judge-text" }),
+    ).rejects.toThrow(/no claims in judge-text/);
+  });
+
+  test("a frozen design-parity claim never grades a replay", async () => {
+    // Frozen cases carry no design reference, so no panel can ever satisfy a
+    // design-parity mustFile; grading it would roll back every amendment.
+    const { resolved, set } = frozenProject([
+      frozenCase({
+        mustFile: [
+          { category: "contrast", attribute: "body-text", why: "confirmed" },
+          { category: "design-parity", attribute: "hero-width", why: "confirmed" },
+        ],
+      }),
+    ]);
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    const outcome = await replayRegression(resolved, set, "sonnet");
+    expect(outcome.violations).toEqual([]);
   });
 
   test("the judge is never shown the ALREADY FILED aid", async () => {

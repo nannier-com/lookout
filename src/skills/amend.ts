@@ -18,7 +18,7 @@ import { dirname, join } from "node:path";
 import { lookoutDir } from "../config.js";
 import { loadBacklog } from "../verbs/backlog.js";
 import { extractJson, invokeClaude } from "../judge/engine.js";
-import { licensedSkills } from "../judge/panels.js";
+import { licensedSkills, PANELS } from "../judge/panels.js";
 import { loadSkill, projectSkillPath, renderSkill, type Skill } from "./load.js";
 import { bySkill, gatherSignals, type Signal } from "./signals.js";
 import { loadWatermark, newSignals, stampSeen } from "./watermark.js";
@@ -244,11 +244,24 @@ async function improve(resolved: ResolvedConfig, model: string, opts: ImproveOpt
   const nextVersion = current.version + 1;
   const merged = `${existingBody.trimEnd()}\n\n## ${nowIso().slice(0, 10)}: ${amendment.summary}\n\n${amendment.amendment}\n`;
 
-  if (!GATED_SKILLS.has(amendment.skill) || gradeable === 0) {
+  // A gated panel is still ungradeable when the frozen set holds no claims in
+  // its lane: its replay would make zero calls and pass vacuously, which is
+  // the exact auto-apply the gate exists to prevent.
+  const claimCats = new Set(
+    usableCases(resolved, set).flatMap((c) =>
+      [...c.mustFile, ...c.mustNotFile].map((cl) => cl.category),
+    ),
+  );
+  const panelDef = PANELS.find((p) => p.name === amendment.skill);
+  const panelGradeable = !panelDef || panelDef.categories.some((c) => claimCats.has(c));
+
+  if (!GATED_SKILLS.has(amendment.skill) || gradeable === 0 || !panelGradeable) {
     const why =
       gradeable === 0
         ? "there is nothing frozen to grade this against (run `lookout skills freeze`)"
-        : `the frozen set cannot exercise ${amendment.skill}`;
+        : !panelGradeable
+          ? `the frozen set holds no claims in ${amendment.skill}'s categories`
+          : `the frozen set cannot exercise ${amendment.skill}`;
     const p = join(lookoutDir(resolved), "skills", amendment.skill, "PROPOSED.md");
     await mkdir(dirname(p), { recursive: true });
     await writeFile(p, merged);
@@ -277,7 +290,9 @@ async function improve(resolved: ResolvedConfig, model: string, opts: ImproveOpt
   let violations: Violation[];
   let replayCost = 0;
   try {
-    const outcome = await replayRegression(resolved, set, model);
+    const outcome = await replayRegression(resolved, set, model, {
+      amendedSkill: amendment.skill,
+    });
     violations = outcome.violations;
     replayCost = outcome.costUsd;
   } catch (e) {

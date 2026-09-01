@@ -92,7 +92,11 @@ export async function skills(parsed: Parsed): Promise<number> {
   if (sub === "replay") {
     const set = await loadRegressionSet(resolved);
     if (!set) throw new LookoutError("no frozen set", "run `lookout skills freeze` first");
-    const { violations, costUsd } = await replayRegression(resolved, set, model);
+    // --skill narrows the replay the way an amendment to that skill would:
+    // one panel replays alone, the core or the refuter replays the family.
+    const { violations, costUsd } = await replayRegression(resolved, set, model, {
+      amendedSkill: str(parsed.flags.skill),
+    });
     if (parsed.flags.json) {
       printJson({ ok: violations.length === 0, cases: set.cases.length, violations, costUsd });
     } else if (violations.length === 0) {
