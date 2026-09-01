@@ -112,7 +112,12 @@ export async function gatherFreshEvidence(args: {
         shots: report.shots.filter((sh) => latestShots.has(sh.id) && shotsById.has(sh.id)),
       })
     : [];
-  const fresh = [...aiToFindings(outcome.findings, shotsById), ...freshDeterministic];
+  const fresh = [
+    ...aiToFindings(outcome.findings, shotsById, {
+      shellIdentity: resolved.config.shellScoping === true,
+    }),
+    ...freshDeterministic,
+  ];
   const backlog = merged.backlog;
   const stillOpen = withoutByDesign(
     fresh.filter((f) => clusterKeyOf(f) === cluster.key),

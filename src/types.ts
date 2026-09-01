@@ -138,6 +138,16 @@ export interface LookoutConfig {
   states?: Record<string, StateRecipe>;
   /** Default CSS selector to element-screenshot instead of the full page. */
   element?: string;
+  /**
+   * Shell-scoped identity. When true, a finding the judge places in a shell
+   * region (shell-nav, shell-header, shell-footer) is fingerprinted by that
+   * region instead of by the route it was photographed on, and the
+   * route-scoped records it supersedes fold into it as it is re-found: one
+   * chrome defect becomes one finding, and an adjudication on it holds
+   * everywhere. Transition flag: off by default for a release so regions
+   * accumulate inspectably before any identity moves.
+   */
+  shellScoping?: boolean;
   /** Path (relative to the config file) of a project rubric extension, markdown. */
   rubric?: string;
   /** Extra never-file lines appended to the judge's exclusion list. */

@@ -140,6 +140,10 @@ export function validateConfig(raw: unknown, path: string): LookoutConfig {
     }
   }
 
+  if (raw.shellScoping !== undefined && typeof raw.shellScoping !== "boolean") {
+    fail(path, "shellScoping must be a boolean");
+  }
+
   let learn: LookoutConfig["learn"];
   if (raw.learn !== undefined) {
     if (!isRecord(raw.learn)) fail(path, "learn must be an object");
@@ -192,6 +196,7 @@ export function validateConfig(raw: unknown, path: string): LookoutConfig {
     scheme,
     states: raw.states as LookoutConfig["states"],
     element: typeof raw.element === "string" ? raw.element : undefined,
+    shellScoping: raw.shellScoping as boolean | undefined,
     rubric: typeof raw.rubric === "string" ? raw.rubric : undefined,
     neverFile: Array.isArray(raw.neverFile)
       ? raw.neverFile.filter((s): s is string => typeof s === "string")

@@ -109,17 +109,27 @@ export function deterministicToFindings(report: CaptureReport): Omit<BacklogFind
 export function aiToFindings(
   findings: (AiFinding & { verified?: boolean })[],
   shotsById: Map<string, ShotRecord>,
+  opts: {
+    /**
+     * The shellScoping transition flag. Off, the region is stored but identity
+     * stays route-keyed, so records accumulate regions a person can inspect;
+     * on, a shell region takes the route's slot in the fingerprint and the
+     * merge folds the route-scoped history it supersedes.
+     */
+    shellIdentity?: boolean;
+  } = {},
 ): ReturnType<typeof deterministicToFindings> {
   const out: ReturnType<typeof deterministicToFindings> = [];
   for (const f of findings) {
     const shot = shotsById.get(f.shotId);
     if (!shot) continue;
     out.push({
-      // The region is stored but deliberately kept out of the fingerprint for
-      // now: identity is the one thing here that must never quietly change
-      // shape, so records accumulate regions for a release before the shell
-      // collapse starts deriving identity from them.
-      fingerprint: fingerprintOf({ ...shot, category: f.category, attribute: f.attribute }),
+      fingerprint: fingerprintOf({
+        ...shot,
+        category: f.category,
+        attribute: f.attribute,
+        region: opts.shellIdentity ? f.region : undefined,
+      }),
       target: shot.target,
       route: shot.route,
       state: shot.state,

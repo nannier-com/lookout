@@ -9,6 +9,7 @@
  * other half of the same machine.
  */
 import { deterministicToFindings } from "./ingest.js";
+import { absorbLegacy, type Absorption } from "./rekey.js";
 import type { Backlog, BacklogFinding, FindingStatus } from "./lib.js";
 
 // Merge: the dedupe/reopen/suppress state machine.
@@ -18,6 +19,8 @@ export interface MergeResult {
   refreshed: string[]; // existing open findings seen again
   reopened: string[]; // fixed findings that came back
   suppressed: string[]; // by-design findings dropped silently
+  /** Shell findings that folded route-scoped history into themselves. */
+  absorbed: Absorption[];
 }
 
 export function mergeFindings(
@@ -26,9 +29,20 @@ export function mergeFindings(
   runId: string,
   now: string,
 ): MergeResult {
-  const res: MergeResult = { added: [], refreshed: [], reopened: [], suppressed: [] };
+  const res: MergeResult = { added: [], refreshed: [], reopened: [], suppressed: [], absorbed: [] };
   for (const f of incoming) {
-    const existing = backlog.findings[f.fingerprint];
+    let existing = backlog.findings[f.fingerprint];
+    if (!existing) {
+      // A shell fingerprint arriving for the first time may be old work under
+      // a new name: fold the route-scoped records it supersedes, BEFORE the
+      // by-design branch, so an absorbed adjudication suppresses the sighting
+      // exactly as it would have under the old key.
+      const folded = absorbLegacy(backlog, f);
+      if (folded) {
+        existing = folded;
+        res.absorbed.push({ fingerprint: f.fingerprint, from: folded.absorbed ?? [] });
+      }
+    }
     if (!existing) {
       backlog.findings[f.fingerprint] = {
         ...f,

@@ -6,6 +6,13 @@ import { resolveRoutes, resolveTargets } from "../src/targets.js";
 import { isLocalUrl, parseFlags } from "../src/util.js";
 
 describe("validateConfig", () => {
+  test("shellScoping is an optional boolean and nothing else", () => {
+    const t = [{ name: "app", url: "http://localhost:1" }];
+    expect(validateConfig({ targets: t, shellScoping: true }, "t").shellScoping).toBe(true);
+    expect(validateConfig({ targets: t }, "t").shellScoping).toBeUndefined();
+    expect(() => validateConfig({ targets: t, shellScoping: "yes" }, "t")).toThrow(/shellScoping/);
+  });
+
   test("accepts a minimal config and normalizes the url", () => {
     const c = validateConfig({ targets: [{ name: "app", url: "http://localhost:3000/" }] }, "t");
     expect(c.targets[0]!.url).toBe("http://localhost:3000");

@@ -139,7 +139,11 @@ export async function mergeLatest(
     if (existsSync(jp)) judge = JSON.parse(await readFile(jp, "utf8")) as CheckOutcome;
   }
   const shotsById = new Map(report.shots.map((s) => [s.id, s]));
-  const ai = judge ? aiToFindings(judge.findings, shotsById) : [];
+  const ai = judge
+    ? aiToFindings(judge.findings, shotsById, {
+        shellIdentity: resolved.config.shellScoping === true,
+      })
+    : [];
 
   // Both channels are stamped with the CAPTURE run id, not the judge's own.
   // `lastSeen` answers one question, asked by `backlog check`: which capture run
@@ -229,7 +233,24 @@ export async function mergeLatest(
   const r1 = mergeFindings(backlog, [...det, ...code], latestRun.id, now);
   const r2 = judge
     ? mergeFindings(backlog, ai, latestRun.id, now)
-    : { added: [] as string[], reopened: [] as string[], refreshed: [] as string[], suppressed: [] as string[] };
+    : {
+        added: [] as string[],
+        reopened: [] as string[],
+        refreshed: [] as string[],
+        suppressed: [] as string[],
+        absorbed: [] as { fingerprint: string; from: string[] }[],
+      };
+
+  // A collapse rewrites identity, which is exactly the kind of thing that must
+  // be said out loud: the old fingerprints stop existing, and anyone holding
+  // one should be able to read where it went.
+  for (const a of [...r1.absorbed, ...r2.absorbed]) {
+    emit(
+      "note",
+      `shell finding ${a.fingerprint} absorbed ${a.from.length} route-scoped record(s): ${a.from.join(", ")}`,
+      { fingerprint: a.fingerprint, from: a.from },
+    );
+  }
 
   await saveBacklog(resolved, backlog);
   return {
