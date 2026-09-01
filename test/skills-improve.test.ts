@@ -430,6 +430,21 @@ describe("what an improve consumes and refuses", () => {
     }
   });
 
+  test("judging signals license the core and the refuter, never a sibling panel", async () => {
+    // The fixture's signals indict the judging family; the pair rule adds the
+    // core and the refuter, but a specialist panel the evidence never touched
+    // stays off limits.
+    const r = project();
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    process.env.MOCK_IMPROVE_SKILL = "judge-craft";
+    try {
+      expect(await run(r, "freeze")).toBe(0);
+      await expect(run(r, "improve")).rejects.toThrow(/names judge-craft/);
+    } finally {
+      delete process.env.MOCK_IMPROVE_SKILL;
+    }
+  });
+
   test("the auto path never spends on a proposal-only outcome", async () => {
     const { improveSkills } = await import("../src/skills/amend.js");
     const r = project([

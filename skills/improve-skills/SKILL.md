@@ -1,7 +1,7 @@
 ---
 name: improve-skills
 description: Read what lookout got wrong in its own runs and write the amendment to the skill that would have prevented it.
-version: 1
+version: 2
 output: skill-amendment-v1
 ---
 
@@ -55,6 +55,16 @@ in `newSkill` instead of amending. Be honest about the bar: a new skill is
 warranted when lookout is repeatedly wrong about a KIND of judgement it has no
 instructions for, not when an existing skill needs another rule. Nothing invokes
 a new skill until a verb is wired to it, so say in `summary` what would call it.
+
+## The judging family
+
+The visual judge is a family of skills. The `visual-judge` core carries the
+shared rubric (severity, regions, procedure, the output contract), and each
+`judge-*` panel skill owns the categories its body lists, composed onto the
+core at judging time. Amend the panel when the lesson is about filing or not
+filing its categories; amend `visual-judge` only when the lesson is about
+shared judging behavior. A lesson about one panel's categories never belongs
+in a sibling panel.
 
 ## The skills
 

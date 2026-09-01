@@ -32,6 +32,12 @@ import type { ResolvedConfig } from "../types.js";
 export interface Signal {
   /** Which skill this is evidence about. */
   skill: string;
+  /**
+   * Extra skills this signal licenses an amendment to, beyond `skill` and the
+   * pair rule: a refuter lesson names the panel whose finding it overruled.
+   * Never part of the watermark key, like `skill` itself.
+   */
+  licenses?: string[];
   kind: "refuted" | "rejected" | "by-design" | "blocked" | "not-verifiable";
   /** One line naming what happened. */
   summary: string;

@@ -20,6 +20,12 @@ import type { ResolvedConfig } from "../types.js";
 
 export const SKILL_NAMES = [
   "visual-judge",
+  "judge-integrity",
+  "judge-geometry",
+  "judge-visibility",
+  "judge-text",
+  "judge-craft",
+  "judge-design-parity",
   "refute-finding",
   "verify-acceptance",
   "fact-check",

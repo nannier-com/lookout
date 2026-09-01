@@ -18,6 +18,7 @@ import { dirname, join } from "node:path";
 import { lookoutDir } from "../config.js";
 import { loadBacklog } from "../verbs/backlog.js";
 import { extractJson, invokeClaude } from "../judge/engine.js";
+import { licensedSkills } from "../judge/panels.js";
 import { loadSkill, projectSkillPath, renderSkill, type Skill } from "./load.js";
 import { bySkill, gatherSignals, type Signal } from "./signals.js";
 import { loadWatermark, newSignals, stampSeen } from "./watermark.js";
@@ -162,13 +163,13 @@ async function improve(resolved: ResolvedConfig, model: string, opts: ImproveOpt
   }
   const gradeable = usableCases(resolved, set).length;
 
-  // The pair rule: signals about either judging skill license amending both,
-  // because the frozen replay exercises them jointly and a filing lesson
-  // sometimes belongs in the refuter's demand for evidence.
-  const attributed = new Set(shown.map((sig) => sig.skill));
-  if (attributed.has("visual-judge") || attributed.has("refute-finding")) {
-    attributed.add("visual-judge").add("refute-finding");
-  }
+  // The pair rule, spanning the judging family: any judging signal licenses
+  // the core and the refuter alongside the skill it named, and a signal may
+  // carry extra licenses of its own (a refuter lesson naming the panel whose
+  // finding it overruled). Sibling panels never license each other.
+  const attributed = licensedSkills(
+    new Set(shown.flatMap((sig) => [sig.skill, ...(sig.licenses ?? [])])),
+  );
   const gatedEvidence = [...attributed].some((name) => GATED_SKILLS.has(name));
 
   // Gated-or-nothing, checked BEFORE the model call it would waste.

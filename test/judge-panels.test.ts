@@ -10,7 +10,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadSkill } from "../src/skills/load.js";
 import { CATEGORIES, loadRubric } from "../src/judge/rubric.js";
-import { applicablePanels, panelOf, PANELS } from "../src/judge/panels.js";
+import { applicablePanels, isJudgeFamily, licensedSkills, panelOf, PANELS } from "../src/judge/panels.js";
 import { tmpProject } from "./tmp-project.js";
 import { LookoutError, type ResolvedConfig, type ShotRecord } from "../src/types.js";
 
@@ -63,6 +63,30 @@ describe("the registry partitions the vocabulary", () => {
     expect(plain.length).toBe(PANELS.length - 1);
     const withDesign = applicablePanels([{} as ShotRecord, { design: "/m.png" } as ShotRecord]);
     expect(withDesign.length).toBe(PANELS.length);
+  });
+});
+
+describe("the pair rule spans the family, never a sibling", () => {
+  test("a panel signal licenses that panel, the core, and the refuter", () => {
+    const licensed = licensedSkills(new Set(["judge-visibility"]));
+    expect([...licensed].sort()).toEqual(["judge-visibility", "refute-finding", "visual-judge"]);
+  });
+
+  test("core and refuter signals license each other and no panel", () => {
+    expect([...licensedSkills(new Set(["visual-judge"]))].sort()).toEqual([
+      "refute-finding",
+      "visual-judge",
+    ]);
+    expect([...licensedSkills(new Set(["refute-finding"]))].sort()).toEqual([
+      "refute-finding",
+      "visual-judge",
+    ]);
+  });
+
+  test("a signal outside the family licenses only itself", () => {
+    expect([...licensedSkills(new Set(["kit-conformance"]))]).toEqual(["kit-conformance"]);
+    expect(isJudgeFamily("kit-conformance")).toBe(false);
+    expect(isJudgeFamily("judge-craft")).toBe(true);
   });
 });
 

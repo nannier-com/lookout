@@ -37,7 +37,20 @@ import { LookoutError, type ResolvedConfig } from "../types.js";
  * else is written down as a proposal rather than applied: auto-applying a
  * change nothing can grade is the exact thing the gate exists to prevent.
  */
-export const GATED_SKILLS = new Set(["visual-judge", "refute-finding"]);
+export const GATED_SKILLS = new Set([
+  "visual-judge",
+  "judge-integrity",
+  "judge-geometry",
+  "judge-visibility",
+  "judge-text",
+  "judge-craft",
+  "refute-finding",
+]);
+
+// judge-design-parity is deliberately NOT gated: the frozen set carries no
+// design references, so no frozen case can exercise a design-parity verdict,
+// and an amendment nothing can grade lands as a proposal for a person to
+// read, the same treatment design-placement gets below.
 
 // kit-conformance is not gated either, for the same reason and one more: what
 // it reads is source, and the frozen set holds screenshots. An amendment to it

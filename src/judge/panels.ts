@@ -48,3 +48,29 @@ export function panelOf(category: string): PanelDef {
 export function applicablePanels(group: readonly ShotRecord[]): readonly PanelDef[] {
   return PANELS.filter((p) => !p.designOnly || group.some((s) => s.design));
 }
+
+/** The adversarial verifier, the other half of every judging lesson. */
+export const REFUTER = "refute-finding";
+
+/** Whether a skill is part of the judging family the pair rule spans. */
+export function isJudgeFamily(skill: string): boolean {
+  return skill === CORE_JUDGE || skill === REFUTER || PANELS.some((p) => p.name === skill);
+}
+
+/**
+ * The pair rule, generalized from two skills to the family.
+ *
+ * Any judging signal licenses the core and the refuter alongside whatever it
+ * named: the lesson may be about shared judging behavior, and a filing lesson
+ * sometimes belongs in the refuter's demand for evidence. What a signal never
+ * licenses is a SIBLING panel: evidence about one specialist's categories says
+ * nothing about another's, and the guard in amend.ts enforces exactly the set
+ * returned here.
+ */
+export function licensedSkills(attributed: ReadonlySet<string>): Set<string> {
+  const licensed = new Set(attributed);
+  if ([...attributed].some(isJudgeFamily)) {
+    licensed.add(CORE_JUDGE).add(REFUTER);
+  }
+  return licensed;
+}
