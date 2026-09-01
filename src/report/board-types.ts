@@ -65,6 +65,12 @@ export interface BoardShot {
    * moment of its own: it is whatever that view rendered at the last capture.
    */
   at?: string;
+  /**
+   * Evidence-relative path of the shot's rendering-provenance sidecar, when
+   * one exists on disk. Advertised here rather than probed by the client,
+   * because a probe's 404 is a console error the ui gate rightly fails on.
+   */
+  provenance?: string;
 }
 
 /** One line in lookout's record of an issue. */

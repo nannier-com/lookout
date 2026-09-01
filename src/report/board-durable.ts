@@ -9,7 +9,7 @@
  * thirty-seven open findings showed "nothing dispatched yet" the moment
  * anything re-captured.
  */
-import { statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { evidenceDir } from "../config.js";
 import { frameServedPath, type Frame } from "../issues/frames.js";
@@ -19,6 +19,16 @@ import type { ClusterState } from "../fix/state.js";
 import type { FixCluster } from "../fix/cluster.js";
 import type { ResolvedConfig } from "../types.js";
 import type { BoardEntry, BoardShot, BoardStep, IssueStatus } from "./board-types.js";
+
+/**
+ * The read side of the sidecar convention: a shot's provenance file sits
+ * beside its PNG under the served path plus this suffix. The one place the
+ * naming lives outside capture/store.ts.
+ */
+function sidecarOf(evDir: string, servedPath: string): { provenance?: string } {
+  const rel = `${servedPath}.provenance.json`;
+  return existsSync(join(evDir, rel)) ? { provenance: rel } : {};
+}
 
 export function shotsOf(resolved: ResolvedConfig, c: FixCluster): BoardShot[] {
   const evDir = evidenceDir(resolved);
@@ -36,6 +46,7 @@ export function shotsOf(resolved: ResolvedConfig, c: FixCluster): BoardShot[] {
       formFactor: m.formFactor,
       scheme: m.scheme,
       state: m.state,
+      ...sidecarOf(evDir, ev.path),
     });
   }
   return out;
@@ -82,6 +93,7 @@ export function asBoardShot(resolved: ResolvedConfig, id: string, f: Frame): Boa
     scheme: f.scheme,
     ...(f.state ? { state: f.state } : {}),
     ...(f.at ? { at: f.at } : {}),
+    ...sidecarOf(evidenceDir(resolved), path),
   };
 }
 

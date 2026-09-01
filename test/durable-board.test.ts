@@ -192,6 +192,25 @@ describe("the board survives a truncated log", () => {
       join(evidenceDir(r), "web/app/dash/rest--desktop-dark.png"),
     );
   });
+
+  test("a shot advertises its provenance sidecar exactly when one sits beside the PNG", async () => {
+    // The client never probes: a probe's 404 is a console error the ui gate
+    // fails on, so presence is decided here, on disk.
+    const r = project();
+    writeBacklog(r, [finding()]);
+    const bare = (await buildBoard(r))[0]!;
+    expect(bare.shots[0]!.provenance).toBeUndefined();
+
+    mkdirSync(join(evidenceDir(r), "web/app/dash"), { recursive: true });
+    writeFileSync(
+      join(evidenceDir(r), "web/app/dash/rest--desktop-dark.png.provenance.json"),
+      JSON.stringify({ version: 1, elements: [] }),
+    );
+    const advertised = (await buildBoard(r))[0]!;
+    expect(advertised.shots[0]!.provenance).toBe(
+      "web/app/dash/rest--desktop-dark.png.provenance.json",
+    );
+  });
 });
 
 describe("the log only marks what is in flight", () => {
