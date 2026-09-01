@@ -29,8 +29,7 @@
  *   ui/page.ts       the page itself
  */
 import { createServer } from "node:http";
-import { join } from "node:path";
-import { loadConfig } from "../config.js";
+import { evidenceDir, loadConfig } from "../config.js";
 import { handle } from "../ui/routes.js";
 import { session, setCurrentProject } from "../ui/session.js";
 import { loadSettings } from "../ui/stored-settings.js";
@@ -86,7 +85,7 @@ export async function ui(parsed: Parsed): Promise<number> {
 
   const href = `http://127.0.0.1:${port}/`;
   console.log(`lookout ui: ${href}`);
-  console.log(`  watching ${join(resolved.projectDir, ".lookout", "evidence")}`);
+  console.log(`  watching ${evidenceDir(resolved)}`);
   console.log("  it reads the backlog, so it shows every open issue, run or no run.");
   console.log("  findings appear as they land, while `lookout check` is still going.");
   console.log("  Ctrl-C to stop.");
