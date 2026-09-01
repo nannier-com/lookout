@@ -74,19 +74,19 @@ function parseVersion(text: string, source: string): number {
   return Number(m[1]);
 }
 
-export async function loadRubric(resolved: ResolvedConfig): Promise<Rubric> {
-  const skill = await loadSkill(resolved, "visual-judge");
+/** Everything a composition needs, loaded once: core, panels, extensions, hand-off. */
+async function loadParts(resolved: ResolvedConfig): Promise<{
+  core: Awaited<ReturnType<typeof loadSkill>>;
+  panelSkills: Awaited<ReturnType<typeof loadSkill>>[];
+  extensions: string;
+  extVersion: number;
+  handoff: string;
+}> {
+  const core = await loadSkill(resolved, "visual-judge");
+  const panelSkills = await Promise.all(PANELS.map((p) => loadSkill(resolved, p.name)));
 
-  // The category vocabulary lives in the panel skills, one per specialist,
-  // each carrying its own amendment layer. Until the pipeline judges per
-  // panel, the core's {{panel}} slot takes their union, in registry order:
-  // today's rubric with the bullets regrouped.
-  const panels = await Promise.all(PANELS.map((p) => loadSkill(resolved, p.name)));
-  const panelText = panels.map((p) => p.text.trim()).join("\n");
-
-  let version = Math.max(skill.version, ...panels.map((p) => p.version));
   let extensions = "";
-
+  let extVersion = 0;
   // Hand-written project rules come after anything lookout learned on its own:
   // where the two disagree, the rule a person wrote is the one that stands.
   const { config, configPath } = resolved;
@@ -101,8 +101,7 @@ export async function loadRubric(resolved: ResolvedConfig): Promise<Rubric> {
       throw new LookoutError(`project rubric not found: ${extPath}`);
     }
     const ext = await readFile(extPath, "utf8");
-    const extVersion = ext.match(/rubricVersion:\s*(\d+)/) ? parseVersion(ext, extPath) : 0;
-    version = Math.max(version, extVersion);
+    extVersion = ext.match(/rubricVersion:\s*(\d+)/) ? parseVersion(ext, extPath) : 0;
     extensions += `\n\n# Project extension (${resolved.project})\n\n${ext}\n`;
   }
 
@@ -115,10 +114,41 @@ export async function loadRubric(resolved: ResolvedConfig): Promise<Rubric> {
 
   const handoffPath = join(shippedSkillDir("judge-design-parity"), "handoff.md");
   const handoff = existsSync(handoffPath) ? await readFile(handoffPath, "utf8") : "";
+  return { core, panelSkills, extensions, extVersion, handoff };
+}
 
+/**
+ * The whole rubric as one text: every panel's vocabulary in registry order.
+ * The pipeline judges per panel now; this union remains for callers that want
+ * the complete document (tests, and any prompt that reasons about the whole).
+ */
+export async function loadRubric(resolved: ResolvedConfig): Promise<Rubric> {
+  const { core, panelSkills, extensions, extVersion, handoff } = await loadParts(resolved);
+  const panelText = panelSkills.map((p) => p.text.trim()).join("\n");
+  const version = Math.max(core.version, extVersion, ...panelSkills.map((p) => p.version));
   // The skill says where project rules belong; filling it here keeps them in
   // the rubric rather than trailing the shot manifest. `{{handoff}}` is left
   // for the prompt builder, which is the only thing that knows whether this
   // batch has a design reference to compare against.
-  return { text: fillPlaceholders(skill.text, { panel: panelText, extensions }), version, handoff };
+  return { text: fillPlaceholders(core.text, { panel: panelText, extensions }), version, handoff };
+}
+
+/**
+ * One composed judge per panel: the shared core with only that panel's
+ * vocabulary in the {{panel}} slot. Project extensions and neverFile lines
+ * reach every panel (a hand-written rule may touch any lane; one a panel
+ * cannot act on is harmless prose). The hand-off text rides only with
+ * design-parity, so editing handoff.md invalidates only its entries.
+ */
+export async function loadJudges(resolved: ResolvedConfig): Promise<PanelRubric[]> {
+  const { core, panelSkills, extensions, extVersion, handoff } = await loadParts(resolved);
+  return PANELS.map((def, i) => {
+    const skill = panelSkills[i]!;
+    return {
+      def,
+      text: fillPlaceholders(core.text, { panel: skill.text.trim(), extensions }),
+      version: Math.max(core.version, skill.version, extVersion),
+      handoff: def.designOnly ? handoff : "",
+    };
+  });
 }

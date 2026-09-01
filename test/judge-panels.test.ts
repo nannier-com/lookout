@@ -9,7 +9,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadSkill } from "../src/skills/load.js";
-import { CATEGORIES, loadRubric } from "../src/judge/rubric.js";
+import { CATEGORIES, loadJudges, loadRubric } from "../src/judge/rubric.js";
 import { applicablePanels, isJudgeFamily, licensedSkills, panelOf, PANELS } from "../src/judge/panels.js";
 import { tmpProject } from "./tmp-project.js";
 import { LookoutError, type ResolvedConfig, type ShotRecord } from "../src/types.js";
@@ -124,6 +124,20 @@ describe("the composed rubric", () => {
   test("still finds the hand-off at its new home", async () => {
     const rubric = await loadRubric(project());
     expect(rubric.handoff).toContain("Comparing against a design hand-off");
+  });
+
+  test("each composed judge carries exactly its own vocabulary; only design-parity the hand-off", async () => {
+    const judges = await loadJudges(project());
+    expect(judges.map((j) => j.def.name)).toEqual(PANELS.map((p) => p.name));
+    for (const j of judges) {
+      expect(bulletsOf(vocabularySection(j.text)).sort()).toEqual([...j.def.categories].sort());
+      // The shared core travels whole: the severity ladder and the output
+      // contract reach every specialist.
+      expect(j.text).toContain("## Severity ladder");
+      expect(j.text).toContain("## Output contract");
+      if (j.def.designOnly) expect(j.handoff).toContain("Comparing against a design hand-off");
+      else expect(j.handoff).toBe("");
+    }
   });
 
   test("a panel amendment lands inside the vocabulary and raises the version", async () => {

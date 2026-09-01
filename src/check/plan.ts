@@ -13,8 +13,7 @@
  * an automatic fix loop must never see.
  */
 import { groupShots, type PriorFinding } from "../judge/engine.js";
-import { loadRubric, type PanelRubric } from "../judge/rubric.js";
-import { CATEGORIES } from "../judge/rubric.js";
+import { loadJudges, type PanelRubric } from "../judge/rubric.js";
 import { loadSkill, type Skill } from "../skills/load.js";
 import {
   groupHash,
@@ -92,25 +91,12 @@ export async function planJudging(
   /** Overridable so tests can exercise multi-panel partitions before the flip. */
   judges?: PanelRubric[],
 ): Promise<JudgePlan> {
-  // 3. Skills + cache partition. Both AI passes are loaded once per run: a
+  // 3. Skills + cache partition. Every AI pass is loaded once per run: a
   // skill amended mid-run would judge two batches by two different rules.
-  const rubric = await loadRubric(resolved);
   const refute = await loadSkill(resolved, "refute-finding");
   const model = str(parsed.flags.model) ?? "sonnet";
   const ledger = await loadLedger(resolved);
-
-  // Until the pipeline judges one panel at a time, the whole composed rubric
-  // rides as a single transitional panel named "all": the six specialist
-  // skills exist and compose it, and the machinery below already works per
-  // (group x panel), so the flip to the real registry is a data change here.
-  const allPanels: PanelRubric[] = judges ?? [
-    {
-      def: { name: "all", categories: CATEGORIES },
-      text: rubric.text,
-      version: rubric.version,
-      handoff: rubric.handoff,
-    },
-  ];
+  const allPanels: PanelRubric[] = judges ?? (await loadJudges(resolved));
   // --panels narrows which panels JUDGE; every applicable panel still serves
   // its cached verdicts below, which is how a scoped verify-fix keeps the
   // other panels' standing findings visible while paying for one.

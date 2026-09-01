@@ -5,7 +5,7 @@
 // judges without hiding whose verdicts are cached, and a repair to one
 // panel's entry never evicts a sibling's cached findings.
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { judgeInBatches } from "../src/check/batches.js";
 import { recordOutcome } from "../src/check/outcome.js";
@@ -14,7 +14,7 @@ import { reverifyCached } from "../src/check/reverify.js";
 import { evidenceDir } from "../src/config.js";
 import { groupHash, ledgerKey, panelIdentity, saveLedger, loadLedger, type PanelIdentity } from "../src/judge/ledger.js";
 import { viewGroupId } from "../src/judge/grouping.js";
-import type { PanelRubric } from "../src/judge/rubric.js";
+import { loadJudges, type PanelRubric } from "../src/judge/rubric.js";
 import { loadSkill } from "../src/skills/load.js";
 import type { VerifiedFinding } from "../src/judge/verify.js";
 import { tmpProject } from "./tmp-project.js";
@@ -310,6 +310,55 @@ describe("the plan partition", () => {
     await expect(
       planJudging(r, [s], { positionals: [], flags: { panels: "nope" } }, [a, b]),
     ).rejects.toThrow(LookoutError);
+  });
+});
+
+describe("the shipped registry, end to end", () => {
+  test("a plain group owes five calls, a design-bearing one six", async () => {
+    const r = project();
+    const plain = shot("web/app/home/rest/desktop/light");
+    const plan = await planJudging(r, [plain], { positionals: [], flags: {} });
+    expect(plan.toJudge.map((w) => w.panel.def.name).sort()).toEqual([
+      "judge-craft",
+      "judge-geometry",
+      "judge-integrity",
+      "judge-text",
+      "judge-visibility",
+    ]);
+    const design = { ...shot("web/app/hero/rest/desktop/light"), design: "/m.png" };
+    const plan2 = await planJudging(r, [design], { positionals: [], flags: {} });
+    expect(plan2.toJudge).toHaveLength(6);
+    expect(plan2.toJudge.map((w) => w.panel.def.name)).toContain("judge-design-parity");
+  });
+
+  test("amending one panel re-judges only that panel", async () => {
+    const r = project();
+    const s = shot("web/app/home/rest/desktop/light");
+    const judges = await loadJudges(r);
+    const ledger = await loadLedger(r);
+    for (const j of judges.filter((x) => !x.def.designOnly)) {
+      ledger.entries[ledgerKey(groupHash([s]), identityOf(j))] = {
+        verdict: "clean",
+        panel: j.def.name,
+        shotIds: [s.id],
+        judgedAt: "t",
+        runId: "old",
+      };
+    }
+    await saveLedger(r, ledger);
+    const before = await planJudging(r, [s], { positionals: [], flags: {} });
+    expect(before.toJudge).toHaveLength(0);
+    expect(before.cached).toBe(1);
+
+    // A learned amendment to one specialist moves only its prompt hash.
+    const dir = join(r.projectDir, ".lookout", "skills", "judge-craft");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "SKILL.md"),
+      "---\nname: judge-craft\nversion: 2\n---\n\n- The hero is deliberately loud.\n",
+    );
+    const after = await planJudging(r, [s], { positionals: [], flags: {} });
+    expect(after.toJudge.map((w) => w.panel.def.name)).toEqual(["judge-craft"]);
   });
 });
 

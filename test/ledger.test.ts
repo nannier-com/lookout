@@ -171,30 +171,33 @@ describe("pruning unreachable entries", () => {
 });
 
 describe("the cache partition serves animated groups", () => {
-  test("an animated group with a matching entry is served, not re-judged forever", async () => {
+  test("an animated group with matching entries is served, not re-judged forever", async () => {
     const { planJudging } = await import("../src/check/plan.js");
-    const { loadRubric } = await import("../src/judge/rubric.js");
+    const { loadJudges } = await import("../src/judge/rubric.js");
     const { loadSkill } = await import("../src/skills/load.js");
     const r = tmpProject("lookout-plan-animated-");
-    const rubric = await loadRubric(r);
+    const judges = await loadJudges(r);
     const refute = await loadSkill(r, "refute-finding");
-    const id = panelIdentity({
-      panel: "all",
-      version: rubric.version,
-      panelText: rubric.text,
-      refuteText: refute.text,
-      handoffText: rubric.handoff,
-      model: "sonnet",
-    });
     const moving = shot({ animated: true });
     const ledger = await loadLedger(r);
-    ledger.entries[ledgerKey(groupHash([moving]), id)] = {
-      verdict: "clean",
-      panel: "all",
-      shotIds: [moving.id],
-      judgedAt: "t",
-      runId: "old",
-    };
+    // Every panel that would judge a designless group holds a verdict.
+    for (const j of judges.filter((x) => !x.def.designOnly)) {
+      const id = panelIdentity({
+        panel: j.def.name,
+        version: j.version,
+        panelText: j.text,
+        refuteText: refute.text,
+        handoffText: j.handoff,
+        model: "sonnet",
+      });
+      ledger.entries[ledgerKey(groupHash([moving]), id)] = {
+        verdict: "clean",
+        panel: j.def.name,
+        shotIds: [moving.id],
+        judgedAt: "t",
+        runId: "old",
+      };
+    }
     await saveLedger(r, ledger);
 
     const plan = await planJudging(r, [moving], { positionals: [], flags: {} });
@@ -206,32 +209,34 @@ describe("the cache partition serves animated groups", () => {
 describe("--no-cache", () => {
   test("reads nothing and re-judges, without discarding the rest of the ledger", async () => {
     const { planJudging } = await import("../src/check/plan.js");
-    const { loadRubric } = await import("../src/judge/rubric.js");
+    const { loadJudges } = await import("../src/judge/rubric.js");
     const { loadSkill } = await import("../src/skills/load.js");
     const r = tmpProject("lookout-plan-nocache-");
-    const rubric = await loadRubric(r);
+    const judges = await loadJudges(r);
     const refute = await loadSkill(r, "refute-finding");
+    const first = judges[0]!;
     const id = panelIdentity({
-      panel: "all",
-      version: rubric.version,
-      panelText: rubric.text,
+      panel: first.def.name,
+      version: first.version,
+      panelText: first.text,
       refuteText: refute.text,
-      handoffText: rubric.handoff,
+      handoffText: first.handoff,
       model: "sonnet",
     });
     const s = shot();
     const ledger = await loadLedger(r);
     ledger.entries[ledgerKey(groupHash([s]), id)] = {
-      verdict: "clean", panel: "all", shotIds: [s.id], judgedAt: "t", runId: "old",
+      verdict: "clean", panel: first.def.name, shotIds: [s.id], judgedAt: "t", runId: "old",
     };
     ledger.entries[ledgerKey("otherhash", id)] = {
-      verdict: "clean", panel: "all", shotIds: ["x"], judgedAt: "t", runId: "old",
+      verdict: "clean", panel: first.def.name, shotIds: ["x"], judgedAt: "t", runId: "old",
     };
     await saveLedger(r, ledger);
 
     const plan = await planJudging(r, [s], { positionals: [], flags: { "no-cache": true } });
     expect(plan.cached).toBe(0);
-    expect(plan.toJudge).toHaveLength(1);
+    // Every panel a designless group answers to owes a call: nothing served.
+    expect(plan.toJudge).toHaveLength(judges.filter((x) => !x.def.designOnly).length);
     // The unrelated entry survives in the object a later save writes back.
     expect(plan.ledger.entries[ledgerKey("otherhash", id)]).toBeDefined();
   });

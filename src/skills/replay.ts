@@ -19,7 +19,7 @@
  * such aid; the replay holds every candidate to the same conditions.
  */
 import { batchShots, judgeBatch, type AiFinding } from "../judge/engine.js";
-import { loadRubric } from "../judge/rubric.js";
+import { loadJudges } from "../judge/rubric.js";
 import { verifyFindings } from "../judge/verify.js";
 import { loadSkill } from "./load.js";
 import {
@@ -80,25 +80,42 @@ export async function replayRegression(
   }
   const dir = regressionDir(resolved);
   const shots = casesAsShots(usable);
-  const rubric = await loadRubric(resolved);
   const refute = await loadSkill(resolved, "refute-finding");
+
+  // The panels that own at least one frozen claim. An unclaimed panel's
+  // silence is ungradeable, and post-lane-enforcement no other panel can file
+  // (or re-file) a category it does not own, so a claim's category names the
+  // only panel whose behavior can move its verdict. design-parity never
+  // replays: frozen cases carry no design reference for it to judge against.
+  const claimed = new Set(
+    usable.cases.flatMap((c) => [...c.mustFile, ...c.mustNotFile].map((cl) => cl.category)),
+  );
+  const active = (await loadJudges(resolved)).filter(
+    (j) => !j.def.designOnly && j.def.categories.some((c) => claimed.has(c)),
+  );
 
   let costUsd = 0;
   const shotsById = new Map(shots.map((s) => [s.id, s]));
   const findings: AiFinding[] = [];
   for (const batch of batchShots(shots)) {
-    const res = await judgeBatch(rubric.text, resolved.project, batch, dir, model, {
-      handoff: rubric.handoff,
-    });
-    costUsd += res.costUsd ?? 0;
-    if (res.findings.length === 0) continue;
-    // The pipeline as it actually runs: one refuter call per view-group batch,
-    // holding only that batch's findings, so an amendment to refute-finding is
-    // graded against the same context window production will give it. Unlike
-    // production there is no catch here: a refuter that cannot run means the
-    // gate cannot grade, and amend.ts answers that by rolling the candidate
-    // back rather than counting unrefuted findings as a verdict.
-    const verified = await verifyFindings(refute.text, res.findings, shotsById, dir, model);
+    const fresh: AiFinding[] = [];
+    for (const judge of active) {
+      const res = await judgeBatch(judge.text, resolved.project, batch, dir, model, {
+        handoff: judge.handoff,
+        panel: { name: judge.def.name, categories: judge.def.categories },
+      });
+      costUsd += res.costUsd ?? 0;
+      fresh.push(...res.findings);
+    }
+    if (fresh.length === 0) continue;
+    // The pipeline as it actually runs: every panel judges the batch, then one
+    // pooled refuter call holds the batch's whole union, so an amendment to
+    // refute-finding is graded against the same context window production
+    // gives it. Unlike production there is no catch here: a refuter that
+    // cannot run means the gate cannot grade, and amend.ts answers that by
+    // rolling the candidate back rather than counting unrefuted findings as a
+    // verdict.
+    const verified = await verifyFindings(refute.text, fresh, shotsById, dir, model);
     costUsd += verified.costUsd ?? 0;
     findings.push(...verified.confirmed);
   }
