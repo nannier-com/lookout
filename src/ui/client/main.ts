@@ -22,7 +22,7 @@ import { connected, listen } from "./stream.js";
 import { addNarration } from "./transcript.js";
 import { archive, chooseTool, launch, loadTools } from "./tools.js";
 import { onRefresh, page, type Filter } from "./state.js";
-import { closeShot, openShot, shotOpen } from "./shot-view.js";
+import { closeShot, openShot, shotBackdrop, shotOpen } from "./shot-view.js";
 import type { ProjectView } from "../project.js";
 import type { NarrationFrame } from "../narration.js";
 import type { StatusPayload } from "../payload.js";
@@ -98,6 +98,9 @@ document.addEventListener("click", (e) => {
     return;
   }
   if (hit(e, "#svClose")) { closeShot(); return; }
+  // Clicking the scrim beside the picture closes it too, because that is the
+  // gesture people reach for before they look for a button.
+  if (shotOpen() && shotBackdrop(e)) { closeShot(); return; }
   // A plain click on a shot tile opens the inspector; modified clicks keep
   // the anchor's own behavior, so cmd-click still opens the raw PNG.
   const shotTile = hit(e, "a.tile");

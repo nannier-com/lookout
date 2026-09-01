@@ -11,18 +11,27 @@
   white-space:nowrap}
 .svtop .spacer{flex:1}
 #svRaw{color:var(--accent);font-size:12px;white-space:nowrap}
-#svClose{background:none;border:1px solid var(--line);border-radius:4px;
-  color:var(--ink);font-size:15px;line-height:1;padding:4px 9px;cursor:pointer}
-#svClose:hover{background:var(--sunk)}
+/* Named, not a bare glyph: a lone cross in the corner of a near-black bar is
+   what people miss, and missing it leaves them stuck in the overlay. */
+#svClose{display:inline-flex;align-items:center;gap:6px;background:var(--sunk);
+  border:1px solid var(--line);border-radius:4px;color:var(--ink);
+  font:inherit;font-size:12px;line-height:1;padding:6px 10px;cursor:pointer}
+#svClose i{font-style:normal;font-size:15px;line-height:1}
+#svClose:hover{background:var(--line)}
 #svClose:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* The scrim closes on click, so it says so with the cursor; the picture and
+   its boxes keep theirs. */
 .svbody{flex:1;overflow:auto;padding:20px;display:flex;justify-content:center;
-  align-items:flex-start}
-.svstage{position:relative;width:min(1100px,100%)}
+  align-items:flex-start;cursor:zoom-out}
+.svstage{position:relative;width:min(1100px,100%);cursor:default}
 #svImg{display:block;width:100%;height:auto;border:1px solid var(--line);
   border-radius:4px;background:#fff}
-.svboxes{position:absolute;inset:0}
+/* The boxes layer covers the whole picture, so it must be transparent to
+   clicks: only the boxes themselves take them, and a click that lands between
+   them reaches the picture instead of being swallowed. */
+.svboxes{position:absolute;inset:0;pointer-events:none}
 .svbox{position:absolute;border:1px solid var(--accent);background:transparent;
-  padding:0;cursor:pointer;border-radius:2px}
+  padding:0;cursor:pointer;border-radius:2px;pointer-events:auto}
 .svbox:hover,.svbox:focus-visible,.svbox.sel{
   background:color-mix(in srgb,var(--accent) 15%,transparent);outline:none}
 .svbox.sel{border-width:2px}

@@ -66,6 +66,19 @@ export function shotOpen(): boolean {
   return !el("shotview").hidden;
 }
 
+/**
+ * Whether a click landed on the scrim rather than on the picture or a control.
+ *
+ * Clicking beside the image is the first thing anyone tries, and the overlay
+ * used to ignore it: the only ways out were Escape and a small glyph in the
+ * corner, which is how somebody ends up stuck looking at a screenshot. The
+ * stage is exactly as wide and tall as the image, so a click that reached the
+ * body itself is a click that missed the picture on purpose.
+ */
+export function shotBackdrop(e: Event): boolean {
+  return e.target === el("svBody") || e.target === el("shotview");
+}
+
 export function openShot(tile: HTMLElement): void {
   const path = tile.dataset.shot;
   if (!path) return;
