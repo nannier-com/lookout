@@ -94,15 +94,48 @@ export function dur(ms: number): string {
 }
 
 /**
+ * How long ago something happened, said the way a person says it.
+ *
+ * Separate from `dur`, because the two answer different questions. A run's
+ * clock is a live measurement and its seconds are the whole point: watching
+ * `3m20s` become `3m21s` is how a reader can tell the run has not hung. An age
+ * is a statement about the past, and rendering one to the second turns "this
+ * screenshot is about an hour old" into a stopwatch that appears to be timing
+ * the reader. Every card on the board carries one, so sixty of them counted up
+ * in unison while nothing at all was happening, which is what they were read
+ * as: a clock running against the person who had not fixed the issue yet.
+ *
+ * It also carries the word the number was missing. `seen 41m17s` can be read as
+ * "seen for 41 minutes"; `seen 41m ago` cannot.
+ */
+export function age(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return "just now";
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + "m ago";
+  const h = Math.floor(m / 60);
+  if (h < 48) return h + "h ago";
+  return Math.floor(h / 24) + "d ago";
+}
+
+/**
  * Advance every clock on the page.
  *
  * The server sends timestamps, not durations, because a duration is stale the
  * moment it is serialised. Anything carrying `data-since` renders itself from
- * the current time here, once a second, without another request.
+ * the current time here, once a second, without another request. `data-age`
+ * says the timestamp is a moment in the past rather than the start of
+ * something still going, which is the difference between the two formatters
+ * above.
  */
 export function ticks(): void {
   for (const n of document.querySelectorAll<HTMLElement>("[data-since]")) {
     const to = n.dataset.until ? Date.parse(n.dataset.until) : Date.now();
-    n.textContent = (n.dataset.prefix || "") + dur(to - Date.parse(n.dataset.since ?? ""));
+    const elapsed = to - Date.parse(n.dataset.since ?? "");
+    const text = (n.dataset.prefix || "") + (n.dataset.age === undefined ? dur(elapsed) : age(elapsed));
+    // Written only when it says something different. An age reads the same for
+    // a whole minute, and replacing sixty text nodes a second to paint the
+    // characters that were already there is work nobody asked for.
+    if (n.textContent !== text) n.textContent = text;
   }
 }

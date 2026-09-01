@@ -273,11 +273,25 @@ function docLink(b: BoardEntry): string {
     + ' rel="noreferrer noopener" title="' + esc(b.doc) + '">' + page + 'Issue.md</a>';
 }
 
+/**
+ * The moment behind the age, for a hover.
+ *
+ * The chip answers "is this stale" and nothing else, and the reader who wants
+ * "stale since when" had no way to ask. It is the capture's own clock: an issue
+ * is only as current as the last screenshot it was filed against, and that is
+ * what re-dates the chip, not anything done to the code.
+ */
+function seenTitle(iso: string): string {
+  const t = new Date(iso);
+  return "last captured " + (Number.isNaN(t.getTime()) ? iso : t.toLocaleString());
+}
+
 export function card(b: BoardEntry): string {
   const routes = b.routes.map((r) => '<span class="chip">' + esc(r) + '</span>').join("");
   const attempt = b.attempt ? '<span class="chip">attempt ' + esc(b.attempt) + '</span>' : "";
   const seen = b.lastSeenAt
-    ? '<span class="tick" data-since="' + esc(b.lastSeenAt) + '" data-prefix="seen ">\u2014</span>'
+    ? '<span class="tick" data-age data-since="' + esc(b.lastSeenAt) + '" data-prefix="seen "'
+      + ' title="' + esc(seenTitle(b.lastSeenAt)) + '">\u2014</span>'
     : '<span class="tick faint">no evidence on disk</span>';
   const judge = b.judgeNote ? '<div class="note"><b>judge:</b> ' + esc(b.judgeNote) + '</div>' : "";
   return '<article class="card ' + esc(b.status) + '">'
