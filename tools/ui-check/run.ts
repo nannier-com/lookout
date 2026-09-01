@@ -85,6 +85,12 @@ async function shots(label: string): Promise<void> {
   await view(browser, out, "learning-dark", "dark", 1440, 950, (p) => p.click('[data-view="learning"]'), problems);
   await view(browser, out, "learning-light", "light", 1440, 950, (p) => p.click('[data-view="learning"]'), problems);
   await view(browser, out, "learning-narrow", "dark", 430, 900, (p) => p.click('[data-view="learning"]'), problems);
+  // The shot inspector, opened on the first tile. Deterministic because the
+  // hint is painted on open and hover is never involved.
+  const openTile = (p: Page): Promise<void> => p.click("a.tile[data-shot]");
+  await view(browser, out, "shot-overlay-dark", "dark", 1440, 950, openTile, problems);
+  await view(browser, out, "shot-overlay-light", "light", 1440, 950, openTile, problems);
+  await view(browser, out, "shot-overlay-narrow", "dark", 430, 900, openTile, problems);
   await browser.close();
   console.log(`${label}: ${readdirSync(out).filter((n) => n.endsWith(".png")).length} views in ${out}`);
   console.log(problems.length ? `PROBLEMS:\n${problems.join("\n")}` : "no page or console errors");
@@ -227,6 +233,28 @@ async function drive(): Promise<number> {
   await page.click('[data-view="issues"]');
   await page.waitForTimeout(600);
   check("issues area comes back", await page.locator("#viewIssues").isVisible());
+
+  // The shot inspector: a plain click on any tile opens the lightbox instead
+  // of navigating; a modified click keeps the anchor's own behavior.
+  const firstTile = page.locator("a.tile[data-shot]").first();
+  check("tiles carry the inspector's data", (await page.locator("a.tile[data-shot]").count()) > 0);
+  check("tiles keep their evidence href", ((await firstTile.getAttribute("href")) ?? "").startsWith("/evidence/"));
+  await firstTile.click();
+  await page.waitForTimeout(600);
+  check("clicking a tile opens the inspector", await page.locator("#shotview").isVisible());
+  check(
+    "the inspector loads the full image",
+    await page.locator("#svImg").evaluate((n) => (n as HTMLImageElement).naturalWidth > 0),
+  );
+  check(
+    "a shot without provenance says so",
+    ((await page.locator("#svHint").textContent()) ?? "").includes("no provenance recorded"),
+  );
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(400);
+  check("escape closes the inspector", !(await page.locator("#shotview").isVisible()));
+  check("closing it does not disturb the board", (await shown()).join() === before.join());
+  check("and does not set a filter", !(await page.locator("#filterbar").isVisible()));
 
   console.log(problems.length ? `\nPROBLEMS:\n${problems.join("\n")}` : "\nno page or console errors");
   await browser.close();

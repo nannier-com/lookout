@@ -15,6 +15,7 @@ import { paintRail, paintWhere, paintPlay, say, setView } from "./shell.js";
 import { loadConfigState, saveConfigState, toggleSettings } from "./settings.js";
 import { archive, chooseTool, launch, loadTools, paintToggle } from "./tools.js";
 import { onRefresh, page, type Filter } from "./state.js";
+import { closeShot, openShot, shotOpen } from "./shot-view.js";
 import { hit } from "./dom.js";
 import type { ProjectView } from "../project.js";
 import type { StatusPayload } from "../payload.js";
@@ -120,7 +121,8 @@ async function tick(): Promise<void> {
   // criterion without changing anything else is exactly the moment the card
   // has to repaint, and leaving them out left it showing the old marks.
   const sig = JSON.stringify([page.filter, issues.map((b) => [b.id, b.status, b.attempt, b.verdict,
-    b.shots.length, (b.before || []).length, (b.after || []).length,
+    b.shots.length, b.shots.filter((s) => s.provenance).length,
+    (b.before || []).length, (b.after || []).length,
     b.lastSeenAt, (b.timeline || []).length, b.fix && b.fix.commit,
     b.archived && b.archived.reason,
     (b.acceptance || []).map((c) => c.id + c.verdict).join()])]);
@@ -194,6 +196,16 @@ document.addEventListener("click", (e) => {
     setFilter(page.filter.kind, page.filter.value, page.filter.label);
     return;
   }
+  if (hit(e, "#svClose")) { closeShot(); return; }
+  // A plain click on a shot tile opens the inspector; modified clicks keep
+  // the anchor's own behavior, so cmd-click still opens the raw PNG.
+  const shotTile = hit(e, "a.tile");
+  if (shotTile?.dataset.shot && e instanceof MouseEvent
+      && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && e.button === 0) {
+    e.preventDefault();
+    openShot(shotTile);
+    return;
+  }
   const area = hit(e, "[data-view]");
   if (area?.dataset.view) { setView(area.dataset.view); return; }
   const swap = hit(e, "[data-tool]");
@@ -235,7 +247,11 @@ document.addEventListener("click", (e) => {
 });
 
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && page.filter) setFilter(page.filter.kind, page.filter.value, page.filter.label);
+  if (e.key !== "Escape") return;
+  // The inspector claims Escape first: closing an overlay somebody is looking
+  // at must never silently clear their filter underneath it.
+  if (shotOpen()) { closeShot(); return; }
+  if (page.filter) setFilter(page.filter.kind, page.filter.value, page.filter.label);
 });
 // Tools first: the launch buttons are labelled with the chosen one, and a board
 // painted before the list arrives says "open in your editor".

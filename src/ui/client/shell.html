@@ -5,6 +5,7 @@
 <link rel="stylesheet" href="/ui/shell.css"/>
 <link rel="stylesheet" href="/ui/board.css"/>
 <link rel="stylesheet" href="/ui/learning.css"/>
+<link rel="stylesheet" href="/ui/shot-view.css"/>
 </head><body>
 <nav class="rail" aria-label="Areas">
   <button type="button" class="railb" data-view="issues" aria-current="page"
@@ -92,5 +93,20 @@
 </section>
 
 </main>
+<div class="shotview" id="shotview" role="dialog" aria-modal="true" aria-labelledby="svTitle" hidden>
+  <div class="svtop">
+    <span id="svTitle"></span>
+    <span class="spacer"></span>
+    <a id="svRaw" target="_blank" rel="noopener">open PNG</a>
+    <button type="button" id="svClose" aria-label="Close the shot inspector">&#215;</button>
+  </div>
+  <div class="svbody" id="svBody">
+    <div class="svstage" id="svStage">
+      <img id="svImg" alt=""/>
+      <div class="svboxes" id="svBoxes"></div>
+    </div>
+  </div>
+  <div class="svhint" id="svHint"></div>
+</div>
 <script type="module" src="/ui/main.js"></script>
 </body></html>

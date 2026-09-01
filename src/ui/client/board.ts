@@ -10,8 +10,17 @@ import { enc, esc } from "./dom.js";
 import { toolLabel, toolMark } from "./tools.js";
 import type { BoardEntry, BoardShot } from "../../report/board.js";
 
+/** The inspector's handle on a tile: which shot, which sidecar, what to call it. */
+function shotData(s: BoardShot): string {
+  const label = [s.route, s.formFactor, s.scheme, s.state].filter(Boolean).join(" \u00b7 ");
+  return ' data-shot="' + esc(s.path) + '" data-label="' + esc(label) + '"'
+    + (s.provenance ? ' data-prov="' + esc(s.provenance) + '"' : "");
+}
+
 function tile(s: BoardShot, w: number): string {
-  return '<a class="tile" href="/evidence/' + enc(s.path) + '" target="_blank" title="' + esc(s.absPath) + '">'
+  const hint = s.provenance ? "\nclick to inspect where each element comes from" : "";
+  return '<a class="tile" href="/evidence/' + enc(s.path) + '" target="_blank"'
+    + ' title="' + esc(s.absPath + hint) + '"' + shotData(s) + '>'
     + '<img loading="lazy" src="/thumb/' + enc(s.path) + '?w=' + w + '" alt=""/>'
     + '<span>' + esc([s.formFactor, s.scheme].filter(Boolean).join(" \u00b7 ") || s.route) + '</span></a>';
 }
@@ -55,7 +64,8 @@ function fixStrip(b: BoardEntry): string {
 
   const half = (s: BoardShot | null, side: string): string => s
     ? '<a class="tile side ' + side + '" href="/evidence/' + enc(s.path) + '" target="_blank"'
-      + ' title="' + esc(s.absPath + (s.at ? "\nfrozen " + s.at.slice(0, 10) : "")) + '">'
+      + ' title="' + esc(s.absPath + (s.at ? "\nfrozen " + s.at.slice(0, 10) : "")) + '"'
+      + shotData(s) + '>'
       + '<img loading="lazy" src="/thumb/' + enc(s.path) + '?w=264" alt=""/>'
       + '<b>' + side + '-fix</b></a>'
     : '<div class="missing">' + esc(absent(side)) + '</div>';
