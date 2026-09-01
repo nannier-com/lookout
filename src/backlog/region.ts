@@ -40,3 +40,33 @@ export function isShellRegion(region: Region | undefined): boolean {
 export function parseRegion(value: unknown): Region | undefined {
   return (REGIONS as readonly string[]).includes(value as string) ? (value as Region) : undefined;
 }
+
+/**
+ * The shell region an axe violation lives in, read off the selector paths of
+ * the violating nodes, or undefined when the ancestry does not say.
+ *
+ * Deliberately conservative, because this feeds identity and there is no
+ * judge on this channel to overrule it. It fires only when the reported
+ * selectors are the WHOLE violation (axe keeps at most three, so more nodes
+ * means these are a sample), when every path carries an unambiguous chrome
+ * landmark, as an element or an explicit role, and when they all agree on
+ * which. Class names are never consulted: `.navbar` is project vocabulary,
+ * and matching on it would be guessing.
+ */
+export function regionFromSelectors(targets: string[], nodeCount: number): Region | undefined {
+  if (nodeCount <= 0 || nodeCount > 3 || targets.length === 0) return undefined;
+  const one = (sel: string): Region | undefined => {
+    // An element token bounded by combinators, or start/end, optionally with
+    // pseudo/attribute/id suffixes; never inside a class or another word.
+    const el = (name: string): boolean =>
+      new RegExp(`(^|[\\s>+~])${name}([\\s>+~.:#[]|$)`).test(sel);
+    const picks: Region[] = [];
+    if (el("nav") || sel.includes('[role="navigation"]')) picks.push("shell-nav");
+    if (el("header") || sel.includes('[role="banner"]')) picks.push("shell-header");
+    if (el("footer") || sel.includes('[role="contentinfo"]')) picks.push("shell-footer");
+    return picks.length === 1 ? picks[0] : undefined;
+  };
+  const first = one(targets[0]!);
+  if (first === undefined) return undefined;
+  return targets.every((t) => one(t) === first) ? first : undefined;
+}

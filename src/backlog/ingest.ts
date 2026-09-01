@@ -8,6 +8,7 @@
  * the fingerprint means the same thing whichever channel produced it.
  */
 import { fingerprintOf, sourceFingerprintOf } from "./fingerprint.js";
+import { regionFromSelectors } from "./region.js";
 import type { AiFinding } from "../judge/engine.js";
 import type { HandRoll } from "../design/inventory.js";
 import type { Category } from "../judge/rubric.js";
@@ -69,7 +70,10 @@ export function wasPhotographed(f: BacklogFinding): f is PhotographedFinding {
 }
 
 /** Deterministic findings from a capture report, as backlog-shaped findings. */
-export function deterministicToFindings(report: CaptureReport): Omit<BacklogFinding, "firstSeen" | "lastSeen" | "status" | "reason" | "fixAttempts" | "fixedIn">[] {
+export function deterministicToFindings(
+  report: CaptureReport,
+  opts: { shellIdentity?: boolean } = {},
+): Omit<BacklogFinding, "firstSeen" | "lastSeen" | "status" | "reason" | "fixAttempts" | "fixedIn">[] {
   const out: ReturnType<typeof deterministicToFindings> = [];
   for (const shot of report.shots) {
     for (const df of shot.deterministicFindings) {
@@ -80,14 +84,30 @@ export function deterministicToFindings(report: CaptureReport): Omit<BacklogFind
         df.type === "axe-violation" && df.meta && typeof df.meta.ruleId === "string"
           ? `axe-${df.meta.ruleId}`
           : map.attribute;
+      // There is no judge on this channel, but axe reports the violating
+      // nodes' selector paths, and a node literally inside <nav>, <header> or
+      // <footer> is chrome by the only definition capture can check.
+      const region =
+        df.type === "axe-violation" && df.meta && Array.isArray(df.meta.targets)
+          ? regionFromSelectors(
+              (df.meta.targets as unknown[]).filter((t): t is string => typeof t === "string"),
+              typeof df.meta.nodeCount === "number" ? df.meta.nodeCount : 0,
+            )
+          : undefined;
       out.push({
-        fingerprint: fingerprintOf({ ...shot, category: map.category, attribute }),
+        fingerprint: fingerprintOf({
+          ...shot,
+          category: map.category,
+          attribute,
+          region: opts.shellIdentity ? region : undefined,
+        }),
         target: shot.target,
         route: shot.route,
         state: shot.state,
         platform: shot.platform,
         formFactor: shot.formFactor,
         scheme: shot.scheme,
+        region,
         category: map.category,
         attribute,
         severity: severityFromDeterministic(df),

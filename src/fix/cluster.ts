@@ -18,6 +18,7 @@
  * message never moves.
  */
 import type { BacklogFinding, FindingStatus } from "../backlog/lib.js";
+import { isShellRegion } from "../backlog/region.js";
 import { routeSlug } from "../capture/store.js";
 import { LookoutError, type Severity } from "../types.js";
 import type { Category } from "../judge/rubric.js";
@@ -63,18 +64,41 @@ export function slug(s: string): string {
     .slice(0, 60);
 }
 
-export function clusterKeyOf(
-  f: Pick<BacklogFinding, "target" | "category" | "attribute" | "channel" | "route">,
-): string {
+type ClusterKeyAxes = Pick<BacklogFinding, "target" | "category" | "attribute" | "channel" | "route"> & {
+  region?: BacklogFinding["region"];
+};
+
+export function clusterKeyOf(f: ClusterKeyAxes): string {
   // Deterministic accessibility findings are keyed by axe rule id, which names
   // the rule that fired rather than the thing that is wrong. One malformed
   // composite widget trips three or four rules at once, so keying on the rule
   // would aim that many fix sessions at a single component and have them
   // collide in the same files. Co-located a11y violations share a cause far
-  // more often than one rule spans routes, so group them by route instead.
+  // more often than one rule spans routes, so group them by locus: the route
+  // was always a proxy for co-location, and for a violation inside the app's
+  // persistent chrome the region is the same proxy one level finer. Without
+  // it, one malformed nav landmark was thirteen issues with thirteen ids.
   if (f.channel === "deterministic" && f.category === "a11y") {
+    const locus = isShellRegion(f.region) ? f.region! : routeSlug(f.route);
+    return `${slug(f.target)}--${slug(locus)}--a11y`;
+  }
+  return clusterKeyRest(f);
+}
+
+/**
+ * The key a finding clustered under before regions existed, or null when the
+ * new rules derive the same key. Frozen on purpose: issue-id succession
+ * compares against this, and editing it retroactively re-answers which old
+ * issue a new key descends from.
+ */
+export function priorClusterKeyOf(f: ClusterKeyAxes): string | null {
+  if (f.channel === "deterministic" && f.category === "a11y" && isShellRegion(f.region)) {
     return `${slug(f.target)}--${slug(routeSlug(f.route))}--a11y`;
   }
+  return null;
+}
+
+function clusterKeyRest(f: ClusterKeyAxes): string {
   // Source findings cluster per FILE. The shared axes that make one cluster one
   // root cause do not hold here: two hand-rolled controls in two different
   // files are two separate pieces of work, in two separate places, and grouping

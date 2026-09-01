@@ -128,10 +128,13 @@ export async function mergeLatest(
 
   // 1. Deterministic findings: free, every run, only from the latest run's shots.
   const latestShots = new Set(report.shots.filter((s) => s.runId === latestRun.id).map((s) => s.id));
-  const det = deterministicToFindings({
-    ...report,
-    shots: report.shots.filter((s) => latestShots.has(s.id)),
-  });
+  const det = deterministicToFindings(
+    {
+      ...report,
+      shots: report.shots.filter((s) => latestShots.has(s.id)),
+    },
+    { shellIdentity: resolved.config.shellScoping === true },
+  );
   // 2. AI findings from the given or on-disk judge report.
   let judge = opts.judgeOutcome ?? null;
   if (!judge) {

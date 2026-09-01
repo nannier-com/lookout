@@ -13,7 +13,13 @@
 import type { Backlog, BacklogFinding, IssueRecord } from "../backlog/lib.js";
 import { composeAcceptance } from "./acceptance.js";
 import type { Severity } from "../types.js";
-import { clusterFindings, clusterKeyOf, type ClusterOptions, type FixCluster } from "../fix/cluster.js";
+import {
+  clusterFindings,
+  clusterKeyOf,
+  priorClusterKeyOf,
+  type ClusterOptions,
+  type FixCluster,
+} from "../fix/cluster.js";
 import { mintIssueId } from "./id.js";
 
 /** Cluster key to issue id, which is what `clusterFindings` needs. */
@@ -57,7 +63,31 @@ export function reconcileIssues(
     const members = membersByKey.get(key) ?? [];
     members.push(finding);
     membersByKey.set(key, members);
+  }
 
+  // Succession before minting: a cluster key that changed shape under new
+  // derivation rules (a chrome a11y cluster moving from its route to its
+  // region) keeps its id, its folder and its ruled acceptance, rather than
+  // minting a fresh number and orphaning the old one. A key succeeds only
+  // when the evidence is unambiguous: every member of the new cluster names
+  // the same predecessor key, that record exists, and it holds no members of
+  // its own any more. Anything murkier mints, which is the safe direction:
+  // a redundant id is noise, a stolen one is a lie.
+  for (const [key, members] of membersByKey) {
+    if (known.has(key)) continue;
+    const priors = new Set(members.map((m) => priorClusterKeyOf(m)).filter((k): k is string => k !== null));
+    if (priors.size !== 1) continue;
+    const prior = [...priors][0]!;
+    if (prior === key || membersByKey.has(prior)) continue;
+    const record = Object.values(backlog.issues).find((r) => r.key === prior);
+    if (!record) continue;
+    record.priorKeys = [...(record.priorKeys ?? []), record.key];
+    record.key = key;
+    known.delete(prior);
+    known.add(key);
+  }
+
+  for (const [key] of membersByKey) {
     if (known.has(key)) continue;
     const id = mintIssueId(taken, rng);
     const record: IssueRecord = { id, key, createdAt: now };

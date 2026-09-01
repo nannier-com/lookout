@@ -25,6 +25,7 @@ export interface CheckProblem {
     | "stale-md"
     | "drift-resolved"
     | "issue-missing"
+    | "issue-orphaned"
     | "issue-schema"
     | "acceptance-missing"
     | "frames-missing";
@@ -90,13 +91,28 @@ export function checkBacklog(
     }
     keysWithIds.add(record.key);
   }
+  const liveKeys = new Set<string>();
   for (const [fp, f] of Object.entries(backlog.findings)) {
     const key = clusterKeyOf(f);
+    liveKeys.add(key);
     if (!keysWithIds.has(key)) {
       problems.push({
         kind: "issue-missing",
         fingerprint: fp,
         message: `no issue id for root cause "${key}"; run \`lookout backlog regen\``,
+      });
+    }
+  }
+
+  // An issue whose key clusters nothing any more is a folder going stale on
+  // disk: its members were absorbed into a shell finding, or adjudicated under
+  // a key that has since been re-derived. Ids are never pruned, so this is a
+  // report, not a deletion.
+  for (const record of Object.values(issues)) {
+    if (!liveKeys.has(record.key)) {
+      problems.push({
+        kind: "issue-orphaned",
+        message: `issue ${record.id} ("${record.key}") holds no findings any more`,
       });
     }
   }

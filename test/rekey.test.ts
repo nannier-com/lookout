@@ -163,6 +163,54 @@ describe("absorbLegacy", () => {
   });
 });
 
+describe("issue-id succession when a cluster key re-derives", () => {
+  const a11y = (route: string, over: Partial<BacklogFinding> = {}): BacklogFinding =>
+    legacy(route, {
+      category: "a11y" as BacklogFinding["category"],
+      attribute: "axe-button-name",
+      channel: "deterministic",
+      fingerprint: `app.${route.replace(/^\/+/, "") || "root"}.rest.phone.dark.a11y.axe-button-name`,
+      ...over,
+    });
+
+  test("a chrome a11y cluster keeps its id, folder key recorded in priorKeys", async () => {
+    const { reconcileIssues } = await import("../src/issues/registry.js");
+    const f = a11y("/identities");
+    const b = seeded([f]);
+    reconcileIssues(b, NOW);
+    const before = Object.values(b.issues)[0]!;
+    expect(before.key).toBe("app--identities--a11y");
+
+    // The violation is re-derived as chrome: same finding, region arrives.
+    f.region = "shell-nav";
+    reconcileIssues(b, NOW);
+    const after = Object.values(b.issues);
+    expect(after.length).toBe(1);
+    expect(after[0]!.id).toBe(before.id);
+    expect(after[0]!.key).toBe("app--shell-nav--a11y");
+    expect(after[0]!.priorKeys).toEqual(["app--identities--a11y"]);
+  });
+
+  test("an ambiguous succession mints instead of stealing", async () => {
+    const { reconcileIssues } = await import("../src/issues/registry.js");
+    // Two routes' clusters would both claim the new shell key: decline, mint.
+    const f1 = a11y("/identities");
+    const f2 = a11y("/settings");
+    const b = seeded([f1, f2]);
+    reconcileIssues(b, NOW);
+    expect(Object.values(b.issues).length).toBe(2);
+    f1.region = "shell-nav";
+    f2.region = "shell-nav";
+    reconcileIssues(b, NOW);
+    const keys = Object.values(b.issues).map((r) => r.key).sort();
+    expect(keys).toContain("app--shell-nav--a11y");
+    // Three records now: the two route-keyed ones stand (orphaned, reported by
+    // backlog check), the shell key minted fresh because two predecessors
+    // claimed it.
+    expect(Object.values(b.issues).length).toBe(3);
+  });
+});
+
 describe("absorption through the merge state machine", () => {
   test("an absorbed by-design suppresses the fresh sighting", () => {
     const ruled = legacy("/dashboard", { status: "by-design", reason: "intended density" });

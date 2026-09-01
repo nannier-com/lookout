@@ -3,7 +3,8 @@
 // the contract this must not disturb; these are the new behaviours around it.
 import { describe, expect, test } from "bun:test";
 import { fingerprintOf } from "../src/backlog/fingerprint.js";
-import { REGIONS, isShellRegion, parseRegion } from "../src/backlog/region.js";
+import { REGIONS, isShellRegion, parseRegion, regionFromSelectors } from "../src/backlog/region.js";
+import { clusterKeyOf } from "../src/fix/cluster.js";
 import { routeSlug } from "../src/capture/store.js";
 
 const axes = {
@@ -69,6 +70,37 @@ describe("the region axis", () => {
     for (const bad of ["nav", "shell", "header", "SHELL-NAV", "", 3, null, undefined]) {
       expect(parseRegion(bad)).toBeUndefined();
     }
+  });
+
+  test("regionFromSelectors: landmark ancestry only, whole violations only, agreement only", () => {
+    // Fires: every node inside the same landmark element or role.
+    expect(regionFromSelectors(["nav > ul > li > a"], 1)).toBe("shell-nav");
+    expect(regionFromSelectors(["header > .actions > button", "header > .brand"], 2)).toBe("shell-header");
+    expect(regionFromSelectors(['[role="contentinfo"] > p'], 1)).toBe("shell-footer");
+    expect(regionFromSelectors(["#app > nav:nth-child(2) > a"], 1)).toBe("shell-nav");
+    // Class names are project vocabulary, never consulted.
+    expect(regionFromSelectors([".navbar > a"], 1)).toBeUndefined();
+    expect(regionFromSelectors([".page-header > h1"], 1)).toBeUndefined();
+    // A sample of a larger violation proves nothing.
+    expect(regionFromSelectors(["nav > a", "nav > a", "nav > a"], 5)).toBeUndefined();
+    // Disagreement or ambiguity declines.
+    expect(regionFromSelectors(["nav > a", "footer > a"], 2)).toBeUndefined();
+    expect(regionFromSelectors(["header > nav > a"], 1)).toBeUndefined();
+    expect(regionFromSelectors([], 0)).toBeUndefined();
+  });
+
+  test("a chrome a11y cluster keys by region; a content one keeps its route", () => {
+    const base = {
+      target: "app",
+      route: "/identities",
+      category: "a11y",
+      attribute: "axe-button-name",
+      channel: "deterministic",
+    } as const;
+    expect(clusterKeyOf({ ...base })).toBe("app--identities--a11y");
+    expect(clusterKeyOf({ ...base, region: "content" })).toBe("app--identities--a11y");
+    expect(clusterKeyOf({ ...base, region: "shell-nav" })).toBe("app--shell-nav--a11y");
+    expect(clusterKeyOf({ ...base, route: "/settings", region: "shell-nav" })).toBe("app--shell-nav--a11y");
   });
 
   test("only shell regions count as shell", () => {

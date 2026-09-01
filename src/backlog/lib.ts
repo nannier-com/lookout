@@ -130,6 +130,12 @@ export interface IssueRecord {
   id: string;
   /** The deterministic cluster key this id was minted for. */
   key: string;
+  /**
+   * Keys this id answered to before its cluster key was re-derived under new
+   * rules, oldest first. Nothing is ever removed: a commit message naming the
+   * old key still resolves through here.
+   */
+  priorKeys?: string[];
   createdAt: string;
   /**
    * Set when this issue was first seen in the run that verified a fix for

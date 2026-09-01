@@ -107,10 +107,13 @@ export async function gatherFreshEvidence(args: {
   const baselineShots = shotsById.size - noBaseline.size;
 
   const freshDeterministic = report
-    ? deterministicToFindings({
-        ...report,
-        shots: report.shots.filter((sh) => latestShots.has(sh.id) && shotsById.has(sh.id)),
-      })
+    ? deterministicToFindings(
+        {
+          ...report,
+          shots: report.shots.filter((sh) => latestShots.has(sh.id) && shotsById.has(sh.id)),
+        },
+        { shellIdentity: resolved.config.shellScoping === true },
+      )
     : [];
   const fresh = [
     ...aiToFindings(outcome.findings, shotsById, {
