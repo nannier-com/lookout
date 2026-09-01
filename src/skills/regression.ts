@@ -106,10 +106,16 @@ export function claimsByShot(backlog: Backlog): Map<string, { case: Omit<Regress
   const add = (f: BacklogFinding, kind: "mustNotFile" | "mustFile", why: string): void => {
     const ev = f.evidence[f.evidence.length - 1];
     if (!ev) return;
-    // The frozen set is screenshots, replayed through the visual judge. A
-    // code-channel finding was read out of the source and cannot be re-judged
-    // from pixels, so it has no place here: freezing one would put a case in
-    // the gate that every replay is bound to get "wrong".
+    // The frozen set is screenshots, replayed through the visual judge, so a
+    // claim has to be about something that judge would file. The other two
+    // channels have no place here: a code finding was read out of the source
+    // and cannot be re-judged from pixels, and a deterministic finding is a
+    // measurement the replay never re-takes and the rubric forbids the judge
+    // to restate. Freezing either would put a claim in the gate that every
+    // replay is bound to get "wrong": a mustFile no judge is allowed to
+    // satisfy, or a mustNotFile about a verdict the judge was never party to.
+    if (f.channel !== "ai") return;
+    // Always true of an AI finding; the guard is what gives the case its axes.
     if (!wasPhotographed(f)) return;
     let entry = out.get(ev.shotId);
     if (!entry) {

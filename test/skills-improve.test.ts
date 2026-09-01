@@ -126,6 +126,41 @@ describe("what the frozen set claims", () => {
     expect(entry.case.mustFile).toHaveLength(1);
   });
 
+  test("a deterministic measurement settles nothing about the judge", () => {
+    // The replay never re-takes the measurements (the frozen shots carry no
+    // signals) and the rubric forbids the judge restating one, so an axe
+    // violation must not freeze into a mustFile no judge is allowed to
+    // satisfy: that claim reads as "lost" on every replay and rolls back
+    // every amendment. Deterministic findings arrive verified at high or
+    // medium severity, which is exactly the mustFile filter.
+    const b = emptyBacklog("demo", "t");
+    const axe = finding({
+      status: "open",
+      reason: null,
+      channel: "deterministic",
+      category: "a11y",
+      attribute: "axe-region",
+      severity: "high",
+      verified: true,
+    });
+    b.findings[axe.fingerprint] = axe;
+    expect(claimsByShot(b).size).toBe(0);
+    // A by-design measurement stays out too: the person ruled on the check's
+    // output, not on the judge's visual net, and the judge never filed it, so
+    // there is nothing an amendment could "bring back".
+    const b2 = emptyBacklog("demo", "t");
+    const overflow = finding({
+      channel: "deterministic",
+      category: "layout-overflow",
+      attribute: "horizontal-scroll",
+      status: "by-design",
+      reason: "the carousel scrolls sideways on purpose",
+      verified: true,
+    });
+    b2.findings[overflow.fingerprint] = overflow;
+    expect(claimsByShot(b2).size).toBe(0);
+  });
+
   test("an unverified finding settles nothing, and neither does a verified low", () => {
     // Lows stay out on purpose: they are the most judge-variant claims and the
     // least costly to miss, and the frozen set is a gate that fails amendments
