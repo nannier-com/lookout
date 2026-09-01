@@ -14,11 +14,11 @@ import { evidenceDir } from "../src/config.js";
 import { skills } from "../src/verbs/skills.js";
 import {
   claimsByShot,
-  evaluateReplay,
   freezeRegressionSet,
   usableCases,
   type RegressionSet,
 } from "../src/skills/regression.js";
+import { evaluateReplay } from "../src/skills/verdict.js";
 import { loadBacklog } from "../src/verbs/backlog.js";
 import { gatherSignals } from "../src/skills/signals.js";
 import { projectSkillPath, shippedSkillDir } from "../src/skills/load.js";
@@ -132,6 +132,9 @@ function run(r: ResolvedConfig, sub: string, flags: Record<string, unknown> = {}
 afterEach(() => {
   delete process.env.LOOKOUT_CLAUDE_BIN;
   delete process.env.MOCK_JUDGE_CATEGORY;
+  delete process.env.MOCK_JUDGE_ONLY_WITH;
+  delete process.env.MOCK_JUDGE_SILENT_WITH;
+  delete process.env.MOCK_JUDGE_FLAKY_FILE;
   delete process.env.MOCK_AMENDMENT;
 });
 
@@ -301,25 +304,81 @@ describe("replaying a candidate", () => {
   });
 
   test("clean when the settled verdicts still hold", () => {
-    expect(evaluateReplay(set, [ai("contrast")])).toHaveLength(0);
+    expect(evaluateReplay(set, [ai("contrast")]).violations).toHaveLength(0);
   });
 
   test("re-filing something ruled intentional is a violation", () => {
-    const v = evaluateReplay(set, [ai("contrast"), ai("color-scheme")]);
+    const v = evaluateReplay(set, [ai("contrast"), ai("color-scheme")]).violations;
     expect(v).toHaveLength(1);
     expect(v[0]!.kind).toBe("re-filed");
     expect(v[0]!.why).toBe("intended");
   });
 
   test("losing a confirmed defect is a violation", () => {
-    const v = evaluateReplay(set, []);
+    const v = evaluateReplay(set, []).violations;
     // The confirmed one is gone AND nothing was re-filed, so exactly one.
-    expect(v.map((x) => x.kind)).toEqual(["lost"]);
+    expect(v.map((x: { kind: string }) => x.kind)).toEqual(["lost"]);
+    expect(v[0]!.panel).toBe("judge-visibility");
   });
 
   test("the attribute is the judge's wording and does not gate anything", () => {
     // Same category, different attribute: still counts as the defect being seen.
-    expect(evaluateReplay(set, [{ ...ai("contrast"), attribute: "text-legibility" }])).toHaveLength(0);
+    const v = evaluateReplay(set, [{ ...ai("contrast"), attribute: "text-legibility" }]);
+    expect(v.violations).toHaveLength(0);
+  });
+
+  test("a sibling category from the same panel satisfies the claim, and is reported", () => {
+    // The measured failure this matching exists for: on unchanged skills the
+    // panel finds the defect but labels it with another of its own categories.
+    // contrast and a11y are both judge-visibility, so the claim is met.
+    const v = evaluateReplay(set, [ai("a11y")]);
+    expect(v.violations).toHaveLength(0);
+    expect(v.drift).toHaveLength(1);
+    expect(v.drift[0]!.category).toBe("contrast");
+    expect(v.drift[0]!.filed).toEqual(["a11y"]);
+    expect(v.drift[0]!.panel).toBe("judge-visibility");
+  });
+
+  test("a category from ANOTHER panel does not satisfy the claim", () => {
+    // typography is judge-text. The visibility panel said nothing about this
+    // shot, so the confirmed defect really is lost.
+    const v = evaluateReplay(set, [ai("typography")]);
+    expect(v.violations.map((x: { kind: string }) => x.kind)).toEqual(["lost"]);
+    expect(v.drift).toHaveLength(0);
+  });
+
+  test("a suppressed category is NOT forgiven by a sibling in its lane", () => {
+    // The asymmetry: widening must-not-file would call every unrelated finding
+    // the panel makes on this shot a re-file. a11y is not the suppressed
+    // color-scheme, so nothing was re-filed.
+    const v = evaluateReplay(set, [ai("contrast"), ai("a11y")]);
+    expect(v.violations).toHaveLength(0);
+  });
+
+  test("the panel recorded at freeze time is what decides the lane", () => {
+    const recorded: RegressionSet = {
+      ...set,
+      cases: [
+        {
+          ...set.cases[0]!,
+          mustFile: [
+            { category: "contrast", attribute: "body-text", panel: "judge-visibility", why: "c" },
+          ],
+        },
+      ],
+    };
+    expect(evaluateReplay(recorded, [ai("a11y")]).violations).toHaveLength(0);
+    // A stale name falls back to today's owner rather than losing the lane.
+    const stale: RegressionSet = {
+      ...set,
+      cases: [
+        {
+          ...set.cases[0]!,
+          mustFile: [{ category: "contrast", attribute: "b", panel: "judge-gone", why: "c" }],
+        },
+      ],
+    };
+    expect(evaluateReplay(stale, [ai("a11y")]).violations).toHaveLength(0);
   });
 });
 
@@ -385,8 +444,12 @@ describe("improving a skill, automatically", () => {
     const r = project();
     process.env.LOOKOUT_CLAUDE_BIN = MOCK;
     // The candidate makes the judge file the very thing a person ruled
-    // intentional on this screenshot.
+    // intentional on this screenshot, and ONLY the candidate does: the gate
+    // controls for the violation by re-judging with the amendment withdrawn,
+    // so a judge that re-filed either way would be a stale claim rather than a
+    // rollback.
     process.env.MOCK_JUDGE_CATEGORY = "color-scheme";
+    process.env.MOCK_JUDGE_ONLY_WITH = "deliberately light in both schemes";
 
     expect(await run(r, "freeze")).toBe(0);
     expect(await run(r, "improve")).toBe(1);
@@ -399,6 +462,39 @@ describe("improving a skill, automatically", () => {
       .map((l) => JSON.parse(l) as { action: string; violations?: unknown[] });
     expect(history.at(-1)!.action).toBe("rolled-back");
     expect(history.at(-1)!.violations).toHaveLength(1);
+  });
+
+  test("an amendment that BLINDS the panel is rolled back too", async () => {
+    // The other direction, and the one the gate's confirmation could mask if it
+    // retried until the judge got lucky: the candidate silences the panel on
+    // every call, so the confirmed defect is lost every round, and the control
+    // round brings it straight back.
+    const r = project([
+      finding({
+        fingerprint: "app.root.contrast.body-text",
+        category: "contrast",
+        attribute: "body-text",
+        status: "open",
+        reason: null,
+        verified: true,
+        severity: "high",
+      }),
+      finding(),
+    ]);
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    process.env.MOCK_JUDGE_CATEGORY = "contrast";
+    process.env.MOCK_JUDGE_SILENT_WITH = "deliberately light in both schemes";
+
+    expect(await run(r, "freeze")).toBe(0);
+    expect(await run(r, "improve")).toBe(1);
+
+    expect(existsSync(projectSkillPath(r, "judge-core"))).toBe(false);
+    const history = readFileSync(join(r.projectDir, ".lookout", "skills", "history.jsonl"), "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l) as { action: string; violations?: { kind: string }[] });
+    expect(history.at(-1)!.action).toBe("rolled-back");
+    expect(history.at(-1)!.violations!.map((v) => v.kind)).toEqual(["lost"]);
   });
 
   test("an amendment the frozen set still holds is applied, and bumps the version", async () => {
@@ -578,6 +674,8 @@ describe("what an improve consumes and refuses", () => {
     process.env.LOOKOUT_CLAUDE_BIN = MOCK;
     process.env.MOCK_AMENDMENT = "- File every deliberately light surface as a defect.";
     process.env.MOCK_JUDGE_CATEGORY = "color-scheme";
+    // Only the candidate re-files it; see the rollback test above.
+    process.env.MOCK_JUDGE_ONLY_WITH = "light surface as a defect";
     try {
       expect(await run(r, "freeze")).toBe(0);
       expect(await run(r, "improve")).toBe(1);

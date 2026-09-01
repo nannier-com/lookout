@@ -16,10 +16,9 @@
  * A candidate amendment is replayed over the frozen set before it takes effect.
  * Regress either way and it is rolled back, with the attempt written down.
  *
- * Matching is by CATEGORY, not by attribute. The attribute is the judge's own
- * phrasing of an aspect and moves between runs on identical pixels; gating an
- * amendment on it would reject good ones for rewording. The category is the
- * closed vocabulary, and it is what a suppression or a confirmation was about.
+ * This file is the set: what goes into it, and how it is rebuilt. How a replay
+ * is graded against it lives in verdict.ts, which carries the argument about
+ * what a claim's identity actually is.
  */
 import { copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { existsSync, statSync } from "node:fs";
@@ -28,7 +27,7 @@ import { evidenceDir, lookoutDir } from "../config.js";
 import { configuredScope, type ScopeCheck } from "../config-scope.js";
 import { flatShotName } from "../issues/paths.js";
 import { wasPhotographed, type Backlog, type BacklogFinding } from "../backlog/lib.js";
-import type { AiFinding } from "../judge/engine.js";
+import { panelOf } from "../judge/panels.js";
 import type { FormFactor, PlatformKind, ResolvedConfig, Scheme, ShotRecord } from "../types.js";
 
 /** Mirrors the acceptance verifier's cap: one judgement, one context. */
@@ -37,6 +36,13 @@ export const MAX_FROZEN_SHOTS = 20;
 export interface RegressionClaim {
   category: string;
   attribute: string;
+  /**
+   * The panel that owns the category, stamped at freeze time. The gate decides
+   * a mustFile claim at this granularity (verdict.ts), so the committed
+   * manifest says so rather than leaving a reader to derive it. Optional
+   * because manifests frozen before the field exists still grade.
+   */
+  panel?: string;
   /** Why this claim stands: a human's reason, or the verifier's confirmation. */
   why: string;
 }
@@ -153,7 +159,12 @@ export function claimsByShot(
       out.set(ev.shotId, entry);
     }
     if (entry.case[kind].some((c) => c.category === f.category && c.attribute === f.attribute)) return;
-    entry.case[kind].push({ category: f.category, attribute: f.attribute, why });
+    entry.case[kind].push({
+      category: f.category,
+      attribute: f.attribute,
+      panel: panelOf(f.category).name,
+      why,
+    });
   };
 
   for (const f of Object.values(backlog.findings)) {
@@ -186,6 +197,18 @@ export function claimsByShot(
  * reaches. It is reported rather than persisted, because a set that comes back
  * empty for that reason needs a different answer from one that is empty because
  * nothing has been adjudicated.
+ *
+ * Selection is by shot and not by view group, which means a six-shot group can
+ * come through as one. That matters for the two categories the rubric defines
+ * as comparisons (responsive is "a smaller form factor losing content the
+ * LARGER ONE has"; colour-scheme is about what happens "after a scheme
+ * switch"), and it is tempting to drop such a claim here when its comparison
+ * is not frozen alongside it. Deliberately not done: both categories also list
+ * single-shot cases the judge can still file from one image, so dropping the
+ * claim would delete settled evidence on an inference. A claim the current
+ * skills genuinely cannot reproduce is caught by measurement instead, in the
+ * gate's control round (gate.ts), which reports it as stale without deleting
+ * anything from the committed record.
  */
 export async function freezeRegressionSet(
   resolved: ResolvedConfig,
@@ -253,49 +276,4 @@ export function casesAsShots(set: RegressionSet, runId = "regression"): ShotReco
     runId,
     deterministicFindings: [],
   }));
-}
-
-export interface Violation {
-  kind: "re-filed" | "lost";
-  shotId: string;
-  category: string;
-  why: string;
-}
-
-/**
- * Did the candidate hold? Pure: given the settled claims and what the judge
- * said this time, name every way the two disagree.
- */
-export function evaluateReplay(set: RegressionSet, findings: AiFinding[]): Violation[] {
-  const byShot = new Map<string, Set<string>>();
-  for (const f of findings) {
-    const categories = byShot.get(f.shotId) ?? new Set<string>();
-    categories.add(f.category);
-    byShot.set(f.shotId, categories);
-  }
-
-  const violations: Violation[] = [];
-  const seen = new Set<string>();
-  const push = (v: Violation): void => {
-    // Two by-design findings on one screenshot can share a category; one
-    // re-filing is one violation, not two.
-    const key = `${v.kind}|${v.shotId}|${v.category}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    violations.push(v);
-  };
-  for (const c of set.cases) {
-    const filed = byShot.get(c.shotId) ?? new Set<string>();
-    for (const claim of c.mustNotFile) {
-      if (filed.has(claim.category)) {
-        push({ kind: "re-filed", shotId: c.shotId, category: claim.category, why: claim.why });
-      }
-    }
-    for (const claim of c.mustFile) {
-      if (!filed.has(claim.category)) {
-        push({ kind: "lost", shotId: c.shotId, category: claim.category, why: claim.why });
-      }
-    }
-  }
-  return violations;
 }

@@ -103,18 +103,27 @@ export async function skills(parsed: Parsed): Promise<number> {
     if (!set) throw new LookoutError("no frozen set", "run `lookout skills freeze` first");
     // --skill narrows the replay the way an amendment to that skill would:
     // one panel replays alone, the core or the refuter replays the family.
-    const { violations, costUsd } = await replayRegression(resolved, set, model, {
+    const { violations, drift, costUsd } = await replayRegression(resolved, set, model, {
       amendedSkill: str(parsed.flags.skill),
     });
     if (parsed.flags.json) {
-      printJson({ ok: violations.length === 0, cases: set.cases.length, violations, costUsd });
-    } else if (violations.length === 0) {
-      console.log(`replay: clean over ${set.cases.length} frozen screenshot(s) ($${costUsd.toFixed(3)})`);
+      printJson({ ok: violations.length === 0, cases: set.cases.length, violations, drift, costUsd });
     } else {
-      for (const v of violations) {
-        console.log(`  [${v.kind}] ${v.shotId} ${v.category}\n      ${v.why}`);
+      // Drift prints either way: a claim its panel satisfied under a sibling
+      // label is not a violation, but a panel that keeps doing it is the thing
+      // to look at before trusting any of these verdicts.
+      for (const d of drift) {
+        console.log(`  [drift] ${d.shotId} ${d.panel}: ${d.category} filed as ${d.filed.join(", ")}`);
       }
-      console.log(`\n${violations.length} violation(s).`);
+      for (const v of violations) {
+        console.log(`  [${v.kind}] ${v.shotId} ${v.panel} ${v.category}\n      ${v.why}`);
+      }
+      if (violations.length === 0) {
+        console.log(`replay: clean over ${set.cases.length} frozen screenshot(s) ($${costUsd.toFixed(3)})`);
+      } else {
+        console.log(`\n${violations.length} violation(s). One replay is one sample: `);
+        console.log("  `skills improve` reproduces and controls for these before rolling anything back.");
+      }
     }
     return violations.length === 0 ? 0 : 1;
   }

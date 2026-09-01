@@ -4,7 +4,16 @@
 // by MOCK_MODE:
 //   judge   emit one deliberate finding against the first shotId in the
 //           prompt's manifest, everything else clean. MOCK_JUDGE_CATEGORY
-//           chooses the category, which is what the regression gate matches on
+//           chooses the category, which is what the regression gate matches on.
+//           MOCK_JUDGE_ONLY_WITH files only when a marker is present in the
+//           prompt and MOCK_JUDGE_SILENT_WITH only when one is absent, so a
+//           judge whose verdict depends on its own instructions can be
+//           modelled in both directions: an amendment that widens the net, and
+//           one that blinds the panel. That is the whole premise of the improve
+//           gate, and its control round cannot be exercised by a double that
+//           answers the same way with and without the amendment.
+//           MOCK_JUDGE_FLAKY_FILE files nothing on the first call and normally
+//           after, which is the run-to-run spread the gate has to survive
 //   improve emit a skill amendment; MOCK_AMENDMENT overrides the body
 //   heal    edit a file in cwd (MOCK_HEAL_FILE) and report the fix, so the
 //           gates and the revert path can be exercised end to end
@@ -226,7 +235,24 @@ if (mode === "placement") {
     }) +
     "\n```";
 } else if (mode === "judge") {
-  const [first, ...rest] = shotIds;
+  const [firstShot, ...others] = shotIds;
+  const needs = process.env.MOCK_JUDGE_ONLY_WITH;
+  const blindedBy = process.env.MOCK_JUDGE_SILENT_WITH;
+  let silent =
+    (needs !== undefined && !promptText.includes(needs)) ||
+    (blindedBy !== undefined && promptText.includes(blindedBy));
+  // One silent reply, then normal service: the same shape as MOCK_FLAKY_FILE,
+  // but a clean verdict rather than a broken one, because what the gate has to
+  // tell apart is a judge that missed something once from one that lost it.
+  if (process.env.MOCK_JUDGE_FLAKY_FILE) {
+    try {
+      readFileSync(process.env.MOCK_JUDGE_FLAKY_FILE);
+    } catch {
+      writeFileSync(process.env.MOCK_JUDGE_FLAKY_FILE, "went quiet once\n");
+      silent = true;
+    }
+  }
+  const [first, ...rest] = silent ? [undefined, ...shotIds] : [firstShot, ...others];
   result =
     "```json\n" +
     JSON.stringify({

@@ -10,8 +10,8 @@
  * One deliberate divergence from `check`: the judge is NOT shown the "ALREADY
  * FILED" aid that production builds from the live backlog (src/check/plan.ts).
  * That aid exists to keep the judge's freehand `attribute` stable, and the gate
- * ignores the attribute on purpose, matching on category alone
- * (src/skills/regression.ts). Rebuilding the aid from the frozen claims would
+ * ignores the attribute on purpose, deciding a claim at its panel's granularity
+ * instead (src/skills/verdict.ts). Rebuilding the aid from the frozen claims would
  * hand the judge the answer key: every must-file claim would appear as an
  * already-open defect the aid instructs the judge to re-file by name, so an
  * amendment that blinded the judge could still pass the "lost" check by
@@ -23,14 +23,15 @@ import { PANELS } from "../judge/panels.js";
 import { loadJudges } from "../judge/rubric.js";
 import { verifyFindings } from "../judge/verify.js";
 import { loadSkill } from "./load.js";
+import { viewGroupId } from "../judge/grouping.js";
 import {
   casesAsShots,
-  evaluateReplay,
   regressionDir,
   usableCases,
+  type RegressionCase,
   type RegressionSet,
-  type Violation,
 } from "./regression.js";
+import { evaluateReplay, type Drift, type Violation } from "./verdict.js";
 import { LookoutError, type ResolvedConfig } from "../types.js";
 
 /**
@@ -78,6 +79,22 @@ export interface ReplayScope {
    * prompt, so every claim-owning panel replays.
    */
   amendedSkill?: string;
+  /**
+   * Re-judge only the view groups these shots belong to.
+   *
+   * A confirmation round re-tests what failed rather than the whole set, and a
+   * control round re-tests it with the candidate withdrawn. The unit is the view
+   * GROUP and not the shot because the rubric compares within a group, so
+   * dropping a shot's siblings would change the question being asked.
+   */
+  onlyShots?: ReadonlySet<string>;
+}
+
+/** The cases to judge: every one, or the whole view group of each named shot. */
+function narrow(cases: RegressionCase[], onlyShots?: ReadonlySet<string>): RegressionCase[] {
+  if (!onlyShots) return cases;
+  const groups = new Set(cases.filter((c) => onlyShots.has(c.shotId)).map(viewGroupId));
+  return cases.filter((c) => groups.has(viewGroupId(c)));
 }
 
 export async function replayRegression(
@@ -85,8 +102,8 @@ export async function replayRegression(
   set: RegressionSet,
   model: string,
   scope: ReplayScope = {},
-): Promise<{ violations: Violation[]; findings: AiFinding[]; costUsd: number }> {
-  const usable = { ...set, cases: usableCases(resolved, set) };
+): Promise<{ violations: Violation[]; drift: Drift[]; findings: AiFinding[]; costUsd: number }> {
+  const usable = { ...set, cases: narrow(usableCases(resolved, set), scope.onlyShots) };
   if (usable.cases.length === 0) {
     throw new LookoutError(
       set.cases.length === 0
@@ -162,5 +179,5 @@ export async function replayRegression(
       mustFile: c.mustFile.filter((cl) => activeCats.has(cl.category)),
     })),
   };
-  return { violations: evaluateReplay(graded, findings), findings, costUsd };
+  return { ...evaluateReplay(graded, findings), findings, costUsd };
 }

@@ -15,7 +15,7 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { lookoutDir } from "../config.js";
-import type { Violation } from "./regression.js";
+import type { Drift, Violation } from "./verdict.js";
 import type { ResolvedConfig } from "../types.js";
 
 export const SKILL_NAMES = [
@@ -57,6 +57,14 @@ interface HistoryEntry {
   version?: number;
   evidence?: string[];
   violations?: Violation[];
+  /**
+   * What the gate saw besides its verdict. Kept because both are about the
+   * frozen set rather than the amendment: drift is a panel relabelling a settled
+   * claim, and a stale claim is one the unchanged skills no longer reproduce.
+   * A record that kept only the verdict could not tell the two apart later.
+   */
+  drift?: Drift[];
+  stale?: Violation[];
 }
 
 export async function record(resolved: ResolvedConfig, entry: HistoryEntry): Promise<void> {

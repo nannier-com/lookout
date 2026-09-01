@@ -21,8 +21,14 @@ export function kebab(s: string): string {
 }
 
 /** Pack shots into judge batches: same target+route stays together, max size. */
-/** The view a shot belongs to: everything the rubric compares across. */
-export function viewGroupId(shot: ShotRecord): string {
+/**
+ * The view a shot belongs to: everything the rubric compares across.
+ *
+ * Structural in its argument so a frozen case, which carries the same four axes
+ * without being a ShotRecord, can be grouped by the identical formula rather
+ * than by a copy of it.
+ */
+export function viewGroupId(shot: Pick<ShotRecord, "target" | "platform" | "route" | "state">): string {
   return `${shot.target}|${shot.platform}|${shot.route}|${shot.state}`;
 }
 

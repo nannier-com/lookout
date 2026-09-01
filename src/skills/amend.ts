@@ -20,18 +20,19 @@ import { extractJson, invokeClaude } from "../judge/engine.js";
 import { licensedSkills, PANELS } from "../judge/panels.js";
 import {
   loadSkill,
-  projectProposalPath,
   projectSkillPath,
   renderSkill,
   restoreLayer,
   writeLayer,
   type Skill,
 } from "./load.js";
+import { propose } from "./propose.js";
 import { bySkill, gatherSignals, type Signal } from "./signals.js";
 import { loadWatermark, newSignals, stampSeen } from "./watermark.js";
 import { recordIncident } from "./incidents.js";
-import { freezeRegressionSet, loadRegressionSet, usableCases, type Violation } from "./regression.js";
-import { GATED_SKILLS, replayRegression } from "./replay.js";
+import { freezeRegressionSet, loadRegressionSet, usableCases } from "./regression.js";
+import { runGate, type GateOutcome } from "./gate.js";
+import { GATED_SKILLS } from "./replay.js";
 import { improveLockPath, record, SKILL_NAMES } from "./history.js";
 import { LookoutError, type ResolvedConfig } from "../types.js";
 import { lockHeld, nowIso } from "../util.js";
@@ -106,6 +107,31 @@ export interface ImproveOptions {
   allSignals?: boolean;
 }
 
+/**
+ * What the gate saw on the way to its verdict.
+ *
+ * Printed whether the candidate passed or failed, because all three of these
+ * are about the frozen set rather than the amendment: a panel that keeps
+ * relabelling, a claim the unchanged skills no longer reproduce, and how much
+ * run-to-run spread the judge showed. Suppressing them would put the gate back
+ * to reporting a single sample as a verdict.
+ */
+function report(outcome: GateOutcome): void {
+  for (const d of outcome.drift) {
+    console.log(
+      `  [drift] ${d.shotId} ${d.panel}: settled as ${d.category}, filed as ${d.filed.join(", ")}`,
+    );
+  }
+  for (const v of outcome.stale) {
+    console.log(`  [stale] ${v.shotId} ${v.category}: the unchanged skills lose it too`);
+  }
+  if (outcome.unreproduced.length > 0) {
+    console.log(
+      `  ${outcome.unreproduced.length} violation(s) did not reproduce and were not counted`,
+    );
+  }
+}
+
 async function improve(resolved: ResolvedConfig, model: string, opts: ImproveOptions): Promise<number> {
   const signals = await gatherSignals(resolved);
   if (signals.length === 0) {
@@ -139,7 +165,8 @@ async function improve(resolved: ResolvedConfig, model: string, opts: ImproveOpt
     const backlog = await loadBacklog(resolved);
     set = (await freezeRegressionSet(resolved, backlog, nowIso())).set;
   }
-  const gradeable = usableCases(resolved, set).length;
+  const frozen = set;
+  const gradeable = usableCases(resolved, frozen).length;
 
   // The pair rule, spanning the judging family: any judging signal licenses
   // the core and the refuter alongside the skill it named, and a signal may
@@ -182,20 +209,12 @@ async function improve(resolved: ResolvedConfig, model: string, opts: ImproveOpt
 
   if (amendment.newSkill) {
     const { name, description, body } = amendment.newSkill;
-    // A brand-new skill is ungradeable by definition, which is exactly what
-    // the gate exists to prevent auto-applying, so it lands as a proposal,
-    // never a live layer. (It used to be the one write that skipped the
-    // gate entirely.)
-    const proposalPath = projectProposalPath(resolved, name);
-    await mkdir(dirname(proposalPath), { recursive: true });
-    await writeFile(proposalPath, `# ${name}\n\n${description}\n\n${body.trimEnd()}\n`);
-    await record(resolved, {
-      at: nowIso(),
-      skill: name,
-      action: "proposed",
-      summary: amendment.summary,
-      evidence: amendment.evidence,
-    });
+    const proposalPath = await propose(
+      resolved,
+      name,
+      `# ${name}\n\n${description}\n\n${body.trimEnd()}\n`,
+      amendment,
+    );
     await stampSeen(resolved, mark, shown, "proposed");
     console.log(`new skill proposed: ${proposalPath}`);
     console.log(`  ${amendment.summary}`);
@@ -226,7 +245,7 @@ async function improve(resolved: ResolvedConfig, model: string, opts: ImproveOpt
   // its lane: its replay would make zero calls and pass vacuously, which is
   // the exact auto-apply the gate exists to prevent.
   const claimCats = new Set(
-    usableCases(resolved, set).flatMap((c) =>
+    usableCases(resolved, frozen).flatMap((c) =>
       [...c.mustFile, ...c.mustNotFile].map((cl) => cl.category),
     ),
   );
@@ -240,39 +259,33 @@ async function improve(resolved: ResolvedConfig, model: string, opts: ImproveOpt
         : !panelGradeable
           ? `the frozen set holds no claims in ${amendment.skill}'s categories`
           : `the frozen set cannot exercise ${amendment.skill}`;
-    const p = projectProposalPath(resolved, amendment.skill);
-    await mkdir(dirname(p), { recursive: true });
-    await writeFile(p, merged);
-    await record(resolved, {
-      at: nowIso(),
-      skill: amendment.skill,
-      action: "proposed",
-      summary: amendment.summary,
-      evidence: amendment.evidence,
-    });
+    const p = await propose(resolved, amendment.skill, merged, amendment);
     await stampSeen(resolved, mark, shown, "proposed");
     console.log(`proposed, not applied: ${why}.`);
     console.log(`  ${p}`);
     return 0;
   }
 
-  const before = await writeLayer(
-    resolved,
-    amendment.skill,
-    merged,
-    nextVersion,
-    `${resolved.project}'s own rules for ${amendment.skill}`,
-  );
+  const layerDescription = `${resolved.project}'s own rules for ${amendment.skill}`;
+  const before = await writeLayer(resolved, amendment.skill, merged, nextVersion, layerDescription);
 
   console.log(`replaying ${gradeable} frozen screenshot(s) against the candidate...`);
-  let violations: Violation[];
-  let replayCost = 0;
+  let outcome: GateOutcome;
   try {
-    const outcome = await replayRegression(resolved, set, model, {
+    // The gate reproduces a violation and then controls for it, so the layer
+    // has to come off and go back on mid-verdict. Safe because improve holds a
+    // lock: nothing else is reading this skill's layer while it happens.
+    outcome = await runGate(resolved, frozen, model, {
       amendedSkill: amendment.skill,
+      withoutCandidate: async (fn) => {
+        await restoreLayer(resolved, amendment.skill, before);
+        try {
+          return await fn();
+        } finally {
+          await writeLayer(resolved, amendment.skill, merged, nextVersion, layerDescription);
+        }
+      },
     });
-    violations = outcome.violations;
-    replayCost = outcome.costUsd;
   } catch (e) {
     await restoreLayer(resolved, amendment.skill, before);
     // An infrastructure failure, not evidence against the amendment: the
@@ -290,6 +303,10 @@ async function improve(resolved: ResolvedConfig, model: string, opts: ImproveOpt
     );
   }
 
+  const { violations, drift, stale } = outcome;
+  const replayCost = outcome.costUsd;
+  report(outcome);
+
   if (violations.length > 0) {
     await restoreLayer(resolved, amendment.skill, before);
     await record(resolved, {
@@ -299,6 +316,8 @@ async function improve(resolved: ResolvedConfig, model: string, opts: ImproveOpt
       summary: amendment.summary,
       evidence: amendment.evidence,
       violations,
+      drift,
+      stale,
     });
     // Stamped seen: identical evidence would produce the identical rollback
     // at model cost each time. And bridged to the machine-wide incident log:
@@ -314,8 +333,13 @@ async function improve(resolved: ResolvedConfig, model: string, opts: ImproveOpt
       detail: `${amendment.summary} | ${violations.map((v) => v.kind).join(", ")}`,
       project: resolved.projectDir,
     });
-    console.log(`rolled back: the candidate broke ${violations.length} settled verdict(s).`);
-    for (const v of violations) console.log(`  [${v.kind}] ${v.shotId} ${v.category}: ${v.why}`);
+    console.log(
+    `rolled back: the candidate broke ${violations.length} settled verdict(s), ` +
+      `confirmed over ${outcome.rounds} replay(s).`,
+  );
+    for (const v of violations) {
+    console.log(`  [${v.kind}] ${v.shotId} ${v.panel} ${v.category}: ${v.why}`);
+  }
     console.log(`  the amendment was: ${amendment.summary}`);
     console.log(`  ($${(costUsd + replayCost).toFixed(3)})`);
     return 1;
