@@ -122,9 +122,20 @@ export async function mergeLatest(
 }> {
   const report = await loadReport(resolved);
   if (!report) throw new LookoutError("no capture-report.json to merge from; run `lookout capture` first");
+  // Every finding this merge files is stamped with the latest run, so a report
+  // carrying no runs has nothing to stamp them with. `lookout capture` always
+  // records one, so this is a report that was truncated or written by hand; it
+  // is malformed input like any other and says so, rather than dereferencing
+  // undefined and handing the caller a stack trace.
+  const latestRun = report.runs[report.runs.length - 1];
+  if (!latestRun) {
+    throw new LookoutError(
+      "the capture report records no runs, so there is nothing to merge from",
+      "re-run `lookout capture` to write a report with a run in it",
+    );
+  }
   const backlog = await loadBacklog(resolved);
   const now = nowIso();
-  const latestRun = report.runs[report.runs.length - 1]!;
 
   // 1. Deterministic findings: free, every run, only from the latest run's shots.
   const latestShots = new Set(report.shots.filter((s) => s.runId === latestRun.id).map((s) => s.id));
