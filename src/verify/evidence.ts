@@ -21,6 +21,7 @@ import { mergeLatest } from "../verbs/backlog.js";
 import { runContactSheet } from "../verbs/capture.js";
 import type { SheetResult } from "../capture/sheet.js";
 import { aiToFindings, deterministicToFindings, type Backlog, type BacklogFinding } from "../backlog/lib.js";
+import { inheritedByDesign } from "../backlog/adjudicate.js";
 import { clusterKeyOf, clusterScope, type FixCluster } from "../fix/cluster.js";
 import type { CheckOutcome } from "../check/outcome.js";
 import type { ResolvedConfig, ShotRecord } from "../types.js";
@@ -56,10 +57,13 @@ export async function gatherFreshEvidence(args: {
   issueId: string;
   cluster: FixCluster;
   priorHashes: Map<string, string>;
+  /** The target's configured routes, in config order: the shell scope's top-up. */
+  configuredRoutes?: string[];
 }): Promise<FreshEvidence> {
   const { parsed, issueId, cluster, priorHashes } = args;
-  // 1. Re-capture and re-judge only this cluster's own routes.
-  const scope = clusterScope(cluster);
+  // 1. Re-capture and re-judge only this cluster's own routes; a shell
+  // cluster widens to at least two so a one-route fix cannot pass.
+  const scope = clusterScope(cluster, args.configuredRoutes ?? []);
   const { outcome, resolved, shotsById } = await runCheck({
     positionals: [],
     flags: {
@@ -174,14 +178,21 @@ export function baselineHashes(
  * blocked it with a reason claiming a defect persists that somebody had already
  * ruled intended. `mergeFindings` suppresses these; the verdict has to as well.
  */
-export function withoutByDesign<T extends { fingerprint: string }>(
-  fresh: readonly T[],
-  backlog: Backlog,
-): T[] {
+export function withoutByDesign<
+  T extends { fingerprint: string } & Parameters<typeof inheritedByDesign>[1],
+>(fresh: readonly T[], backlog: Backlog): T[] {
   const byDesign = new Set(
     Object.values(backlog.findings)
       .filter((f) => f.status === "by-design")
       .map((f) => f.fingerprint),
   );
+  // The issue-level ruling reaches here too: a fresh sibling under a
+  // by-design issue must not hold a verdict open any more than a per-finding
+  // ruling does. mergeFindings creates it as by-design; the verdict agrees.
+  for (const f of fresh) {
+    if (!byDesign.has(f.fingerprint) && inheritedByDesign(backlog, f)) {
+      byDesign.add(f.fingerprint);
+    }
+  }
   return fresh.filter((f) => !byDesign.has(f.fingerprint));
 }

@@ -118,7 +118,7 @@ describe("the by-design suppression the verdict shares with the merge", () => {
     const real = finding({ attribute: "theme-not-switching", status: "open" });
     const b = backlogOf([intended, real]);
 
-    const fresh = [{ fingerprint: intended.fingerprint }, { fingerprint: real.fingerprint }];
+    const fresh = [intended, real];
     expect(withoutByDesign(fresh, b).map((f) => f.fingerprint)).toEqual([real.fingerprint]);
   });
 
@@ -126,8 +126,7 @@ describe("the by-design suppression the verdict shares with the merge", () => {
     const open = finding({ attribute: "a", status: "open" });
     const blocked = finding({ attribute: "b", status: "blocked", reason: "x" });
     const b = backlogOf([open, blocked]);
-    expect(withoutByDesign([{ fingerprint: open.fingerprint }, { fingerprint: blocked.fingerprint }], b))
-      .toHaveLength(2);
+    expect(withoutByDesign([open, blocked], b)).toHaveLength(2);
   });
 });
 

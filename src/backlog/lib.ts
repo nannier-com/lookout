@@ -144,6 +144,13 @@ export interface IssueRecord {
    */
   causedBy?: { issue: string; commit: string | null; runId: string; at: string };
   /**
+   * Ruled intentional as a whole. The per-finding by-design status suppresses
+   * the fingerprints that exist when the ruling is made; this is what a
+   * FUTURE sibling inherits, arriving as a visible by-design record instead
+   * of reopening the issue. Cleared when the issue is reopened.
+   */
+  byDesign?: { reason: string; at: string };
+  /**
    * Filed away by hand, once there was nothing left to do about it.
    *
    * Distinct from every status a finding carries, because it is not a verdict

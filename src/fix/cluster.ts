@@ -215,6 +215,33 @@ export function clusterFindings(
 }
 
 /** The capture scope that covers a cluster, for a scoped re-check. */
-export function clusterScope(c: FixCluster): { targets: string[]; routes: string[] } {
-  return { targets: [c.target], routes: c.routes };
+/** A shell verdict needs at least this many routes behind it, and no more than the cap. */
+export const SHELL_MIN_ROUTES = 2;
+export const SHELL_MAX_ROUTES = 3;
+
+export function clusterScope(
+  c: FixCluster,
+  configuredRoutes: string[] = [],
+): { targets: string[]; routes: string[] } {
+  // A shell defect claims to live on every screen, so ruling on it from one
+  // route would let a fix that special-cased that route pass: the exact false
+  // negative the oracle exists to prevent. The floor of two makes that
+  // impossible; the cap keeps a verify from becoming a full check; config
+  // order tops up deterministically, because the author listed the important
+  // routes first and a scope that varied run to run would keep introducing
+  // shots with no baseline.
+  const shellRoutes = [
+    ...new Set(
+      c.members
+        .filter((m) => isShellRegion(m.region))
+        .flatMap((m) => m.seenRoutes ?? [m.route]),
+    ),
+  ].sort();
+  if (shellRoutes.length === 0) return { targets: [c.target], routes: c.routes };
+  const routes = shellRoutes.slice(0, SHELL_MAX_ROUTES);
+  for (const r of configuredRoutes) {
+    if (routes.length >= SHELL_MIN_ROUTES) break;
+    if (!routes.includes(r)) routes.push(r);
+  }
+  return { targets: [c.target], routes };
 }

@@ -9,6 +9,7 @@
  * other half of the same machine.
  */
 import { deterministicToFindings } from "./ingest.js";
+import { inheritedByDesign } from "./adjudicate.js";
 import { absorbLegacy, type Absorption } from "./rekey.js";
 import type { Backlog, BacklogFinding, FindingStatus } from "./lib.js";
 
@@ -44,16 +45,23 @@ export function mergeFindings(
       }
     }
     if (!existing) {
+      // A sibling arriving under an issue somebody ruled intentional as a
+      // whole is born ruled, visibly: it lands in the backlog's by-design
+      // section where it can be individually reopened, rather than being
+      // swallowed or reopening a settled issue.
+      const inherited = inheritedByDesign(backlog, f);
       backlog.findings[f.fingerprint] = {
         ...f,
-        status: "open",
-        reason: null,
+        status: inherited ? "by-design" : "open",
+        reason: inherited
+          ? `${inherited.reason} (inherited from issue ${inherited.issue.id})`
+          : null,
         firstSeen: runId,
         lastSeen: runId,
         fixAttempts: 0,
         fixedIn: null,
       };
-      res.added.push(f.fingerprint);
+      (inherited ? res.suppressed : res.added).push(f.fingerprint);
       continue;
     }
     if (existing.status === "by-design") {

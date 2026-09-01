@@ -282,19 +282,34 @@ export async function backlog(parsed: Parsed): Promise<number> {
 
   if (sub === "set" || sub === "reopen") {
     const fp = parsed.positionals[1];
-    if (!fp) throw new LookoutError(`${sub} needs a fingerprint`);
+    const issueId = str(parsed.flags.issue);
+    if (!fp && !issueId) throw new LookoutError(`${sub} needs a fingerprint, or --issue <id>`);
     const status = sub === "reopen" ? "open" : str(parsed.flags.status);
     if (!status || !["open", "fixed", "by-design", "blocked"].includes(status)) {
       throw new LookoutError("set needs --status open|fixed|by-design|blocked");
     }
     const b = await loadBacklog(resolved);
+    const opts = {
+      reason: str(parsed.flags.reason),
+      commit: str(parsed.flags.commit),
+      runId: str(parsed.flags.run) ?? "manual",
+      now: nowIso(),
+    };
     try {
-      const f = setStatus(b, fp, status as "open", {
-        reason: str(parsed.flags.reason),
-        commit: str(parsed.flags.commit),
-        runId: str(parsed.flags.run) ?? "manual",
-        now: nowIso(),
-      });
+      if (issueId) {
+        // The ruling is about the root cause, so it lands on every member and
+        // durably on the issue: a sibling that does not exist yet arrives
+        // already ruled instead of reopening settled work.
+        const { setIssueStatus } = await import("../backlog/adjudicate.js");
+        const { record, fingerprints } = setIssueStatus(b, issueId, status as "open", opts);
+        await saveBacklog(resolved, b);
+        console.log(
+          `issue ${record.id} (${record.key}): ${status} across ${fingerprints.length} finding(s)` +
+            (record.byDesign ? `; future siblings inherit the ruling` : ""),
+        );
+        return 0;
+      }
+      const f = setStatus(b, fp!, status as "open", opts);
       await saveBacklog(resolved, b);
       console.log(`${f.fingerprint}: ${f.status}${f.reason ? ` (${f.reason})` : ""}`);
       return 0;

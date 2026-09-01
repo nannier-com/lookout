@@ -194,7 +194,14 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
     freshDeterministic,
     stillOpen,
     runIdNow,
-  } = await gatherFreshEvidence({ parsed, issueId, cluster, priorHashes });
+  } = await gatherFreshEvidence({
+    parsed,
+    issueId,
+    cluster,
+    priorHashes,
+    configuredRoutes: (preResolved.config.targets.find((t) => t.name === cluster.target)?.routes ?? [])
+      .map((r) => (typeof r === "string" ? r : r.path)),
+  });
 
   // 3. Rule this issue's acceptance criteria against the fresh evidence, each
   // source ruled by the thing that can actually decide it.
