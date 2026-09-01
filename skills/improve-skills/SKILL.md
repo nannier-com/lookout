@@ -58,11 +58,11 @@ a new skill until a verb is wired to it, so say in `summary` what would call it.
 
 ## The judging family
 
-The visual judge is a family of skills. The `visual-judge` core carries the
+The visual judge is a family of skills. The `judge-core` skill carries the
 shared rubric (severity, regions, procedure, the output contract), and each
 `judge-*` panel skill owns the categories its body lists, composed onto the
 core at judging time. Amend the panel when the lesson is about filing or not
-filing its categories; amend `visual-judge` only when the lesson is about
+filing its categories; amend `judge-core` only when the lesson is about
 shared judging behavior. A lesson about one panel's categories never belongs
 in a sibling panel.
 

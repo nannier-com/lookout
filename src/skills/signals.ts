@@ -24,7 +24,7 @@ import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { evidenceDir } from "../config.js";
-import { panelOf } from "../judge/panels.js";
+import { CORE_JUDGE, panelOf } from "../judge/panels.js";
 import { loadBacklog } from "../verbs/backlog.js";
 import { issuesOf } from "../issues/registry.js";
 import { sha256 } from "../util.js";
@@ -42,7 +42,7 @@ function ownerOf(category: string): string {
   try {
     return panelOf(category).name;
   } catch {
-    return "visual-judge";
+    return CORE_JUDGE;
   }
 }
 
@@ -94,7 +94,7 @@ export async function gatherSignals(resolved: ResolvedConfig): Promise<Signal[]>
         signals.push({
           // The report stamps which panel filed the refuted finding; a report
           // written before the stamp teaches the core.
-          skill: r.judge ?? "visual-judge",
+          skill: r.judge ?? CORE_JUDGE,
           kind: "refuted",
           summary: `filed and refuted: ${r.title}`,
           detail: r.verifierNote,
@@ -106,7 +106,7 @@ export async function gatherSignals(resolved: ResolvedConfig): Promise<Signal[]>
       }
       if (report.rejected && report.rejected > 0) {
         signals.push({
-          skill: "visual-judge",
+          skill: CORE_JUDGE,
           kind: "rejected",
           summary: `${report.rejected} finding(s) rejected at ingestion`,
           detail:

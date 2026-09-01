@@ -264,7 +264,7 @@ describe("signals", () => {
     expect(byDesign).toHaveLength(1);
     // The fixture's finding is VERIFIED: a person overruled the adversarial
     // verifier's explicit confirmation, so the lesson is the refuter's, not
-    // the judge's. An unverified by-design still attributes to visual-judge
+    // the judge's. An unverified by-design still attributes to judge-core
     // (pinned in test/watermark.test.ts).
     expect(byDesign[0]!.skill).toBe("refute-finding");
     expect(byDesign[0]!.detail).toContain("deliberately");
@@ -325,7 +325,7 @@ describe("improving a skill, automatically", () => {
     expect(await run(r, "improve")).toBe(1);
 
     // Nothing was kept: the project layer is exactly as it was, which is absent.
-    expect(existsSync(projectSkillPath(r, "visual-judge"))).toBe(false);
+    expect(existsSync(projectSkillPath(r, "judge-core"))).toBe(false);
     const history = readFileSync(join(r.projectDir, ".lookout", "skills", "history.jsonl"), "utf8")
       .trim()
       .split("\n")
@@ -343,13 +343,13 @@ describe("improving a skill, automatically", () => {
     expect(await run(r, "freeze")).toBe(0);
     expect(await run(r, "improve")).toBe(0);
 
-    const layer = readFileSync(projectSkillPath(r, "visual-judge"), "utf8");
+    const layer = readFileSync(projectSkillPath(r, "judge-core"), "utf8");
     // Derived, not pinned: the point is that the layer sits one above whatever
     // lookout ships, so the composed version rises and the ledger re-judges.
     // A literal here failed every time the shipped rubric legitimately changed.
     const shipped = Number(
       /version:\s*(\d+)/.exec(
-        readFileSync(join(shippedSkillDir("visual-judge"), "SKILL.md"), "utf8"),
+        readFileSync(join(shippedSkillDir("judge-core"), "SKILL.md"), "utf8"),
       )![1],
     );
     expect(layer).toContain(`version: ${shipped + 1}`);
@@ -404,13 +404,13 @@ describe("improving a skill, automatically", () => {
 
     expect(await run(r, "improve")).toBe(0);
     expect(
-      existsSync(join(r.projectDir, ".lookout", "skills", "visual-judge", "PROPOSED.md")),
+      existsSync(join(r.projectDir, ".lookout", "skills", "judge-core", "PROPOSED.md")),
     ).toBe(false);
 
     expect(await run(r, "improve", { propose: true })).toBe(0);
-    expect(existsSync(projectSkillPath(r, "visual-judge"))).toBe(false);
+    expect(existsSync(projectSkillPath(r, "judge-core"))).toBe(false);
     expect(
-      existsSync(join(r.projectDir, ".lookout", "skills", "visual-judge", "PROPOSED.md")),
+      existsSync(join(r.projectDir, ".lookout", "skills", "judge-core", "PROPOSED.md")),
     ).toBe(true);
   });
 

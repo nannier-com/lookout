@@ -19,7 +19,7 @@ import type { Violation } from "./regression.js";
 import type { ResolvedConfig } from "../types.js";
 
 export const SKILL_NAMES = [
-  "visual-judge",
+  "judge-core",
   "judge-integrity",
   "judge-geometry",
   "judge-visibility",

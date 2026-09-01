@@ -218,7 +218,7 @@ if (mode === "placement") {
   result =
     "```json\n" +
     JSON.stringify({
-      skill: process.env.MOCK_IMPROVE_SKILL ?? "visual-judge",
+      skill: process.env.MOCK_IMPROVE_SKILL ?? "judge-core",
       summary: "Stop filing the deliberate light-only surface as a scheme defect.",
       amendment: process.env.MOCK_AMENDMENT ?? "- The marketing hero is deliberately light in both schemes.",
       evidence: ["app.root.color-scheme.by-design"],

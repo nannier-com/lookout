@@ -159,7 +159,7 @@ describe("replay fidelity to the production pipeline", () => {
 
     // An amendment to the core replays exactly the claim-owning panels: two
     // lanes hold claims, so two judges run, not five.
-    const family = await judgeCalls("visual-judge");
+    const family = await judgeCalls("judge-core");
     expect(family).toHaveLength(2);
   });
 

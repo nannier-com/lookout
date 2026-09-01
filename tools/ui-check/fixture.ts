@@ -332,10 +332,10 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
   // What lookout has done to its own instructions here.
   const skills = join(lk, "skills");
   mkdirSync(join(skills, "design-placement"), { recursive: true });
-  mkdirSync(join(skills, "visual-judge"), { recursive: true });
+  mkdirSync(join(skills, "judge-core"), { recursive: true });
   writeFileSync(
-    join(skills, "visual-judge", "SKILL.md"),
-    `---\nname: visual-judge\ndescription: fixture-app's own rules for visual-judge\nversion: 3\n---\n\n` +
+    join(skills, "judge-core", "SKILL.md"),
+    `---\nname: judge-core\ndescription: fixture-app's own rules for judge-core\nversion: 3\n---\n\n` +
       `## 2026-08-24: Stop filing the marketing site's light-only rendering\n\nThis project ships a light-only ` +
       `marketing site on purpose.\n`,
   );
@@ -346,10 +346,10 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
   writeFileSync(
     join(skills, "history.jsonl"),
     [
-      { at: "2026-08-21T09:14:02.000Z", skill: "visual-judge", action: "no-change", summary: "Nothing in the signals contradicts the rubric as written." },
+      { at: "2026-08-21T09:14:02.000Z", skill: "judge-core", action: "no-change", summary: "Nothing in the signals contradicts the rubric as written." },
       {
         at: "2026-08-22T16:41:55.000Z",
-        skill: "visual-judge",
+        skill: "judge-core",
         action: "rolled-back",
         summary: "Treat any control under 40px as a tap-target defect.",
         evidence: ["issue 14"],
@@ -357,7 +357,7 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
           { kind: "lost", shotId: "web/app/root/rest/desktop/dark", category: "contrast", why: "The confirmed contrast defect on these pixels was no longer filed." },
         ],
       },
-      { at: "2026-08-24T11:07:30.000Z", skill: "visual-judge", action: "applied", version: 3, summary: "Stop filing the marketing site's light-only rendering.", evidence: ["app.root.rest.desktop.dark.color-scheme.no-dark-theme"] },
+      { at: "2026-08-24T11:07:30.000Z", skill: "judge-core", action: "applied", version: 3, summary: "Stop filing the marketing site's light-only rendering.", evidence: ["app.root.rest.desktop.dark.color-scheme.no-dark-theme"] },
       { at: "2026-08-29T18:22:09.000Z", skill: "design-placement", action: "proposed", summary: "Prefer the kit's own spacing scale when placing a fix.", evidence: ["issue 21"] },
     ]
       .map((e) => JSON.stringify(e))

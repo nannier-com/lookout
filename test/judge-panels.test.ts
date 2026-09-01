@@ -69,17 +69,17 @@ describe("the registry partitions the vocabulary", () => {
 describe("the pair rule spans the family, never a sibling", () => {
   test("a panel signal licenses that panel, the core, and the refuter", () => {
     const licensed = licensedSkills(new Set(["judge-visibility"]));
-    expect([...licensed].sort()).toEqual(["judge-visibility", "refute-finding", "visual-judge"]);
+    expect([...licensed].sort()).toEqual(["judge-core", "judge-visibility", "refute-finding"]);
   });
 
   test("core and refuter signals license each other and no panel", () => {
-    expect([...licensedSkills(new Set(["visual-judge"]))].sort()).toEqual([
+    expect([...licensedSkills(new Set(["judge-core"]))].sort()).toEqual([
+      "judge-core",
       "refute-finding",
-      "visual-judge",
     ]);
     expect([...licensedSkills(new Set(["refute-finding"]))].sort()).toEqual([
+      "judge-core",
       "refute-finding",
-      "visual-judge",
     ]);
   });
 
@@ -99,7 +99,7 @@ describe("the skill files and the registry cannot drift", () => {
   });
 
   test("the core carries the heading and the slot, not the bullets", async () => {
-    const core = await loadSkill(null, "visual-judge");
+    const core = await loadSkill(null, "judge-core");
     const section = vocabularySection(core.text);
     expect(section).toContain("{{panel}}");
     expect(bulletsOf(section)).toEqual([]);

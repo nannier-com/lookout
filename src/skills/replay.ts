@@ -39,7 +39,7 @@ import { LookoutError, type ResolvedConfig } from "../types.js";
  * change nothing can grade is the exact thing the gate exists to prevent.
  */
 export const GATED_SKILLS = new Set([
-  "visual-judge",
+  "judge-core",
   "judge-integrity",
   "judge-geometry",
   "judge-visibility",

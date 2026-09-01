@@ -1,10 +1,10 @@
 /**
- * Rubric assembly: the visual-judge skill (which carries the base rubric and
+ * Rubric assembly: the judge-core skill (which carries the base rubric and
  * whatever the project's own layer has amended into it), plus the hand-written
  * extension file and never-file lines from config. The composed version keys
  * the judge cache: bump it to force fresh eyes on everything.
  *
- * The base rubric moved into `skills/visual-judge/rubric.md` when every AI
+ * The base rubric moved into `skills/judge-core/rubric.md` when every AI
  * capability became a skill. This module stays because the judge has config
  * nothing else has (`config.rubric`, `config.neverFile`), and that belongs next
  * to the judge rather than in the generic loader.
@@ -14,7 +14,7 @@ import { existsSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 import { fillPlaceholders, loadSkill, shippedSkillDir } from "../skills/load.js";
 import { LookoutError, type ResolvedConfig } from "../types.js";
-import { PANELS, type PanelDef } from "./panels.js";
+import { CORE_JUDGE, PANELS, type PanelDef } from "./panels.js";
 
 /** One panel's composed judge: its registry entry, and the prompt it judges by. */
 export interface PanelRubric {
@@ -82,7 +82,7 @@ async function loadParts(resolved: ResolvedConfig): Promise<{
   extVersion: number;
   handoff: string;
 }> {
-  const core = await loadSkill(resolved, "visual-judge");
+  const core = await loadSkill(resolved, CORE_JUDGE);
   const panelSkills = await Promise.all(PANELS.map((p) => loadSkill(resolved, p.name)));
 
   let extensions = "";

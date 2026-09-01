@@ -106,7 +106,7 @@ export function extractJson(text: string): unknown {
 }
 
 /**
- * The judge prompt: the visual-judge skill, filled with this batch's data.
+ * The judge prompt: the judge-core skill, filled with this batch's data.
  *
  * Everything the model is told to think lives in the skill file; everything
  * here is fact about the evidence.

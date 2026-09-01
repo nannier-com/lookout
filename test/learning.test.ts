@@ -61,9 +61,9 @@ describe("what lookout has changed about itself", () => {
     writeFileSync(
       join(dir, "history.jsonl"),
       [
-        JSON.stringify({ at: "2026-01-01T00:00:00.000Z", skill: "visual-judge", action: "applied", summary: "first" }),
+        JSON.stringify({ at: "2026-01-01T00:00:00.000Z", skill: "judge-core", action: "applied", summary: "first" }),
         "{ not json",
-        JSON.stringify({ at: "2026-01-02T00:00:00.000Z", skill: "visual-judge", action: "rolled-back", summary: "second" }),
+        JSON.stringify({ at: "2026-01-02T00:00:00.000Z", skill: "judge-core", action: "rolled-back", summary: "second" }),
       ].join("\n") + "\n",
     );
 
@@ -174,7 +174,7 @@ describe("what lookout has changed about itself", () => {
     const resolved = tmpProject();
     const before = learningKey(resolved);
     writeHistory(resolved.projectDir, [
-      { at: "2026-01-01T00:00:00.000Z", skill: "visual-judge", action: "applied", summary: "x" },
+      { at: "2026-01-01T00:00:00.000Z", skill: "judge-core", action: "applied", summary: "x" },
     ]);
     expect(learningKey(resolved)).not.toBe(before);
   });

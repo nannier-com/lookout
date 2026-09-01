@@ -13,7 +13,7 @@ import { LookoutError, type ShotRecord } from "../types.js";
 import type { Category } from "./rubric.js";
 
 /** The shared-core skill every panel prompt is composed from. */
-export const CORE_JUDGE = "visual-judge";
+export const CORE_JUDGE = "judge-core";
 
 export interface PanelDef {
   /** Doubles as the skill directory name. Never contains "@": it keys the ledger. */

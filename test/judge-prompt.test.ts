@@ -1,6 +1,6 @@
 // The judge only compares against a hand-off if the manifest actually carries
 // it, so the prompt wiring is worth pinning. Composed from the shipped
-// visual-judge skill rather than a stand-in string: the instruction to read the
+// judge-core skill rather than a stand-in string: the instruction to read the
 // hand-off lives in that file now, and a test that passed its own text would
 // pass whatever the file said.
 import { describe, expect, test } from "bun:test";

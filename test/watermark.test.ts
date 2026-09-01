@@ -64,7 +64,7 @@ describe("signal identity and attribution", () => {
     const signals = await gatherSignals(r);
     const byTitle = new Map(signals.map((s) => [s.summary, s.skill]));
     expect(byTitle.get("filed and refuted: stamped")).toBe("judge-geometry");
-    expect(byTitle.get("filed and refuted: legacy")).toBe("visual-judge");
+    expect(byTitle.get("filed and refuted: legacy")).toBe("judge-core");
   });
 
   test("a by-design of a VERIFIED finding is the refuter's lesson, an unverified one the owning panel's", async () => {

@@ -33,7 +33,7 @@ describe("shipped skills", () => {
   });
 
   test("the judge skill inlines the rubric it includes", async () => {
-    const skill = await loadSkill(null, "visual-judge");
+    const skill = await loadSkill(null, "judge-core");
     // The include is resolved, not left as a directive.
     expect(skill.text).not.toContain("{{include:");
     expect(skill.text).toContain("## Category vocabulary");
@@ -124,7 +124,7 @@ describe("loadRubric composes the judge prompt", () => {
     // A higher amendment version wins over the shipped base; the fixture rides
     // above whatever the base currently is, so a base bump does not silently
     // turn this into a test of the base.
-    amend(resolved, "visual-judge", "---\nname: visual-judge\nversion: 9\n---\n\nLearned: ignore the loader.\n");
+    amend(resolved, "judge-core", "---\nname: judge-core\nversion: 9\n---\n\nLearned: ignore the loader.\n");
     resolved.config.neverFile = ["Hand-written: ignore the footer."];
     const rubric = await loadRubric(resolved);
     expect(rubric.version).toBe(9);

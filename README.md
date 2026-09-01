@@ -366,7 +366,7 @@ const config: LookoutConfig = {
     exclude: ["Sign out"],    // CSS selectors or accessible-name substrings
   },
 
-  // Project judging rules, layered into the visual-judge skill in every judge
+  // Project judging rules, layered into the judge-core skill in every judge
   // prompt. Editing this file re-judges whatever it could have changed: the
   // ledger is keyed on the composed prompt itself, so nothing has to be bumped
   // by hand. An optional `rubricVersion: N` header is still read, and shows up
@@ -425,7 +425,7 @@ ship in the standard Agent Skill layout, one directory each:
 
 ```
 skills/
-  visual-judge/         SKILL.md + rubric.md: the shared judging core: bands,
+  judge-core/           SKILL.md + rubric.md: the shared judging core: bands,
                         severity ladder, regions, procedure, the output contract
   judge-integrity/      SKILL.md: render failures, broken states, missing anatomy
   judge-geometry/       SKILL.md: overflow, alignment, spacing, responsive
@@ -450,7 +450,7 @@ only data: the shot manifest, the paths, the question. Each declares
 The visual judge is six specialists, each judging every view group in its own
 call. The closed category vocabulary is partitioned across them (the registry
 in `src/judge/panels.ts` is the single source of that partition), and each
-judge's prompt is assembled from the `visual-judge` core (severity ladder, the
+judge's prompt is assembled from the `judge-core` skill (severity ladder, the
 judging procedure, the universal never-file list), that panel's own vocabulary
 and layer, then this project's `.lookout/skills/` layers, its `rubric` file,
 and its `neverFile` lines. A finding outside the vocabulary, or outside the
