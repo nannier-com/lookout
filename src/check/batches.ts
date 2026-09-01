@@ -57,6 +57,20 @@ export interface JudgePass {
   batchCount: number;
 }
 
+/**
+ * A view group as a person would name it.
+ *
+ * The group id is built for identity and reads like one (`app|web|/|rest`);
+ * this is the same group said out loud, which is what belongs in a line the
+ * page puts in front of somebody.
+ */
+function viewLabel(shots: ShotRecord[]): string {
+  const s = shots[0];
+  if (!s) return "the view";
+  // The same name a shot is narrated under, so the two lines read as one run.
+  return `${s.target}${s.route}` + (s.state === "rest" ? "" : ` ${s.state}`);
+}
+
 /** The uncacheable-set member for one unit of panel work. */
 export function workKey(item: Pick<PanelWork, "groupId"> & { panel: { def: { name: string } } }): string {
   return `${item.groupId}|${item.panel.def.name}`;
@@ -88,16 +102,25 @@ export async function judgeInBatches(args: {
   }
   const versionMax = Math.max(0, ...plan.panels.map((p) => p.version));
   const concurrency = num(parsed.flags.concurrency) ?? 2;
+  // Panel calls, not groups: a group is one line in the report and five
+  // subprocesses in the clock, and quoting the smaller number made a run that
+  // was working normally look like one that had hung.
   log(
-    `judging ${plan.toJudgeShots.length} shot(s) in ${jobs.length} batch(es) with model ${plan.model} ` +
+    `judging ${plan.toJudgeShots.length} shot(s) in ${jobs.length} batch(es), ` +
+      `${plan.toJudge.length} panel call(s) with model ${plan.model} ` +
       `(${plan.cached} cached under judge skill v${versionMax})`,
   );
-  emit("judge-start", `judging ${plan.toJudgeShots.length} shot(s) in ${jobs.length} batch(es)`, {
-    shots: plan.toJudgeShots.length,
-    batches: jobs.length,
-    model: plan.model,
-    cached: plan.cached,
-  });
+  emit(
+    "judge-start",
+    `judging ${plan.toJudgeShots.length} shot(s): ${jobs.length} view group(s), ${plan.toJudge.length} panel call(s)`,
+    {
+      shots: plan.toJudgeShots.length,
+      batches: jobs.length,
+      panels: plan.toJudge.length,
+      model: plan.model,
+      cached: plan.cached,
+    },
+  );
   if (opts.onStart) await opts.onStart(plan.toJudgeShots);
 
   const confirmed: VerifiedFinding[] = [];
@@ -129,8 +152,19 @@ export async function judgeInBatches(args: {
       const fresh: AiFinding[] = [];
       let durationMs = 0;
       let rejectedHere = 0;
+      let panelIndex = 0;
       for (const item of job.items) {
         const panelName = item.panel.def.name;
+        // One "batch" is one view group, and a view group is judged once per
+        // panel: five sequential calls of a minute each. Saying only that
+        // judging had started left the page with nothing to show for the whole
+        // of it, which reads exactly like a run that has died.
+        emit("phase", `${panelName} on ${viewLabel(job.shots)} (${++panelIndex}/${job.items.length})`, {
+          panel: panelName,
+          groupId: job.groupId,
+          index: panelIndex,
+          total: job.items.length,
+        });
         let res: Awaited<ReturnType<typeof judgeBatch>>;
         try {
           res = await judgeBatch(item.panel.text, resolved.project, job.shots, evDir, plan.model, {

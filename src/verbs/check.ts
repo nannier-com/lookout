@@ -26,6 +26,7 @@ import { maybeRefreshNavigation } from "../check/navigate.js";
 import { resolveScope } from "../check/scope.js";
 import { SEVERITIES } from "../judge/rubric.js";
 import { emit, EventLog, setCurrentLog } from "../report/events.js";
+import { Narration, setCurrentNarration } from "../report/narration.js";
 import { sheetNote } from "../capture/sheet.js";
 import { runContactSheet } from "./capture.js";
 import { LookoutError, type ResolvedConfig, type Severity, type ShotRecord } from "../types.js";
@@ -130,6 +131,12 @@ export async function check(parsed: Parsed): Promise<number> {
     routes: str(parsed.flags.routes) ?? null,
   });
   setCurrentLog(elog);
+  // What the judges say while they say it. Its own file beside the event log,
+  // because it is a tail nothing is reconstructed from and it is written a
+  // hundred times more often.
+  const narration = new Narration(pre, checkRun);
+  narration.start();
+  setCurrentNarration(narration);
 
   // Asked for one issue? Then walk the application one route at a time and
   // stop the moment something is found. Capturing all thirteen routes across
@@ -140,6 +147,7 @@ export async function check(parsed: Parsed): Promise<number> {
     const { firstIssue } = await import("../check/first.js");
     const code = await firstIssue(parsed, pre);
     setCurrentLog(null);
+    setCurrentNarration(null);
     return code;
   }
 
@@ -292,5 +300,6 @@ export async function check(parsed: Parsed): Promise<number> {
     costUsd: outcome.costUsd,
   });
   setCurrentLog(null);
+  setCurrentNarration(null);
   return outcome.findings.length > 0 || outcome.deterministicErrors > 0 ? 1 : 0;
 }

@@ -24,6 +24,7 @@ import {
   type AiFinding,
 } from "./engine.js";
 import { recordIncident } from "../skills/incidents.js";
+import { mark, narrating, say } from "../report/narration.js";
 
 /**
  * Whether a finding is worth a refuting pass. Every AI finding is.
@@ -122,11 +123,14 @@ export async function verifyFindings(
   let costUsd = 0;
   let parsedOk = false;
   for (let attempt = 0; attempt < 2; attempt++) {
+    mark("refuter", "open", `weighing ${serious.length} finding(s)`);
     const res = await invokeClaude({
       prompt: attempt === 0 ? prompt : prompt + RETRY_SUFFIX,
       cwd: evidenceDir,
       model,
+      onSay: narrating() ? (s) => say("refuter", s) : undefined,
     });
+    mark("refuter", "close", "");
     costUsd += res.costUsd ?? 0;
     try {
       const parsed = extractJson(res.text) as { verdicts?: unknown };

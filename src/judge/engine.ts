@@ -14,6 +14,7 @@ import type { Region } from "../backlog/region.js";
 import type { Category } from "./rubric.js";
 
 import { extractJson, invokeClaude } from "./claude.js";
+import { mark, narrating, say } from "../report/narration.js";
 import { ingestJudgeReply, type PanelLane } from "./reply.js";
 
 export interface AiFinding {
@@ -191,16 +192,24 @@ export async function judgeBatch(
 ): Promise<JudgeBatchResult> {
   const started = Date.now();
   const prompt = buildJudgePrompt(skillText, project, shots, evidenceDir, ctx);
+  // Who is speaking, for anything reading the run as it happens. The lane's
+  // name where there is one, because that is what the page counts progress in.
+  const voice = ctx.panel?.name ?? "judge";
 
   let text = "";
   let costUsd: number | undefined;
   let parsed: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
+    mark(voice, "open", attempt === 0 ? `judging ${shots.length} shot(s)` : "asked again for JSON");
     const res = await invokeClaude({
       prompt: attempt === 0 ? prompt : prompt + RETRY_SUFFIX,
       cwd: evidenceDir,
       model,
+      // Only when something is reading it: streaming costs the CLI an order of
+      // magnitude more lines and a run nobody is watching should not pay them.
+      onSay: narrating() ? (s) => say(voice, s) : undefined,
     });
+    mark(voice, "close", "");
     text = res.text;
     costUsd = (costUsd ?? 0) + (res.costUsd ?? 0);
     try {
