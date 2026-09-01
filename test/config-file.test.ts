@@ -108,6 +108,18 @@ describe("lookout writing the config", () => {
     expect(resolved.config.targets[0]!.url).toBe("http://localhost:4321");
     expect(createConfig(dir)).rejects.toThrow(/already exists/);
   });
+
+  test("the startHint follows the project's lockfile, npm when there is none", async () => {
+    const bun = project();
+    writeFileSync(join(bun, "bun.lockb"), "");
+    expect(readFileSync(await createConfig(bun), "utf8")).toContain('startHint: "bun run dev"');
+
+    const pnpm = project();
+    writeFileSync(join(pnpm, "pnpm-lock.yaml"), "");
+    expect(readFileSync(await createConfig(pnpm), "utf8")).toContain('startHint: "pnpm dev"');
+
+    expect(readFileSync(await createConfig(project()), "utf8")).toContain('startHint: "npm run dev"');
+  });
 });
 
 describe("migrating the old config", () => {

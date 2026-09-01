@@ -101,7 +101,6 @@ jobs:
         if: steps.major_guard.outputs.blocked != 'true'
         run: |
           echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" >> .npmrc
-          echo "@nannier:registry=https://registry.npmjs.org" >> .npmrc
 
       # Unconditional: publish is idempotent, so this also retries any version
       # already on main but missing from npm.

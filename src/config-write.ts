@@ -28,13 +28,28 @@ import { LookoutError, type LookoutConfig } from "./types.js";
 export interface ConfigSeed {
   /** Base URL from --url: the run that prompted the write. */
   url?: string;
+  /** Dev command for `startHint`; `createConfig` derives it from the lockfile. */
+  devCommand?: string;
+}
+
+/**
+ * The dev command the project's lockfile implies. The lockfile is a fact
+ * about which package manager the project uses; without one there is no
+ * basis to name any, and npm is the ecosystem default, not a preference.
+ */
+export function devCommandFor(projectDir: string): string {
+  if (["bun.lock", "bun.lockb"].some((f) => existsSync(join(projectDir, f)))) return "bun run dev";
+  if (existsSync(join(projectDir, "pnpm-lock.yaml"))) return "pnpm dev";
+  if (existsSync(join(projectDir, "yarn.lock"))) return "yarn dev";
+  return "npm run dev";
 }
 
 export function configTemplate(seed: ConfigSeed = {}): string {
   const url = seed.url ?? "http://localhost:3000";
+  const dev = seed.devCommand ?? "npm run dev";
   const startHint = seed.url
-    ? `      // startHint: "bun run dev",   // printed when this target is down\n`
-    : `      startHint: "bun run dev",\n`;
+    ? `      // startHint: "${dev}",   // printed when this target is down\n`
+    : `      startHint: "${dev}",\n`;
   return `import type { LookoutConfig } from "@nannier-com/lookout";
 
 // lookout project config. Targets are the apps this repo renders; lookout
@@ -101,7 +116,7 @@ export async function createConfig(projectDir: string, seed: ConfigSeed = {}): P
   }
   const path = join(projectDir, CONFIG_FILENAME);
   try {
-    await writeFile(path, configTemplate(seed));
+    await writeFile(path, configTemplate({ devCommand: devCommandFor(projectDir), ...seed }));
   } catch (e) {
     throw new LookoutError(
       `could not write ${path}: ${(e as Error).message}`,
