@@ -1,5 +1,24 @@
 # @nannier-com/lookout
 
+## 0.31.10
+
+### Patch Changes
+
+- b3c09b3: `lookout init` now keeps the whole `.lookout/` directory out of git, not just
+  the evidence: the backlog, issue folders and learned skill layers are
+  lookout's working state, per-checkout by decision. The README's
+  where-things-land section states the consequence plainly (state does not
+  follow the repo, deleting the directory re-rolls issue ids) and names
+  `config.ts` as the one authored file worth un-ignoring when a team should
+  share it.
+- 6f7976b: A finding can carry a region: which part of the frame the defect lives in,
+  from a closed set (content, shell-nav, shell-header, shell-footer). For a
+  shell region the fingerprint's route slot becomes `@<region>`, so one chrome
+  defect is one identity across every route it is photographed on; content and
+  absent derive byte-identical fingerprints to before, verified by a load/save
+  round trip on a real project backlog coming out byte-identical. Inert in this
+  release: nothing sets a region yet, so no existing backlog changes shape.
+
 ## 0.31.9
 
 ### Patch Changes
