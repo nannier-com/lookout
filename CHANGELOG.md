@@ -1,5 +1,14 @@
 # @nannier-com/lookout
 
+## 0.33.2
+
+### Patch Changes
+
+- 53cf27b: Freezing stops minting unsatisfiable claims: a verified design-parity finding
+  no longer freezes into a mustFile no replay could ever satisfy (frozen cases
+  carry no design reference). The README and the repo guide describe the
+  six-specialist judge and the panel registry.
+
 ## 0.33.1
 
 ### Patch Changes
