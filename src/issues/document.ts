@@ -68,7 +68,7 @@ export async function renderIssueDocument(
   l.push(
     `found by:   ${
       cluster.channel === "ai"
-        ? `visual judge${cluster.verified ? ", adversarially verified" : ""}`
+        ? `${cluster.judge ?? "visual judge"}${cluster.verified ? ", adversarially verified" : ""}`
         : cluster.channel === "code"
           ? "source scan"
           : "deterministic check"

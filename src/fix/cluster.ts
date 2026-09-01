@@ -54,6 +54,12 @@ export interface FixCluster {
   /** True when the adversarial verifier confirmed at least one member. */
   verified: boolean;
   channel: BacklogFinding["channel"];
+  /**
+   * The judge panel that filed the cluster's members: one category per AI
+   * cluster, so one owner. Absent on other channels and on findings stamped
+   * before the panels existed.
+   */
+  judge?: string;
 }
 
 export function slug(s: string): string {
@@ -203,6 +209,9 @@ export function clusterFindings(
       attemptsSpent,
       verified: members.some((m) => m.verified),
       channel: worst.channel,
+      ...(members.find((m) => m.judge)?.judge
+        ? { judge: members.find((m) => m.judge)!.judge }
+        : {}),
     });
   }
 

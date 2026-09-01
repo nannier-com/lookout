@@ -101,6 +101,14 @@ export interface BacklogFinding {
   confidence: "high" | "medium" | "low";
   verified: boolean;
   /**
+   * The judge panel that owns this finding's category, stamped at ingestion
+   * so the ticket can say which specialist filed it and an amendment can
+   * target that specialist's skill. AI channel only; refreshed on
+   * re-sighting so a category that moves panels follows its current owner.
+   * Never part of the fingerprint.
+   */
+  judge?: string;
+  /**
    * What the judge said would prove this defect gone. Deterministic findings
    * derive theirs instead, so this is empty for them.
    */

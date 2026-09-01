@@ -156,7 +156,7 @@ export async function gatherSignals(resolved: ResolvedConfig): Promise<Signal[]>
     // mandate was to kill it, so the lesson is the refuter's. An
     // unverified one is the judge's error alone.
     const overruledVerifier = finding.verified === true;
-    const owner = ownerOf(finding.category);
+    const owner = finding.judge ?? ownerOf(finding.category);
     signals.push({
       skill: overruledVerifier ? "refute-finding" : owner,
       // The refuter's lesson still names the panel whose finding it confirmed:
@@ -176,7 +176,7 @@ export async function gatherSignals(resolved: ResolvedConfig): Promise<Signal[]>
     if (issue.members.some((m) => m.status === "blocked")) {
       const reason = issue.members.find((m) => m.status === "blocked")?.reason ?? "";
       signals.push({
-        skill: ownerOf(issue.category),
+        skill: issue.judge ?? ownerOf(issue.category),
         kind: "blocked",
         summary: `survived every attempt: ${issue.title}`,
         detail: reason,
@@ -194,7 +194,7 @@ export async function gatherSignals(resolved: ResolvedConfig): Promise<Signal[]>
       signals.push({
         // The criterion was authored while filing this issue's category, so
         // the authoring lesson belongs to the panel that owns it.
-        skill: ownerOf(issue.category),
+        skill: issue.judge ?? ownerOf(issue.category),
         kind: "not-verifiable",
         summary: `criterion could not be decided from the evidence: ${c.text}`,
         detail: c.note ?? "",

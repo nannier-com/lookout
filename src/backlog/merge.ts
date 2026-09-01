@@ -81,6 +81,9 @@ export function mergeFindings(
     existing.expected = f.expected;
     existing.observed = f.observed;
     existing.verified = f.verified || existing.verified;
+    // The stamp follows the newest sighting: if a category ever moves between
+    // panels, the ticket names the specialist an amendment would now target.
+    if (f.judge) existing.judge = f.judge;
     for (const ev of f.evidence) {
       if (!existing.evidence.some((e) => e.hash === ev.hash)) {
         existing.evidence.push(ev);

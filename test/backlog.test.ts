@@ -3,6 +3,7 @@
 // check gate, and deterministic markdown rendering.
 import { describe, expect, test } from "bun:test";
 import {
+  aiToFindings,
   checkBacklog,
   deterministicToFindings,
   emptyBacklog,
@@ -12,6 +13,7 @@ import {
   setStatus,
   stats,
 } from "../src/backlog/lib.js";
+import type { AiFinding } from "../src/judge/engine.js";
 import type { CaptureReport, ShotRecord } from "../src/types.js";
 
 const NOW = "2026-08-25T00:00:00.000Z";
@@ -191,6 +193,39 @@ describe("check gate", () => {
     latest.shots[0]!.runId = "run-9";
     problems = checkBacklog(b, { mdOnDisk: renderMarkdown(b), latestReport: latest });
     expect(problems.some((p) => p.kind === "drift-resolved")).toBe(true);
+  });
+
+  test("the judge stamp rides ingestion and follows the newest sighting", () => {
+    const s = shot("web/app/checkout/rest/phone/dark");
+    const ai = (judge?: string): AiFinding & { verified?: boolean } =>
+      ({
+        shotId: s.id, category: "contrast", attribute: "body-text",
+        region: "content", severity: "high", title: "t", problem: "p",
+        expected: "e", observed: "o", confidence: "high",
+        acceptance: ["Body copy reads at 4.5:1 or better."],
+        ...(judge ? { judge } : {}),
+      }) as AiFinding;
+    const shotsById = new Map([[s.id, s]]);
+
+    const b = emptyBacklog("test", NOW);
+    mergeFindings(b, aiToFindings([ai("judge-visibility")], shotsById, {}), "run-1", NOW);
+    const fp = Object.keys(b.findings)[0]!;
+    expect(b.findings[fp]!.judge).toBe("judge-visibility");
+    // The fingerprint carries no judge term: the stamp is metadata, not identity.
+    expect(fp).not.toContain("judge-visibility");
+
+    // A stampless re-sighting (an old report replayed) keeps the stamp...
+    mergeFindings(b, aiToFindings([ai()], shotsById, {}), "run-2", NOW);
+    expect(b.findings[fp]!.judge).toBe("judge-visibility");
+    // ...and a newer stamp wins, so a re-partition follows the current owner.
+    mergeFindings(b, aiToFindings([ai("judge-craft")], shotsById, {}), "run-3", NOW);
+    expect(b.findings[fp]!.judge).toBe("judge-craft");
+
+    const schemaProblems = (): number =>
+      checkBacklog(b, { mdOnDisk: null, latestReport: null }).filter((p) => p.kind === "schema").length;
+    expect(schemaProblems()).toBe(0);
+    b.findings[fp]!.judge = "" as never;
+    expect(schemaProblems()).toBe(1);
   });
 
   test("a panel-scoped run does not read as drift for the lanes it skipped", () => {

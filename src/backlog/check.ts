@@ -76,6 +76,11 @@ export function checkBacklog(
     if (!["open", "fixed", "by-design", "blocked"].includes(f.status)) {
       problems.push({ kind: "schema", fingerprint: fp, message: `unknown status "${f.status}"` });
     }
+    // Loose on purpose: not pinned to the live registry, so renaming a panel
+    // never orphans an old backlog's stamps.
+    if (f.judge !== undefined && (typeof f.judge !== "string" || f.judge.length === 0)) {
+      problems.push({ kind: "schema", fingerprint: fp, message: "judge must be a non-empty string when present" });
+    }
   }
 
   // Every root cause holds an id, and every id is well formed and holds the

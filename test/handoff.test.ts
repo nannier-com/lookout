@@ -110,6 +110,13 @@ describe("a handoff stands on its own", () => {
     expect(markdown).not.toContain("- web/app/dash");
   });
 
+  test("it names the judge that filed it, falling back for pre-panel backlogs", async () => {
+    const stamped = await issueDoc(withBacklog([finding({ judge: "judge-geometry" })]));
+    expect(stamped.markdown).toContain("found by:   judge-geometry");
+    const legacy = await issueDoc(withBacklog([finding()]));
+    expect(legacy.markdown).toContain("found by:   visual judge");
+  });
+
   test("it carries the judge's own words, not a summary of them", async () => {
     const r = withBacklog([finding()]);
     const { markdown } = await issueDoc(r);

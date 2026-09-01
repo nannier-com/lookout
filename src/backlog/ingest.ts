@@ -168,6 +168,7 @@ export function aiToFindings(
       channel: "ai",
       confidence: f.confidence,
       verified: !!f.verified,
+      ...(f.judge ? { judge: f.judge } : {}),
       acceptance: f.acceptance ?? [],
       evidence: [{ shotId: shot.id, path: shot.path, hash: shot.hash, runId: shot.runId }],
     });
