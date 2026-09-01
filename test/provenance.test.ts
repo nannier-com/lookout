@@ -13,6 +13,11 @@ import {
   type RawProvenance,
 } from "../src/capture/provenance.js";
 import { sidecarRelPath } from "../src/capture/store.js";
+import { loadSidecarBeside, provenanceBrief } from "../src/design/provenance-brief.js";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { FixCluster } from "../src/fix/cluster.js";
 
 function el(over: Partial<ProvenanceElement> = {}): ProvenanceElement {
   return {
@@ -123,6 +128,55 @@ describe("pngBoxOf", () => {
       w: 720,
       h: 150,
     });
+  });
+});
+
+describe("provenanceBrief", () => {
+  const member = (path: string, hash: string) =>
+    ({
+      route: "/settings",
+      formFactor: "desktop",
+      scheme: "dark",
+      evidence: [{ shotId: "web/app/settings/rest/desktop/dark", path, hash, runId: "r1" }],
+    }) as FixCluster["members"][number];
+  const clusterOf = (...members: FixCluster["members"]) => ({ members }) as FixCluster;
+
+  test("digests source hints and component chains, and annotates hash drift", () => {
+    const ev = mkdtempSync(join(tmpdir(), "lookout-prov-brief-"));
+    mkdirSync(join(ev, "web/app/settings"), { recursive: true });
+    const sidecar = buildSidecar(
+      raw([
+        el({ components: ["SaveButton", "Form"], source: { file: "src/SaveButton.tsx", line: 12 },
+             id: "save", text: "Save changes", box: { x: 0, y: 0, w: 100, h: 40 } }),
+        el({ components: ["SettingsPage"], box: { x: 0, y: 0, w: 1440, h: 900 } }),
+        el({ box: { x: 0, y: 0, w: 50, h: 50 } }),
+      ]),
+      shot,
+    );
+    const rel = "web/app/settings/rest--desktop-dark.png";
+    writeFileSync(join(ev, `${rel}.provenance.json`), JSON.stringify(sidecar));
+
+    const fresh = provenanceBrief(ev, clusterOf(member(rel, "abc")));
+    expect(fresh).toContain("SaveButton < Form  src/SaveButton.tsx:12");
+    expect(fresh).toContain("SettingsPage");
+    expect(fresh).toContain('"Save changes"');
+    expect(fresh).not.toContain("re-captured");
+
+    const drifted = provenanceBrief(ev, clusterOf(member(rel, "other-hash")));
+    expect(drifted).toContain("re-captured since this evidence");
+  });
+
+  test("empty when nothing was captured, and a foreign version reads as nothing", () => {
+    const ev = mkdtempSync(join(tmpdir(), "lookout-prov-none-"));
+    expect(provenanceBrief(ev, clusterOf(member("web/app/x/rest--desktop-dark.png", "h")))).toBe("");
+    mkdirSync(join(ev, "web/app/x"), { recursive: true });
+    const rel = "web/app/x/rest--desktop-dark.png";
+    writeFileSync(
+      join(ev, `${rel}.provenance.json`),
+      JSON.stringify({ ...buildSidecar(raw([el({ id: "a" })]), shot), version: 99 }),
+    );
+    expect(loadSidecarBeside(ev, rel)).toBeNull();
+    expect(provenanceBrief(ev, clusterOf(member(rel, "h")))).toBe("");
   });
 });
 

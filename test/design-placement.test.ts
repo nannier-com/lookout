@@ -66,16 +66,27 @@ describe("the design-placement skill", () => {
     expect(raw).toContain(AMENDMENT_SLOT);
   });
 
-  test("renders with the project's inventory and defect, leaving nothing unfilled", async () => {
+  test("renders with the project's inventory, defect, and provenance, leaving nothing unfilled", async () => {
     const skill = await loadSkill(null, "design-placement");
     const text = renderSkill(skill.text, {
       project: "demo",
       inventory: "PRIMARY KIT: @acme/kit",
       defect: "issue 418203: something",
+      provenance: "shot web/app/root: SaveButton src/SaveButton.tsx:12",
     });
     expect(text).toContain("@acme/kit");
     expect(text).toContain("418203");
+    expect(text).toContain("src/SaveButton.tsx:12");
     expect(text).not.toMatch(/\{\{[a-z]+\}\}/);
+  });
+
+  test("the provenance block is a starting point, never a path to copy unopened", async () => {
+    const skill = await loadSkill(null, "design-placement");
+    expect(skill.text).toContain("into your reply without opening it");
+    expect(skill.text).toContain("not conclusions about this repository");
+    // The mock CLI keys placement mode off this phrase; losing it would make
+    // every placement test silently exercise the judge mock instead.
+    expect(skill.text).toContain("placement advisor");
   });
 
   test("the prompt tells the model it is not re-deciding whether the defect is real", async () => {

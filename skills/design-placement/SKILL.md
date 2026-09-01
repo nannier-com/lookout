@@ -1,7 +1,7 @@
 ---
 name: design-placement
 description: Work out where a visual defect should be fixed in a project that has a design system: in the kit's component, in the application's use of it, or in the tokens.
-version: 1
+version: 2
 output: placement-verdict-v1
 ---
 
@@ -47,6 +47,29 @@ Getting this right is the entire value of your answer.
 ## The defect
 
 {{defect}}
+
+## What was rendering there
+
+lookout recorded, at capture time, which elements were rendered on this
+defect's screenshots and, where the framework's dev tooling exposed it, which
+components produced them and from which source files. These are observed
+facts about the running page, not conclusions about this repository.
+
+Use them as your starting point, in this order:
+
+1. When a source file is named below, open it FIRST and verify the component
+   there is what renders the defective element. A verified hint replaces the
+   search in step 1 of "How to work it out".
+2. When only component names are given, search the repository for those names.
+3. When the block is empty, or a named path does not exist in this repository,
+   fall back to searching as described below and say in `notes` that the
+   provenance did not resolve.
+
+These hints can be stale or missing: production builds strip them, and the
+page may have been re-captured since the finding was filed. Never copy a path
+from this block into your reply without opening it.
+
+{{provenance}}
 
 ## How to work it out
 

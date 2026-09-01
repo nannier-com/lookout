@@ -22,6 +22,8 @@ import { invokeClaude, extractJson } from "../judge/engine.js";
 import { existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { loadSkill, renderSkill } from "../skills/load.js";
+import { evidenceDir } from "../config.js";
+import { provenanceBrief } from "./provenance-brief.js";
 import type { DesignInventory } from "./inventory.js";
 import type { FixCluster } from "../fix/cluster.js";
 import type { ResolvedConfig } from "../types.js";
@@ -98,10 +100,15 @@ export async function placeDefect(
   if (inv.kits.length === 0) return { placement: null, costUsd: 0 };
 
   const skill = await loadSkill(resolved, "design-placement");
+  // Capture-time facts about what was rendering on this defect's screenshots.
+  // Always filled: renderSkill refuses a prompt with a slot left in it, and
+  // the skill's own instructions govern the empty case.
+  const observed = provenanceBrief(evidenceDir(resolved), cluster);
   const prompt = renderSkill(skill.text, {
     project: resolved.project,
     inventory: inventoryBrief(inv),
     defect: defectBrief(cluster),
+    provenance: observed || "(no rendering provenance was captured for these screenshots)",
   });
 
   const res = await invokeClaude({
