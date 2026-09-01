@@ -1,5 +1,15 @@
 # @nannier-com/lookout
 
+## 0.36.4
+
+### Patch Changes
+
+- a4bf8cc: The local page gains a shot inspector: a plain click on any screenshot tile
+  opens a lightbox with the full image, an open-PNG escape hatch, and keyboard
+  close that returns focus without disturbing filters; modified clicks keep
+  opening the raw PNG. Groundwork for the provenance overlay; without a sidecar
+  the inspector says so plainly.
+
 ## 0.36.3
 
 ### Patch Changes
