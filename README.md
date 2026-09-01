@@ -448,7 +448,7 @@ for, defects that survived every attempt, acceptance criteria that could not be
 decided from a screenshot, and replies that failed the output contract. It
 writes the amendment that would have prevented the most of them into this
 project's layer. Each pass sees only signals no earlier pass was shown
-(`.lookout/skills/signals-seen.json` is the committed watermark;
+(`.lookout/skills/signals-seen.json` is the watermark;
 `--all-signals` replays everything), so the same evidence never pays twice.
 
 You rarely run it by hand: `lookout check` and `lookout verify-fix` run it
@@ -469,8 +469,8 @@ a confirmed one is rolled back, with the attempt and its violations written to
 is empty or its pixels are not on this machine, is written to `PROPOSED.md`
 instead of being applied.
 
-The manifest is committed and the frozen pixels are not; `lookout skills freeze`
-rebuilds them from the evidence store.
+The manifest survives evidence cleans and the frozen pixels may not;
+`lookout skills freeze` rebuilds them from the evidence store.
 
 ### Healing itself
 
@@ -509,23 +509,30 @@ what it tried and lost, is on the second area of `lookout ui`.
 
 ### Where things land
 
+The whole of `.lookout/` is lookout's working state, and `lookout init` keeps
+it out of git (`.lookout/` in the project's `.gitignore`). It is per-checkout:
+it does not follow the repo to another machine, and deleting the directory
+re-rolls every issue id. The exception a project may choose is `config.ts`,
+which is authored rather than generated; un-ignore it explicitly if the team
+should share it.
+
 ```
 .lookout/
-  config.ts        committed: the project's targets and recipes
-  backlog.json     committed: adjudicated findings (managed via `lookout backlog`)
-  BACKLOG.md       committed: generated report (regen via `lookout backlog regen`)
-  ledger.json      committed if you want cross-machine judge caching
-  design-system.json  committed: what the project is built from, cached
-  conformance.json    committed if you want the reading pass cached across machines
-  issues/<id>/     committed: one folder per issue, named by its six-digit id
-                     Issue.json, Issue.md, state.json committed;
-                     img/pre/ and img/post/ gitignored with the evidence
-  issues/archive/<id>/  committed: issues filed away, same folder, moved whole
-  evidence/fix-frames/<id>/  gitignored: the frames either side of a fix,
-                     frozen when the issue is filed and when a fix is ruled
-  skills/          committed: this project's layer over lookout's shipped skills,
+  config.ts        the project's targets and recipes (authored; the one file
+                     worth un-ignoring if the team should share it)
+  backlog.json     adjudicated findings (managed via `lookout backlog`)
+  BACKLOG.md       generated report (regen via `lookout backlog regen`)
+  ledger.json      judge verdict cache
+  design-system.json  what the project is built from, cached
+  conformance.json    the source reading pass, cached
+  issues/<id>/     one folder per issue, named by its six-digit id:
+                     Issue.json, Issue.md, state.json, img/pre/, img/post/
+  issues/archive/<id>/  issues filed away, same folder, moved whole
+  evidence/fix-frames/<id>/  the frames either side of a fix, frozen when the
+                     issue is filed and when a fix is ruled
+  skills/          this project's layer over lookout's shipped skills,
                      plus signals-seen.json, the learned-from watermark
-  evidence/        gitignored: screenshots + capture-report.json + judge-report.json
+  evidence/        screenshots + capture-report.json + judge-report.json
 ```
 
 ### The fix loop (for agents)

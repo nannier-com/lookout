@@ -116,9 +116,11 @@ export interface BacklogFinding {
  * One issue: a root cause, its six-digit id, and where that id came from.
  *
  * The id is random, so unlike the `key` it cannot be recomputed. This registry
- * is the only place it exists, which is why it lives in backlog.json (committed)
- * rather than under evidence/ (gitignored): one `git clean` there would re-roll
- * every id and orphan every issue folder on disk.
+ * is the only place it exists, which is why it lives in backlog.json rather
+ * than under evidence/: the evidence store is routinely cleaned and rebuilt,
+ * and a clean there would re-roll every id and orphan every issue folder on
+ * disk. (.lookout/ as a whole stays out of git; the backlog is durable
+ * relative to the evidence, not relative to the checkout.)
  *
  * Nothing is ever pruned. An issue that was fixed years ago keeps its number,
  * so a commit message or a conversation that names it still resolves.

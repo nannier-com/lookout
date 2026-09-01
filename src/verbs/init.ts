@@ -1,6 +1,14 @@
 /**
- * `lookout init`: scaffold .lookout/config.ts in the current repo and ignore
- * the evidence directory. Refuses to overwrite an existing config.
+ * `lookout init`: scaffold .lookout/config.ts in the current repo and keep the
+ * whole .lookout directory out of git. Refuses to overwrite an existing
+ * config.
+ *
+ * All of .lookout is ignored, not just the evidence: the backlog, the issue
+ * folders and the learned skill layers are lookout's own working state, and
+ * the owner ruled they do not belong in the project's history. The cost is
+ * stated rather than hidden: this state is per-checkout, so it does not
+ * follow the repo to another machine, and deleting the directory re-rolls
+ * every issue id.
  */
 import { existsSync } from "node:fs";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
@@ -58,14 +66,13 @@ export async function init(_parsed: Parsed): Promise<number> {
   await mkdir(dir, { recursive: true });
   await writeFile(configPath, TEMPLATE);
 
-  // Evidence is bulky and regenerable; keep it out of the repo when one exists.
   const gitignore = join(cwd, ".gitignore");
-  const ignoreLine = ".lookout/evidence/";
+  const ignoreLine = ".lookout/";
   if (existsSync(gitignore)) {
     const current = await readFile(gitignore, "utf8");
     if (!current.split("\n").some((l) => l.trim() === ignoreLine)) {
       const sep = current.endsWith("\n") ? "" : "\n";
-      await appendFile(gitignore, `${sep}\n# lookout evidence (screenshots; regenerable)\n${ignoreLine}\n`);
+      await appendFile(gitignore, `${sep}\n# lookout working state (evidence, backlog, issue folders; per-checkout)\n${ignoreLine}\n`);
       console.log(`added ${ignoreLine} to .gitignore`);
     }
   } else {
