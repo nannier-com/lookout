@@ -388,32 +388,42 @@ ship in the standard Agent Skill layout, one directory each:
 
 ```
 skills/
-  visual-judge/       SKILL.md + rubric.md: what counts as a defect, and how to file it
-                      handoff.md: comparing against a design hand-off, carried
-                      only when a shot in the batch has one
-  refute-finding/     SKILL.md: the adversarial pass that kills false findings
-  verify-acceptance/  SKILL.md: ruling on a ticket's criteria from evidence alone
-  fact-check/         SKILL.md: answering one question from screenshots
-  design-placement/   SKILL.md: where a defect belongs, in a project with a kit
-  kit-conformance/    SKILL.md: whether the application is built out of that kit
+  visual-judge/         SKILL.md + rubric.md: the shared judging core: bands,
+                        severity ladder, regions, procedure, the output contract
+  judge-integrity/      SKILL.md: render failures, broken states, missing anatomy
+  judge-geometry/       SKILL.md: overflow, alignment, spacing, responsive
+  judge-visibility/     SKILL.md: color-scheme, contrast, visually evident a11y
+  judge-text/           SKILL.md: typography and broken copy
+  judge-craft/          SKILL.md: hierarchy, composition, consistency
+  judge-design-parity/  SKILL.md: divergence from a design hand-off; judges only
+                        design-bearing views. handoff.md: how to compare
+  refute-finding/       SKILL.md: the adversarial pass that kills false findings
+  verify-acceptance/    SKILL.md: ruling on a ticket's criteria from evidence alone
+  fact-check/           SKILL.md: answering one question from screenshots
+  design-placement/     SKILL.md: where a defect belongs, in a project with a kit
+  kit-conformance/      SKILL.md: whether the application is built out of that kit
 ```
 
 A skill carries the whole prompt shape, placeholders and all. lookout supplies
 only data: the shot manifest, the paths, the question. Each declares
 `{{amendments}}`, the slot where a project's own layer lands.
 
-Every judge prompt is therefore assembled from the `visual-judge` skill
-(severity ladder, the closed category vocabulary, the judging procedure, the
-universal never-file list), then this project's `.lookout/skills/visual-judge/`
-layer if it has one, then its `rubric` file, then its `neverFile` lines.
-Findings outside the category vocabulary are rejected at ingestion, so project
-extensions refine judgment; they cannot invent new taxonomies.
+The visual judge is six specialists, each judging every view group in its own
+call. The closed category vocabulary is partitioned across them (the registry
+in `src/judge/panels.ts` is the single source of that partition), and each
+judge's prompt is assembled from the `visual-judge` core (severity ladder, the
+judging procedure, the universal never-file list), that panel's own vocabulary
+and layer, then this project's `.lookout/skills/` layers, its `rubric` file,
+and its `neverFile` lines. A finding outside the vocabulary, or outside the
+filing panel's own lane, is rejected at ingestion, so project extensions
+refine judgment; they cannot invent new taxonomies. Every finding states which
+judge filed it, and `--panels` narrows a run to named judges.
 
-The ledger is keyed on the composed prompt itself, judging and refuting
-instructions together, so amending a skill, a project rubric or a `neverFile`
-line invalidates exactly the cached verdicts it could have changed, and nothing
-else. That covers the refuting skill too, because what the ledger stores is what
-survived it.
+The ledger keys one entry per view group PER PANEL, on the composed prompt
+itself, judging and refuting instructions together: amending one specialist, a
+project rubric or a `neverFile` line invalidates exactly the cached verdicts
+it could have changed, and the other panels' rulings stand. That covers the
+refuting skill too, because what the ledger stores is what survived it.
 
 ### What the judge rules on
 

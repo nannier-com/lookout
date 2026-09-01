@@ -126,6 +126,23 @@ describe("what the frozen set claims", () => {
     expect(entry.case.mustFile).toHaveLength(1);
   });
 
+  test("a verified design-parity finding settles nothing", () => {
+    // Frozen cases carry no design reference, so no replay can ever re-file a
+    // design-parity divergence: freezing one would put an unsatisfiable
+    // mustFile in the gate and roll back every future amendment as "lost".
+    const b = emptyBacklog("demo", "t");
+    const f = finding({
+      status: "open",
+      reason: null,
+      verified: true,
+      severity: "high",
+      category: "design-parity",
+      attribute: "hero-width",
+    });
+    b.findings[f.fingerprint] = f;
+    expect(claimsByShot(b).size).toBe(0);
+  });
+
   test("a deterministic measurement settles nothing about the judge", () => {
     // The replay never re-takes the measurements (the frozen shots carry no
     // signals) and the rubric forbids the judge restating one, so an axe

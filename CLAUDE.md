@@ -43,6 +43,7 @@ every gate is green:
 | the judge's prompt or its reply contract | `src/judge/engine.ts` |
 | what a view group or a batch is | `src/judge/grouping.ts` |
 | the rubric, the refuter, the ledger, criteria | `src/judge/` |
+| which panel owns a category, or when one judges | `src/judge/panels.ts` (the partition is data; a test holds it to the skill files) |
 | a finding's identity, or how a channel is ingested | `src/backlog/fingerprint.ts`, `src/backlog/ingest.ts` |
 | what happens when a finding is seen again | `src/backlog/merge.ts` |
 | the backlog's shapes, its validation, its markdown | `src/backlog/lib.ts`, `check.ts`, `report.ts` |

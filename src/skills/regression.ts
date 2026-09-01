@@ -143,12 +143,17 @@ export function claimsByShot(backlog: Backlog): Map<string, { case: Omit<Regress
   for (const f of Object.values(backlog.findings)) {
     if (f.status === "by-design" && f.reason) {
       add(f, "mustNotFile", f.reason);
-    } else if (f.verified && f.severity !== "low") {
+    } else if (f.verified && f.severity !== "low" && f.category !== "design-parity") {
       // Everything the refuter confirms except lows. Since the refuting pass
       // reaches every severity, a confirmed medium is a claim the set can
       // hold; lows stay out because they are the most judge-variant and the
       // least costly to miss, and a gate that fails amendments on replay
       // misses cannot afford flaky claims about the cheapest findings.
+      // design-parity stays out too: a frozen case carries no design
+      // reference, so no replay could ever re-file the divergence, and an
+      // unsatisfiable mustFile would report every future amendment as losing
+      // it. (Replay scoping also refuses to grade such claims; this keeps
+      // them out of the set at the source.)
       add(f, "mustFile", `confirmed by the adversarial verifier: ${f.title}`);
     }
   }
