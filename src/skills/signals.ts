@@ -24,10 +24,27 @@ import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { evidenceDir } from "../config.js";
+import { panelOf } from "../judge/panels.js";
 import { loadBacklog } from "../verbs/backlog.js";
 import { issuesOf } from "../issues/registry.js";
 import { sha256 } from "../util.js";
 import type { ResolvedConfig } from "../types.js";
+
+/**
+ * The judge skill a finding's lesson belongs to: the panel that owns its
+ * category. Derived from the CURRENT registry rather than trusted from any
+ * stored stamp, so backlogs written before the stamp existed attribute
+ * correctly, and a category that later moves panels teaches the skill an
+ * amendment would actually change. A category outside the registry (an old
+ * backlog after a vocabulary change) falls back to the core.
+ */
+function ownerOf(category: string): string {
+  try {
+    return panelOf(category).name;
+  } catch {
+    return "visual-judge";
+  }
+}
 
 export interface Signal {
   /** Which skill this is evidence about. */
@@ -61,7 +78,7 @@ function keyOf(kind: Signal["kind"], stable: string): string {
 
 interface JudgeReport {
   runId?: string;
-  refuted?: { title: string; shotId: string; verifierNote: string }[];
+  refuted?: { title: string; shotId: string; verifierNote: string; judge?: string }[];
   rejected?: number;
 }
 
@@ -75,7 +92,9 @@ export async function gatherSignals(resolved: ResolvedConfig): Promise<Signal[]>
       const report = JSON.parse(await readFile(reportPath, "utf8")) as JudgeReport;
       for (const r of report.refuted ?? []) {
         signals.push({
-          skill: "visual-judge",
+          // The report stamps which panel filed the refuted finding; a report
+          // written before the stamp teaches the core.
+          skill: r.judge ?? "visual-judge",
           kind: "refuted",
           summary: `filed and refuted: ${r.title}`,
           detail: r.verifierNote,
@@ -137,8 +156,12 @@ export async function gatherSignals(resolved: ResolvedConfig): Promise<Signal[]>
     // mandate was to kill it, so the lesson is the refuter's. An
     // unverified one is the judge's error alone.
     const overruledVerifier = finding.verified === true;
+    const owner = ownerOf(finding.category);
     signals.push({
-      skill: overruledVerifier ? "refute-finding" : "visual-judge",
+      skill: overruledVerifier ? "refute-finding" : owner,
+      // The refuter's lesson still names the panel whose finding it confirmed:
+      // the filing rule that produced the claim may be the thing to amend.
+      ...(overruledVerifier ? { licenses: [owner] } : {}),
       kind: "by-design",
       summary: `adjudicated intentional: ${finding.title}`,
       detail: overruledVerifier
@@ -153,7 +176,7 @@ export async function gatherSignals(resolved: ResolvedConfig): Promise<Signal[]>
     if (issue.members.some((m) => m.status === "blocked")) {
       const reason = issue.members.find((m) => m.status === "blocked")?.reason ?? "";
       signals.push({
-        skill: "visual-judge",
+        skill: ownerOf(issue.category),
         kind: "blocked",
         summary: `survived every attempt: ${issue.title}`,
         detail: reason,
@@ -169,7 +192,9 @@ export async function gatherSignals(resolved: ResolvedConfig): Promise<Signal[]>
       // material, not skill-text material, and teach no skill anything.
       if (c.source !== "judge") continue;
       signals.push({
-        skill: "visual-judge",
+        // The criterion was authored while filing this issue's category, so
+        // the authoring lesson belongs to the panel that owns it.
+        skill: ownerOf(issue.category),
         kind: "not-verifiable",
         summary: `criterion could not be decided from the evidence: ${c.text}`,
         detail: c.note ?? "",

@@ -28,7 +28,7 @@ export interface CheckOutcome {
   judged: number;
   cached: number;
   findings: (VerifiedFinding & { cached?: boolean })[];
-  refuted: { title: string; shotId: string; verifierNote: string }[];
+  refuted: { title: string; shotId: string; verifierNote: string; judge?: string }[];
   rejected: number;
   /**
    * Shots this run could not vouch for: a panel call that failed, or a reply
@@ -147,7 +147,13 @@ export async function recordOutcome(args: {
     judged: plan.toJudgeShots.length,
     cached: plan.cached,
     findings: allFindings,
-    refuted: pass.refuted.map((r) => ({ title: r.title, shotId: r.shotId, verifierNote: r.verifierNote })),
+    refuted: pass.refuted.map((r) => ({
+      title: r.title,
+      shotId: r.shotId,
+      verifierNote: r.verifierNote,
+      // Which panel filed the killed claim, so the lesson lands on its skill.
+      judge: r.judge,
+    })),
     rejected: pass.rejected,
     unjudged: unjudgedIds.size,
     failedBatches: pass.failedBatches,

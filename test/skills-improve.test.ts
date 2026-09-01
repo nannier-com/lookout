@@ -339,6 +339,32 @@ describe("improving a skill, automatically", () => {
     expect(JSON.parse(history.trim().split("\n").at(-1)!).action).toBe("applied");
   });
 
+  test("an amendment can land on the panel the evidence licensed", async () => {
+    // The fixture's by-design is a verified color-scheme finding: the lesson
+    // is the refuter's, licensing judge-visibility (the confirmed claim's
+    // owner) alongside. The amendment targets the panel, applies into its own
+    // layer, and history records it under the panel's name.
+    const r = project();
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    process.env.MOCK_IMPROVE_SKILL = "judge-visibility";
+    process.env.MOCK_JUDGE_CATEGORY = "typography";
+    try {
+      expect(await run(r, "freeze")).toBe(0);
+      expect(await run(r, "improve")).toBe(0);
+      const layer = readFileSync(projectSkillPath(r, "judge-visibility"), "utf8");
+      expect(layer).toContain("name: judge-visibility");
+      expect(layer).toContain("The marketing hero is deliberately light in both schemes.");
+      const history = readFileSync(join(r.projectDir, ".lookout", "skills", "history.jsonl"), "utf8")
+        .trim()
+        .split("\n")
+        .map((l) => JSON.parse(l) as { action: string; skill: string });
+      expect(history.at(-1)).toMatchObject({ action: "applied", skill: "judge-visibility" });
+    } finally {
+      delete process.env.MOCK_IMPROVE_SKILL;
+      delete process.env.MOCK_JUDGE_CATEGORY;
+    }
+  });
+
   test("with nothing frozen to grade it, spending is opt-in and produces a proposal", async () => {
     // A blocked issue is something to learn from, but an unverified finding
     // settles nothing, so there is a signal and no gate. An ungated automatic

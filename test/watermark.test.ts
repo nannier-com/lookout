@@ -47,15 +47,39 @@ describe("signal identity and attribution", () => {
     expect(a[0]!.key).toMatch(/^[0-9a-f]{16}$/);
   });
 
-  test("a by-design of a VERIFIED finding is the refuter's lesson, an unverified one the judge's", async () => {
+  test("a refuted-finding signal follows the report's judge stamp, and an old report teaches the core", async () => {
+    const r = await projectWith([]);
+    mkdirSync(evidenceDir(r), { recursive: true });
+    writeFileSync(
+      join(evidenceDir(r), "judge-report.json"),
+      JSON.stringify({
+        runId: "run-1",
+        refuted: [
+          { title: "stamped", shotId: "s1", verifierNote: "n", judge: "judge-geometry" },
+          // The pre-stamp report format: no judge field at all.
+          { title: "legacy", shotId: "s2", verifierNote: "n" },
+        ],
+      }),
+    );
+    const signals = await gatherSignals(r);
+    const byTitle = new Map(signals.map((s) => [s.summary, s.skill]));
+    expect(byTitle.get("filed and refuted: stamped")).toBe("judge-geometry");
+    expect(byTitle.get("filed and refuted: legacy")).toBe("visual-judge");
+  });
+
+  test("a by-design of a VERIFIED finding is the refuter's lesson, an unverified one the owning panel's", async () => {
     const r = await projectWith([
       finding({ fingerprint: "fpv", status: "by-design", reason: "intended", verified: true }),
       finding({ fingerprint: "fpu", attribute: "y", status: "by-design", reason: "intended", verified: false }),
     ]);
     const signals = await gatherSignals(r);
-    const bySrc = new Map(signals.map((s) => [s.source, s.skill]));
-    expect(bySrc.get("fpv")).toBe("refute-finding");
-    expect(bySrc.get("fpu")).toBe("visual-judge");
+    const bySrc = new Map(signals.map((s) => [s.source, s]));
+    // The fixture's findings are contrast, which judge-visibility owns: the
+    // unverified one is that panel's filing lesson, and the refuter's lesson
+    // still licenses the panel whose claim it confirmed.
+    expect(bySrc.get("fpv")?.skill).toBe("refute-finding");
+    expect(bySrc.get("fpv")?.licenses).toEqual(["judge-visibility"]);
+    expect(bySrc.get("fpu")?.skill).toBe("judge-visibility");
   });
 
   test("the standalone verify report feeds verify-acceptance signals", async () => {
