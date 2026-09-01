@@ -4,8 +4,10 @@ dist/
 *.tsbuildinfo
 coverage/
 
-# lookout's own dogfood evidence (when run against itself or test pages)
-.lookout/evidence/
+# lookout's own working state, when run against itself or test pages: evidence,
+# backlog, issue folders, learned skill layers. Per-checkout, not the repo's.
+# lookout.config.ts is deliberately not in here: it lives at the root, in git.
+.lookout/
 
 # Local agent config; never part of the published project.
 .claude/
