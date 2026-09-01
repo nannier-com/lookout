@@ -41,7 +41,7 @@ function frozenProject(cases: RegressionCase[]): { resolved: ResolvedConfig; set
   const dir = mkdtempSync(join(tmpdir(), "lookout-replay-"));
   mkdirSync(join(dir, ".lookout", "regression", "shots"), { recursive: true });
   writeFileSync(
-    join(dir, ".lookout", "config.json"),
+    join(dir, "lookout.config.json"),
     JSON.stringify({ project: "demo", targets: [{ name: "app", url: "http://localhost:1" }] }),
   );
   for (const c of cases) {
@@ -49,7 +49,7 @@ function frozenProject(cases: RegressionCase[]): { resolved: ResolvedConfig; set
   }
   const resolved: ResolvedConfig = {
     config: { targets: [{ name: "app", url: "http://localhost:1" }] },
-    configPath: join(dir, ".lookout", "config.json"),
+    configPath: join(dir, "lookout.config.json"),
     projectDir: dir,
     project: "demo",
   };

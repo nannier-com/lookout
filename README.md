@@ -33,7 +33,7 @@ lookout doctor
 lookout targets --url http://localhost:3000
 
 # per-repo setup
-lookout init                  # scaffolds .lookout/config.ts
+lookout init                  # writes lookout.config.ts at the project root
 lookout targets               # resolve + probe the configured targets
 ```
 
@@ -51,7 +51,7 @@ lookout targets               # resolve + probe the configured targets
 | `design-system` | what the project is built from (component kit, tokens, adoption), and where a visual fix belongs; `--audit` reads the application and says whether it is actually built out of that kit |
 | `skills`  | lookout's own instructions: `list`, `diff`, `freeze`, `replay`, `improve` |
 | `self-heal` | fix what lookout keeps getting wrong, in lookout's own source |
-| `init`    | scaffold `.lookout/config.ts` |
+| `init`    | write `lookout.config.ts` at the project root (and migrate a pre-root `.lookout/config.ts`) |
 | `status`  | what the run in flight is doing, folded out of the event log; exit 1 while a run is going, so an agent can poll it |
 | `ui`      | a local page rendering that same log live, with thumbnails, findings and verdicts, plus a second area for what lookout has changed about itself |
 | `protocol`| the operating contract, printed by lookout itself, for whichever agent is driving it |
@@ -296,9 +296,19 @@ reopens it. Archived cards carry a restore button for everything else.
 
 ## Per-project config
 
-`.lookout/config.ts` is a TypeScript module (the CLI runs under bun, so
-recipes are real functions) default-exporting a `LookoutConfig`. Everything
-below is optional except `targets`.
+`lookout.config.ts` sits at the project root, beside `package.json`. It is a
+TypeScript module (the CLI runs under bun, so recipes are real functions)
+default-exporting a `LookoutConfig`. Everything below is optional except
+`targets`.
+
+lookout writes and maintains this file. `lookout init` creates it; a verb that
+needs a config and finds none creates it too, seeded from `--url` when the run
+gave one and left as a template to edit when it did not. A project still
+holding the older `.lookout/config.ts` keeps working: the first run that finds
+one moves it to the root and repoints the `rubric` and route `design` paths
+inside it, since those resolve relative to the config file. `--config <path>`
+still overrides the search entirely, and `.js`, `.mjs` and `.json` are read as
+well (a JSON config cannot carry recipes).
 
 ```ts
 import type { LookoutConfig } from "@nannier-com/lookout";
@@ -509,17 +519,19 @@ what it tried and lost, is on the second area of `lookout ui`.
 
 ### Where things land
 
+The config is the one file meant to be shared, so it is the one file outside
+this directory: `lookout.config.ts` sits at the project root and is committed
+like any other tool's config.
+
 The whole of `.lookout/` is lookout's working state, and `lookout init` keeps
 it out of git (`.lookout/` in the project's `.gitignore`). It is per-checkout:
 it does not follow the repo to another machine, and deleting the directory
-re-rolls every issue id. The exception a project may choose is `config.ts`,
-which is authored rather than generated; un-ignore it explicitly if the team
-should share it.
+re-rolls every issue id.
 
 ```
+lookout.config.ts  the project's targets and recipes (at the root, in git)
+
 .lookout/
-  config.ts        the project's targets and recipes (authored; the one file
-                     worth un-ignoring if the team should share it)
   backlog.json     adjudicated findings (managed via `lookout backlog`)
   BACKLOG.md       generated report (regen via `lookout backlog regen`)
   ledger.json      judge verdict cache

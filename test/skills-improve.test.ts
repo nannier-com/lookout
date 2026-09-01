@@ -69,7 +69,7 @@ function project(findings: BacklogFinding[] = [finding()]): ResolvedConfig {
   const dir = mkdtempSync(join(tmpdir(), "lookout-improve-"));
   mkdirSync(join(dir, ".lookout", "evidence", "web", "app", "root"), { recursive: true });
   writeFileSync(
-    join(dir, ".lookout", "config.json"),
+    join(dir, "lookout.config.json"),
     JSON.stringify({ project: "demo", targets: [{ name: "app", url: "http://localhost:1" }] }),
   );
   writeFileSync(join(dir, ".lookout", "evidence", "web", "app", "root", "rest--desktop-dark.png"), "png");
@@ -79,7 +79,7 @@ function project(findings: BacklogFinding[] = [finding()]): ResolvedConfig {
   writeFileSync(join(dir, ".lookout", "backlog.json"), JSON.stringify(backlog, null, 2));
   return {
     config: { targets: [{ name: "app", url: "http://localhost:1" }] },
-    configPath: join(dir, ".lookout", "config.json"),
+    configPath: join(dir, "lookout.config.json"),
     projectDir: dir,
     project: "demo",
   };

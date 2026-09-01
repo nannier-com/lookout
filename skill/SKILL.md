@@ -47,7 +47,7 @@ practical notes that are easier to hit than to work out.
   `lookout doctor` reports it; if it says "Not logged in", ask the user to run
   `claude` in a terminal once and complete /login.
 - Which projects are wired, and what each one targets, is whatever
-  `.lookout/config.ts` says in the repo you are standing in. `lookout targets`
+  `lookout.config.ts` says in the repo you are standing in. `lookout targets`
   lists them and probes whether they are reachable; read that rather than
   assuming.
 - lookout never starts services. A down target prints that project's own

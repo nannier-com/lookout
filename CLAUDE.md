@@ -14,6 +14,7 @@ make that safe.
 
 | you are changing | it lives in |
 | --- | --- |
+| where a project's config lives, or who writes it | `src/config-locate.ts` (found), `src/config-write.ts` (created, migrated), `src/config.ts` (loaded) |
 | how a screen is captured | `src/capture/` (web, native, checks, contact sheet, store) |
 | what an AI capability is asked | `skills/<name>/SKILL.md`, never a string literal in code |
 | how lookout talks to the CLI at all | `src/judge/claude.ts` |
