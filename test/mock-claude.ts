@@ -46,6 +46,27 @@ if (mode === "auto") {
 
 const shotIds = [...promptText.matchAll(/^- shotId: (.+)$/gm)].map((m) => m[1]!);
 
+// MOCK_FAIL_PANEL crashes only the judge call whose prompt carries the marker
+// (a panel's own vocabulary bullet works), so one panel of a group can fail
+// while its siblings answer.
+if (process.env.MOCK_FAIL_PANEL && promptText.includes(process.env.MOCK_FAIL_PANEL)) {
+  process.exit(1);
+}
+
+// The category a judge reply files under has to be one the prompt's own
+// vocabulary section offers, or the lane rule rejects it: a panel prompt
+// carries only its own bullets. Sliced to the section because the region
+// vocabulary reuses the bullet shape (and the word "content").
+function promptCategory(): string {
+  const start = promptText.indexOf("## Category vocabulary");
+  if (start === -1) return "contrast";
+  const end = promptText.indexOf("\n## ", start + 22);
+  const section = end === -1 ? promptText.slice(start) : promptText.slice(start, end);
+  const listed = [...section.matchAll(/^- ([a-z0-9-]+):/gm)].map((m) => m[1]!);
+  if (listed.length === 0) return "contrast";
+  return listed.includes("contrast") ? "contrast" : listed[0]!;
+}
+
 // One flaky reply, then normal service: the retry paths are exercised by
 // pointing MOCK_FLAKY_FILE at a path that does not exist yet. First
 // invocation creates it and answers garbage; every later one behaves.
@@ -179,7 +200,7 @@ if (mode === "placement") {
         ? [
             {
               shotId: first,
-              category: process.env.MOCK_JUDGE_CATEGORY ?? "contrast",
+              category: process.env.MOCK_JUDGE_CATEGORY ?? promptCategory(),
               attribute: "body-text",
               region: process.env.MOCK_JUDGE_REGION ?? "content",
               severity: "high",

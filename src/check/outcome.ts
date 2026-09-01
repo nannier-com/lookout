@@ -14,7 +14,7 @@ import { groupHash, pruneLedger, recordVerdicts, saveLedger } from "../judge/led
 import type { VerifiedFinding } from "../judge/verify.js";
 import { LookoutError, type ResolvedConfig, type ShotRecord } from "../types.js";
 import { runId } from "../util.js";
-import type { JudgePass } from "./batches.js";
+import { workKey, type JudgePass } from "./batches.js";
 import type { JudgePlan } from "./plan.js";
 import type { CheckScope } from "./scope.js";
 
@@ -22,6 +22,8 @@ export interface CheckOutcome {
   runId: string;
   model: string;
   rubricVersion: number;
+  /** The judge panels in scope this run, so "not asked" never reads as "not re-found". */
+  panels: string[];
   shotsConsidered: number;
   judged: number;
   cached: number;
@@ -29,13 +31,13 @@ export interface CheckOutcome {
   refuted: { title: string; shotId: string; verifierNote: string }[];
   rejected: number;
   /**
-   * Shots this run could not vouch for: a batch that failed, or a reply that
-   * left them out of both findings and cleanShotIds. They are not cached, and
-   * they are not clean; they were not judged.
+   * Shots this run could not vouch for: a panel call that failed, or a reply
+   * that left them out of both findings and cleanShotIds. They are not cached
+   * whole, and they are not clean; some panel did not rule on them.
    */
   unjudged: number;
-  /** Batches whose judge call failed. The run continued without them. */
-  failedBatches: { shots: number; message: string }[];
+  /** Panel calls whose judge subprocess failed. The run continued without them. */
+  failedBatches: { panel: string; shots: number; message: string }[];
   deterministicErrors: number;
   costUsd: number;
   reportPath: string;
@@ -83,13 +85,19 @@ export async function recordOutcome(args: {
   // verdict, and writing "clean" for it would turn silence into a durable clean
   // bill of health. Left out, it is simply judged again next run.
   const checkRunId = runId("check");
-  const judgedGroups = [...groupShots(plan.toJudge).values()]
-    .filter((members) => !members.some((s) => pass.uncacheable.has(s.id)))
-    .map((members) => {
-      const ids = new Set(members.map((s) => s.id));
-      return { shots: members, findings: pass.confirmed.filter((f) => ids.has(f.shotId)) };
-    });
-  recordVerdicts(plan.ledger, checkRunId, plan.identity, judgedGroups);
+  for (const item of plan.toJudge) {
+    if (pass.uncacheable.has(workKey(item))) continue;
+    const ids = new Set(item.shots.map((s) => s.id));
+    // Each panel's entry holds only the findings its lane owns: the category
+    // partition is disjoint, so the filter is exact, and a cache hit on one
+    // panel can never serve a sibling's findings.
+    const findings = pass.confirmed.filter(
+      (f) =>
+        ids.has(f.shotId) &&
+        (item.panel.def.categories as readonly string[]).includes(f.category),
+    );
+    recordVerdicts(plan.ledger, checkRunId, item.identity, [{ shots: item.shots, findings }]);
+  }
   if (args.fullScope) {
     const live = new Set([...groupShots(scope.shots).values()].map((g) => groupHash(g)));
     const dropped = pruneLedger(plan.ledger, live);
@@ -99,12 +107,12 @@ export async function recordOutcome(args: {
 
   if (pass.failedBatches.length > 0) {
     log(
-      `${pass.failedBatches.length} batch(es) failed and were not cached; ` +
+      `${pass.failedBatches.length} panel call(s) failed and were not cached; ` +
         "the shots they cover are judged again next run",
     );
   }
-  // Every batch failing is a run that judged nothing, which must not read as a
-  // clean result. One failing among several is reported and survived.
+  // Every panel call failing is a run that judged nothing, which must not read
+  // as a clean result. One failing among several is reported and survived.
   if (pass.failedBatches.length > 0 && pass.failedBatches.length === pass.batchCount) {
     throw new LookoutError(
       `every judge batch failed (${pass.batchCount})`,
@@ -120,18 +128,28 @@ export async function recordOutcome(args: {
     .flatMap((s) => s.deterministicFindings)
     .filter((f) => f.severity === "error").length;
 
+  // A shot is unjudged when ANY of its panels could not vouch for it: the
+  // group's other panels may have cached, but the view as a whole was not
+  // fully ruled on this run.
+  const unjudgedIds = new Set<string>();
+  for (const item of plan.toJudge) {
+    if (!pass.uncacheable.has(workKey(item))) continue;
+    for (const s of item.shots) unjudgedIds.add(s.id);
+  }
+
   const reportPath = join(evDir, "judge-report.json");
   const outcome: CheckOutcome = {
     runId: checkRunId,
     model: plan.model,
-    rubricVersion: plan.rubric.version,
+    rubricVersion: Math.max(0, ...plan.panels.map((p) => p.version)),
+    panels: plan.panels.map((p) => p.def.name),
     shotsConsidered: scope.shots.length,
-    judged: plan.toJudge.length,
+    judged: plan.toJudgeShots.length,
     cached: plan.cached,
     findings: allFindings,
     refuted: pass.refuted.map((r) => ({ title: r.title, shotId: r.shotId, verifierNote: r.verifierNote })),
     rejected: pass.rejected,
-    unjudged: pass.uncacheable.size,
+    unjudged: unjudgedIds.size,
     failedBatches: pass.failedBatches,
     deterministicErrors,
     costUsd: Number(pass.costUsd.toFixed(4)),

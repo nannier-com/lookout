@@ -36,6 +36,8 @@ export interface Incident {
   detail?: string;
   /** Which project it happened in, by directory. */
   project?: string;
+  /** Which judge panel was answering, when one was. */
+  judge?: string;
   version?: string;
 }
 

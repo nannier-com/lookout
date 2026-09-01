@@ -19,10 +19,12 @@
 import { evidenceDir } from "../config.js";
 import { groupShots, type AiFinding } from "../judge/engine.js";
 import { groupHash, ledgerKey } from "../judge/ledger.js";
+import type { PanelRubric } from "../judge/rubric.js";
 import { verifyFindings } from "../judge/verify.js";
 import { emit } from "../report/events.js";
 import type { ResolvedConfig, ShotRecord } from "../types.js";
 import type { Parsed } from "../util.js";
+import { workKey } from "./batches.js";
 import type { JudgePlan } from "./plan.js";
 
 /** Cap per run: repairs are a tax on old debt, not the run's main job. */
@@ -55,13 +57,21 @@ export async function reverifyCached(args: {
   // spend this run", and the debt simply waits.
   if (parsed.flags["no-verify"]) return none;
 
-  const toJudgeIds = new Set(plan.toJudge.map((s) => s.id));
-  const cachedShots = [...shotsById.values()].filter((s) => !toJudgeIds.has(s.id));
-  const candidates: { key: string; shots: ShotRecord[] }[] = [];
-  for (const group of groupShots(cachedShots).values()) {
-    const key = ledgerKey(groupHash(group), plan.identity);
-    const entry = plan.ledger.entries[key];
-    if (entry?.findings?.some((f) => !f.verified)) candidates.push({ key, shots: group });
+  // Candidates are (group, panel) LEDGER ENTRIES, not groups: with per-panel
+  // caching a group can be half fresh work and half cached debt, and repairs
+  // are debt service on whatever entry holds unverified findings and is not
+  // being re-judged this run anyway.
+  const inWork = new Set(plan.toJudge.map((item) => workKey(item)));
+  const candidates: { key: string; shots: ShotRecord[]; panel: PanelRubric }[] = [];
+  for (const [groupId, group] of groupShots([...shotsById.values()])) {
+    const hash = groupHash(group);
+    for (const panel of plan.panels) {
+      if (panel.def.designOnly && !group.some((s) => s.design)) continue;
+      if (inWork.has(`${groupId}|${panel.def.name}`)) continue;
+      const key = ledgerKey(hash, plan.identities.get(panel.def.name)!);
+      const entry = plan.ledger.entries[key];
+      if (entry?.findings?.some((f) => !f.verified)) candidates.push({ key, shots: group, panel });
+    }
   }
   if (candidates.length === 0) return none;
 
@@ -78,7 +88,7 @@ export async function reverifyCached(args: {
       (result.deferred > 0 ? ` (${result.deferred} more wait for the next run)` : ""),
   );
 
-  for (const { key, shots } of todo) {
+  for (const { key, shots, panel } of todo) {
     const entry = plan.ledger.entries[key]!;
     const kept = entry.findings!.filter((f) => f.verified);
     const unverified = entry.findings!.filter((f) => !f.verified);
@@ -97,9 +107,13 @@ export async function reverifyCached(args: {
       }
       // The outcome serves cached findings from plan.cachedFindings, so the
       // repair has to land there too or the run would report what the ledger
-      // no longer says.
+      // no longer says. Filtered by shot AND lane: the sibling panels' cached
+      // findings for the same shots were not re-refuted and must stand.
       const ids = new Set(shots.map((s) => s.id));
-      const rest = plan.cachedFindings.filter((f) => !ids.has(f.shotId));
+      const owned = new Set(panel.def.categories as readonly string[]);
+      const rest = plan.cachedFindings.filter(
+        (f) => !(ids.has(f.shotId) && owned.has(f.category)),
+      );
       plan.cachedFindings.length = 0;
       plan.cachedFindings.push(...rest, ...findings.map((f) => ({ ...f, cached: true })));
       result.repaired++;

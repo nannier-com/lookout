@@ -13,7 +13,8 @@
  * an automatic fix loop must never see.
  */
 import { groupShots, type PriorFinding } from "../judge/engine.js";
-import { loadRubric, type Rubric } from "../judge/rubric.js";
+import { loadRubric, type PanelRubric } from "../judge/rubric.js";
+import { CATEGORIES } from "../judge/rubric.js";
 import { loadSkill, type Skill } from "../skills/load.js";
 import {
   groupHash,
@@ -24,33 +25,72 @@ import {
   type PanelIdentity,
 } from "../judge/ledger.js";
 import type { VerifiedFinding } from "../judge/verify.js";
-import type { ResolvedConfig, ShotRecord } from "../types.js";
+import { LookoutError, type ResolvedConfig, type ShotRecord } from "../types.js";
 import { str, type Parsed } from "../util.js";
 
+/** One judge call this run owes: one panel over one view group. */
+export interface PanelWork {
+  panel: PanelRubric;
+  identity: PanelIdentity;
+  groupId: string;
+  shots: ShotRecord[];
+}
+
 export interface JudgePlan {
-  rubric: Rubric;
+  /** The panels judging this run, after any --panels narrowing. */
+  panels: PanelRubric[];
   refute: Skill;
   model: string;
   ledger: Ledger;
-  /** Keys the ledger: which panel, which rules, which model, which version. */
-  identity: PanelIdentity;
-  /** Shots with no usable verdict on record, which this run will judge. */
-  toJudge: ShotRecord[];
+  /** One ledger identity per panel, keyed by panel name, computed once per run. */
+  identities: Map<string, PanelIdentity>;
+  /** The (view group x panel) pairs with no usable verdict on record. */
+  toJudge: PanelWork[];
+  /** The distinct shots those pairs cover, for logs and callbacks. */
+  toJudgeShots: ShotRecord[];
   /**
    * Verdicts read back from the ledger. Their refutation state is whatever
    * was stored: a --no-verify run and the never-refuted band arrive with
    * verified false, and refute-on-read is the pass that repairs them.
    */
   cachedFindings: (VerifiedFinding & { cached: boolean })[];
+  /** Shots whose every applicable in-scope panel was served from cache. */
   cached: number;
   /** What lookout already has open on these views, so one defect stays one issue. */
   prior: PriorFinding[];
+}
+
+/** The panels a view group should be judged by. */
+function applicableOf(panels: PanelRubric[], group: ShotRecord[]): PanelRubric[] {
+  return panels.filter((p) => !p.def.designOnly || group.some((s) => s.design));
+}
+
+/** The --panels flag, validated against the panels actually loaded. */
+function selectPanels(panels: PanelRubric[], flag: string | undefined): PanelRubric[] {
+  if (!flag) return panels;
+  const known = new Map(panels.map((p) => [p.def.name, p]));
+  return flag
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((name) => {
+      const p = known.get(name);
+      if (!p) {
+        throw new LookoutError(
+          `unknown judge panel "${name}"`,
+          `known: ${panels.map((x) => x.def.name).join(", ")}`,
+        );
+      }
+      return p;
+    });
 }
 
 export async function planJudging(
   resolved: ResolvedConfig,
   shots: ShotRecord[],
   parsed: Parsed,
+  /** Overridable so tests can exercise multi-panel partitions before the flip. */
+  judges?: PanelRubric[],
 ): Promise<JudgePlan> {
   // 3. Skills + cache partition. Both AI passes are loaded once per run: a
   // skill amended mid-run would judge two batches by two different rules.
@@ -58,7 +98,41 @@ export async function planJudging(
   const refute = await loadSkill(resolved, "refute-finding");
   const model = str(parsed.flags.model) ?? "sonnet";
   const ledger = await loadLedger(resolved);
-  const toJudge: ShotRecord[] = [];
+
+  // Until the pipeline judges one panel at a time, the whole composed rubric
+  // rides as a single transitional panel named "all": the six specialist
+  // skills exist and compose it, and the machinery below already works per
+  // (group x panel), so the flip to the real registry is a data change here.
+  const allPanels: PanelRubric[] = judges ?? [
+    {
+      def: { name: "all", categories: CATEGORIES },
+      text: rubric.text,
+      version: rubric.version,
+      handoff: rubric.handoff,
+    },
+  ];
+  // --panels narrows which panels JUDGE; every applicable panel still serves
+  // its cached verdicts below, which is how a scoped verify-fix keeps the
+  // other panels' standing findings visible while paying for one.
+  const scoped = selectPanels(allPanels, str(parsed.flags.panels));
+  const inScope = new Set(scoped.map((p) => p.def.name));
+
+  const identities = new Map<string, PanelIdentity>(
+    allPanels.map((p) => [
+      p.def.name,
+      panelIdentity({
+        panel: p.def.name,
+        version: p.version,
+        panelText: p.text,
+        refuteText: refute.text,
+        handoffText: p.handoff,
+        model,
+      }),
+    ]),
+  );
+
+  const toJudge: PanelWork[] = [];
+  const toJudgeShots: ShotRecord[] = [];
   const cachedFindings: (VerifiedFinding & { cached: boolean })[] = [];
   let cached = 0;
   // Cache by view group, not by single shot: a group re-judges whole whenever
@@ -66,18 +140,7 @@ export async function planJudging(
   // it compares against. Per-shot caching made a scoped re-check report a
   // dark/light or responsive finding as gone when only its partner had changed,
   // which is exactly the false "fixed" the auto loop must never see.
-  // Until the pipeline judges one panel at a time, the whole composed rubric
-  // is a single transitional identity named "all": the six panels exist as
-  // skills, and the ledger key already carries a panel segment for them.
-  const identity = panelIdentity({
-    panel: "all",
-    version: rubric.version,
-    panelText: rubric.text,
-    refuteText: refute.text,
-    handoffText: rubric.handoff,
-    model,
-  });
-  for (const group of groupShots(shots).values()) {
+  for (const [groupId, group] of groupShots(shots)) {
     // Hash identity decides, animated or not. Captures disable CSS animation,
     // so an animated view's stored still is usually byte-stable; when the
     // animation leaks into pixels anyway, the group hash misses on its own.
@@ -85,26 +148,35 @@ export async function planJudging(
     // forever (and wrote entries nothing could ever read); re-judging the
     // same bytes buys only judge variance. The flag's real job is context:
     // the judge prompt marks the shot as one frame of a moving view.
-    // --no-cache: serve nothing, still WRITE fresh verdicts. The model is in
-    // the ledger key and a fresh verdict is the best entry there is, so a
-    // forced re-judge repairs the cache rather than bypassing it. (The
-    // conformance cache does the opposite under the same flag: its identity
-    // gained a model term only recently, and old caches are discarded whole.)
-    const entry = parsed.flags["no-cache"]
-      ? undefined
-      : ledger.entries[ledgerKey(groupHash(group), identity)];
-    if (entry) {
-      cached += group.length;
-      for (const f of entry.findings ?? []) {
-        // `verified` is read back, not asserted. A --no-verify run records
-        // findings the refuter never saw, and medium and low findings are never
-        // refuted at all, so stamping true here reported a check that had not
-        // happened, in the one field that says how much to trust the finding.
-        cachedFindings.push({ ...f, verified: f.verified ?? false, cached: true });
+    const hash = groupHash(group);
+    let allServed = true;
+    for (const panel of applicableOf(allPanels, group)) {
+      const identity = identities.get(panel.def.name)!;
+      // --no-cache: serve nothing, still WRITE fresh verdicts. The model is in
+      // the ledger key and a fresh verdict is the best entry there is, so a
+      // forced re-judge repairs the cache rather than bypassing it. (The
+      // conformance cache does the opposite under the same flag: its identity
+      // gained a model term only recently, and old caches are discarded whole.)
+      const entry = parsed.flags["no-cache"]
+        ? undefined
+        : ledger.entries[ledgerKey(hash, identity)];
+      if (entry) {
+        for (const f of entry.findings ?? []) {
+          // `verified` is read back, not asserted. A --no-verify run records
+          // findings the refuter never saw, and medium and low findings are never
+          // refuted at all, so stamping true here reported a check that had not
+          // happened, in the one field that says how much to trust the finding.
+          cachedFindings.push({ ...f, verified: f.verified ?? false, cached: true });
+        }
+      } else if (inScope.has(panel.def.name)) {
+        allServed = false;
+        toJudge.push({ panel, identity, groupId, shots: group });
       }
-    } else {
-      toJudge.push(...group);
+      // A miss on a panel --panels excluded is out of scope: not judged, and
+      // not counted unjudged, the same way a route outside --routes is not.
     }
+    if (allServed) cached += group.length;
+    else toJudgeShots.push(...group);
   }
 
   // What lookout already has open on these views. The judge writes the
@@ -162,5 +234,16 @@ export async function planJudging(
     }
   }
 
-  return { rubric, refute, model, ledger, identity, toJudge, cachedFindings, cached, prior };
+  return {
+    panels: scoped,
+    refute,
+    model,
+    ledger,
+    identities,
+    toJudge,
+    toJudgeShots,
+    cachedFindings,
+    cached,
+    prior,
+  };
 }

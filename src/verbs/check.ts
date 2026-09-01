@@ -89,7 +89,7 @@ export async function runCheck(
     log,
     fullScope: !parsed.flags.targets && !parsed.flags.routes,
   });
-  return { outcome, resolved: scope.resolved, shotsById: scope.shotsById, toJudge: plan.toJudge };
+  return { outcome, resolved: scope.resolved, shotsById: scope.shotsById, toJudge: plan.toJudgeShots };
 }
 
 /** The worst-acceptable severity a caller cares about; critical and high by default. */

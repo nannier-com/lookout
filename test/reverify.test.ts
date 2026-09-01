@@ -9,6 +9,8 @@ import { reverifyCached, MAX_REVERIFY_GROUPS } from "../src/check/reverify.js";
 import { groupHash, panelIdentity, ledgerKey, type Ledger } from "../src/judge/ledger.js";
 import { loadSkill } from "../src/skills/load.js";
 import { evidenceDir } from "../src/config.js";
+import { viewGroupId } from "../src/judge/grouping.js";
+import { CATEGORIES, type PanelRubric } from "../src/judge/rubric.js";
 import { tmpProject } from "./tmp-project.js";
 import type { JudgePlan } from "../src/check/plan.js";
 import type { VerifiedFinding } from "../src/judge/verify.js";
@@ -61,6 +63,12 @@ function planWith(groups: { shots: ShotRecord[]; findings: VerifiedFinding[] }[]
   shotsById: Map<string, ShotRecord>;
   keys: string[];
 } {
+  const allPanel: PanelRubric = {
+    def: { name: "all", categories: CATEGORIES },
+    text: "R",
+    version: 4,
+    handoff: "",
+  };
   const identity = panelIdentity({
     panel: "all",
     version: 4,
@@ -88,12 +96,13 @@ function planWith(groups: { shots: ShotRecord[]; findings: VerifiedFinding[] }[]
     cachedFindings.push(...g.findings.map((f) => ({ ...f, cached: true })));
   }
   const plan = {
-    rubric: { text: "R", version: 4, handoff: "" },
+    panels: [allPanel],
     refute,
     model: "sonnet",
     ledger,
-    identity,
+    identities: new Map([["all", identity]]),
     toJudge: [],
+    toJudgeShots: [],
     cachedFindings,
     cached: shotsById.size,
     prior: [],
@@ -253,20 +262,28 @@ describe("refuter failure caches the judged group", () => {
     const r = tmpProject("lookout-flip-");
     mkdirSync(evidenceDir(r), { recursive: true });
     const s = shot("web/app/home/rest/desktop/light");
+    const allPanel: PanelRubric = {
+      def: { name: "all", categories: CATEGORIES },
+      text: "judge\n{{manifest}}",
+      version: 4,
+      handoff: "",
+    };
+    const identity = panelIdentity({
+      panel: "all",
+      version: 4,
+      panelText: "judge",
+      refuteText: refute.text,
+      handoffText: "",
+      model: "sonnet",
+    });
     const plan = {
-      rubric: { text: "judge\n{{manifest}}", version: 4, handoff: "" },
+      panels: [allPanel],
       refute,
       model: "sonnet",
       ledger: { note: "", entries: {} },
-      identity: panelIdentity({
-        panel: "all",
-        version: 4,
-        panelText: "judge",
-        refuteText: refute.text,
-        handoffText: "",
-        model: "sonnet",
-      }),
-      toJudge: [s],
+      identities: new Map([["all", identity]]),
+      toJudge: [{ panel: allPanel, identity, groupId: viewGroupId(s), shots: [s] }],
+      toJudgeShots: [s],
       cachedFindings: [],
       cached: 0,
       prior: [],

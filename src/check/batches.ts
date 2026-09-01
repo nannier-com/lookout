@@ -16,11 +16,11 @@
  * were.
  */
 import { evidenceDir } from "../config.js";
-import { batchShots, judgeBatch, type AiFinding } from "../judge/engine.js";
+import { judgeBatch, type AiFinding } from "../judge/engine.js";
 import { verifyFindings, type VerifiedFinding } from "../judge/verify.js";
 import { recordIncident } from "../skills/incidents.js";
 import { emit } from "../report/events.js";
-import type { JudgePlan } from "./plan.js";
+import type { JudgePlan, PanelWork } from "./plan.js";
 import type { ResolvedConfig, ShotRecord } from "../types.js";
 import { num, type Parsed } from "../util.js";
 
@@ -44,13 +44,22 @@ export interface RunCheckOptions {
 export interface JudgePass {
   confirmed: VerifiedFinding[];
   refuted: (AiFinding & { verifierNote: string })[];
-  /** Shots no verdict can be claimed for, so no verdict is cached for them. */
+  /**
+   * The (group, panel) pairs no verdict can be claimed for, as
+   * `${groupId}|${panel}`: the panel's call failed, or its reply skipped a
+   * shot. The sibling panels of the same group still cache.
+   */
   uncacheable: Set<string>;
-  failedBatches: { shots: number; message: string }[];
+  failedBatches: { panel: string; shots: number; message: string }[];
   rejected: number;
   costUsd: number;
-  /** How many batches there were, which is what makes "all of them failed" decidable. */
+  /** Planned panel calls, which is what makes "all of them failed" decidable. */
   batchCount: number;
+}
+
+/** The uncacheable-set member for one unit of panel work. */
+export function workKey(item: Pick<PanelWork, "groupId"> & { panel: { def: { name: string } } }): string {
+  return `${item.groupId}|${item.panel.def.name}`;
 }
 
 export async function judgeInBatches(args: {
@@ -68,31 +77,38 @@ export async function judgeInBatches(args: {
   // both the unit the rubric compares within and the unit that streams: a
   // larger batch buys nothing the judge can use and holds every finding in it
   // hostage until the whole batch returns, which on full-page screenshots ran
-  // to several silent minutes.
-  const batches = batchShots(plan.toJudge);
+  // to several silent minutes. The group is also the SCHEDULING unit: its
+  // panels run sequentially inside one worker turn, which is what lets one
+  // pooled refuter call cover the whole group without a join.
+  const jobs: { groupId: string; shots: ShotRecord[]; items: PanelWork[] }[] = [];
+  for (const item of plan.toJudge) {
+    const last = jobs[jobs.length - 1];
+    if (last && last.groupId === item.groupId) last.items.push(item);
+    else jobs.push({ groupId: item.groupId, shots: item.shots, items: [item] });
+  }
+  const versionMax = Math.max(0, ...plan.panels.map((p) => p.version));
   const concurrency = num(parsed.flags.concurrency) ?? 2;
   log(
-    `judging ${plan.toJudge.length} shot(s) in ${batches.length} batch(es) with model ${plan.model} ` +
-      `(${plan.cached} cached under judge skill v${plan.rubric.version})`,
+    `judging ${plan.toJudgeShots.length} shot(s) in ${jobs.length} batch(es) with model ${plan.model} ` +
+      `(${plan.cached} cached under judge skill v${versionMax})`,
   );
-  emit("judge-start", `judging ${plan.toJudge.length} shot(s) in ${batches.length} batch(es)`, {
-    shots: plan.toJudge.length,
-    batches: batches.length,
+  emit("judge-start", `judging ${plan.toJudgeShots.length} shot(s) in ${jobs.length} batch(es)`, {
+    shots: plan.toJudgeShots.length,
+    batches: jobs.length,
     model: plan.model,
     cached: plan.cached,
   });
-  if (opts.onStart) await opts.onStart(plan.toJudge);
+  if (opts.onStart) await opts.onStart(plan.toJudgeShots);
 
   const confirmed: VerifiedFinding[] = [];
   const refuted: (AiFinding & { verifierNote: string })[] = [];
-  /** Shots no verdict can be claimed for: the batch failed, or the reply skipped them. */
   const uncacheable = new Set<string>();
-  const failedBatches: { shots: number; message: string }[] = [];
+  const failedBatches: { panel: string; shots: number; message: string }[] = [];
   let rejectedCount = 0;
   let costUsd = 0;
-  let batchIndex = 0;
+  let jobIndex = 0;
 
-  // Callbacks run one at a time even though batches judge concurrently: they
+  // Callbacks run one at a time even though groups judge concurrently: they
   // write the backlog and print, and interleaving either would corrupt it.
   let tail: Promise<void> = Promise.resolve();
   const serialize = (fn: () => Promise<void>): Promise<void> => {
@@ -102,89 +118,99 @@ export async function judgeInBatches(args: {
 
   const worker = async (): Promise<void> => {
     for (;;) {
-      const i = batchIndex++;
-      if (i >= batches.length) return;
-      const batch = batches[i]!;
+      const i = jobIndex++;
+      if (i >= jobs.length) return;
+      const job = jobs[i]!;
 
-      // One batch failing is not the run failing. Without this, a single
-      // timeout or unparseable reply rejected the worker, took Promise.all with
-      // it, and threw away every batch already judged before the ledger was
-      // ever written: on a long run that is minutes of judging and real money
-      // discarded because the last call went wrong. A failed batch is recorded,
-      // left out of the cache so it is judged again next time, and the run
-      // carries on.
-      let res: Awaited<ReturnType<typeof judgeBatch>>;
-      try {
-        res = await judgeBatch(plan.rubric.text, resolved.project, batch, evDir, plan.model, {
-          handoff: plan.rubric.handoff,
-          prior: plan.prior,
-        });
-      } catch (e) {
-        const message = e instanceof Error ? e.message : String(e);
-        for (const s of batch) uncacheable.add(s.id);
-        failedBatches.push({ shots: batch.length, message });
-        recordIncident({
-          at: new Date().toISOString(),
-          kind: "crash",
-          verb: "check",
-          message: `judge batch failed: ${message}`,
-          project: resolved.project,
-        });
-        log(`  batch ${i + 1}/${batches.length}: FAILED (${message})`);
-        emit("error", `batch ${i + 1}/${batches.length} failed: ${message}`, {}, "error");
-        continue;
+      // One panel failing is not the group failing, and one group failing is
+      // not the run failing. A failed call is recorded, its (group, panel)
+      // pair is left out of the cache so it is judged again next time, and
+      // the sibling panels' verdicts still count.
+      const fresh: AiFinding[] = [];
+      let durationMs = 0;
+      let rejectedHere = 0;
+      for (const item of job.items) {
+        const panelName = item.panel.def.name;
+        let res: Awaited<ReturnType<typeof judgeBatch>>;
+        try {
+          res = await judgeBatch(item.panel.text, resolved.project, job.shots, evDir, plan.model, {
+            handoff: item.panel.handoff,
+            // Priors travel per lane: an out-of-lane prior instructs the judge
+            // to re-file it, which the lane rule would then reject.
+            prior: plan.prior.filter((p) =>
+              (item.panel.def.categories as readonly string[]).includes(p.category),
+            ),
+            panel: { name: panelName, categories: item.panel.def.categories },
+          });
+        } catch (e) {
+          const message = e instanceof Error ? e.message : String(e);
+          uncacheable.add(workKey(item));
+          failedBatches.push({ panel: panelName, shots: job.shots.length, message });
+          recordIncident({
+            at: new Date().toISOString(),
+            kind: "crash",
+            verb: "check",
+            message: `judge batch failed: ${message}`,
+            project: resolved.project,
+            judge: panelName,
+          });
+          log(`  batch ${i + 1}/${jobs.length}: ${panelName} FAILED (${message})`);
+          emit("error", `batch ${i + 1}/${jobs.length} ${panelName} failed: ${message}`, {}, "error");
+          continue;
+        }
+        rejectedHere += res.rejected.length;
+        costUsd += res.costUsd ?? 0;
+        durationMs += res.durationMs;
+        // A shot the reply accounted for in neither list has no verdict from
+        // this panel. Caching would make silence look like a clean bill of
+        // health, durably; left out, the pair is judged again next run.
+        if (res.unaccounted.length > 0) uncacheable.add(workKey(item));
+        fresh.push(...res.findings);
       }
-      rejectedCount += res.rejected.length;
-      costUsd += res.costUsd ?? 0;
-      // A shot the reply accounted for in neither list has no verdict. Caching
-      // the group as clean would make silence look like a clean bill of health,
-      // durably; leaving it out means it is judged again next run.
-      for (const id of res.unaccounted) uncacheable.add(id);
+      rejectedCount += rejectedHere;
 
-      // 5. Verify this batch now rather than at the end. A finding the caller
-      // can act on immediately is worth more than a tidy single verify pass,
-      // and the smaller prompts judge the same evidence either way.
-      let batchFindings: VerifiedFinding[];
-      if (parsed.flags["no-verify"] || res.findings.length === 0) {
-        batchFindings = res.findings.map((f) => ({ ...f, verified: false }));
+      // 5. Verify this group now rather than at the end, and pooled: one
+      // refuter call over every panel's findings for the group, which is the
+      // mixed-findings context the refute skill was written and graded for.
+      let jobFindings: VerifiedFinding[];
+      if (parsed.flags["no-verify"] || fresh.length === 0) {
+        jobFindings = fresh.map((f) => ({ ...f, verified: false }));
       } else {
         try {
-          const v = await verifyFindings(plan.refute.text, res.findings, shotsById, evDir, plan.model);
-          batchFindings = v.confirmed;
+          const v = await verifyFindings(plan.refute.text, fresh, shotsById, evDir, plan.model);
+          jobFindings = v.confirmed;
           refuted.push(...v.refuted);
           costUsd += v.costUsd ?? 0;
         } catch (e) {
-          // The refuter failing is not grounds for dropping what the judge
-          // found, and not grounds for re-buying the judge's work either. The
-          // findings stand unverified and the group caches WITH them: the
-          // judge's verdict is real, only the refutation is missing, and
+          // The refuter failing is not grounds for dropping what the judges
+          // found, and not grounds for re-buying their work either. The
+          // findings stand unverified and the pairs cache WITH them: the
+          // verdicts are real, only the refutation is missing, and
           // refute-on-read (check/reverify.ts) repairs exactly that on the
-          // next run without a second judge call. This used to leave the
-          // group uncacheable, which re-judged everything to re-ask the
-          // refuter's question, while a --no-verify run cached the same state
-          // durably; one debt, one treatment now.
-          batchFindings = res.findings.map((f) => ({ ...f, verified: false }));
+          // next run without a second judge call.
+          jobFindings = fresh.map((f) => ({ ...f, verified: false }));
           const message = e instanceof Error ? e.message : String(e);
-          log(`  batch ${i + 1}/${batches.length}: verifier failed (${message}); findings unverified`);
+          log(`  batch ${i + 1}/${jobs.length}: verifier failed (${message}); findings unverified`);
           emit("error", `verifier failed on batch ${i + 1}: ${message}`, {}, "error");
         }
       }
-      confirmed.push(...batchFindings);
+      confirmed.push(...jobFindings);
 
       log(
-        `  batch ${i + 1}/${batches.length}: ${batch.length} shot(s), ` +
-          `${batchFindings.length} finding(s)` +
-          (res.rejected.length ? `, ${res.rejected.length} rejected` : "") +
-          ` (${(res.durationMs / 1000).toFixed(0)}s)`,
+        `  batch ${i + 1}/${jobs.length}: ${job.shots.length} shot(s), ${job.items.length} panel(s), ` +
+          `${jobFindings.length} finding(s)` +
+          (rejectedHere ? `, ${rejectedHere} rejected` : "") +
+          ` (${(durationMs / 1000).toFixed(0)}s)`,
       );
-      emit("batch", `batch ${i + 1}/${batches.length}: ${batchFindings.length} finding(s)`, {
+      emit("batch", `batch ${i + 1}/${jobs.length}: ${jobFindings.length} finding(s)`, {
         index: i + 1,
-        total: batches.length,
-        shots: batch.length,
-        findings: batchFindings.length,
-        seconds: Math.round(res.durationMs / 1000),
+        total: jobs.length,
+        shots: job.shots.length,
+        panels: job.items.length,
+        findings: jobFindings.length,
+        seconds: Math.round(durationMs / 1000),
       });
-      for (const f of batchFindings) {
+      for (const f of jobFindings) {
         const shot = shotsById.get(f.shotId);
         emit(
           "finding",
@@ -208,9 +234,9 @@ export async function judgeInBatches(args: {
         await serialize(() =>
           opts.onBatch!({
             index: i,
-            total: batches.length,
-            shots: batch,
-            findings: batchFindings,
+            total: jobs.length,
+            shots: job.shots,
+            findings: jobFindings,
             shotsById,
           }),
         );
@@ -228,6 +254,6 @@ export async function judgeInBatches(args: {
     failedBatches,
     rejected: rejectedCount,
     costUsd,
-    batchCount: batches.length,
+    batchCount: plan.toJudge.length,
   };
 }

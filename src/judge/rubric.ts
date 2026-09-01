@@ -14,7 +14,18 @@ import { existsSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 import { fillPlaceholders, loadSkill, shippedSkillDir } from "../skills/load.js";
 import { LookoutError, type ResolvedConfig } from "../types.js";
-import { PANELS } from "./panels.js";
+import { PANELS, type PanelDef } from "./panels.js";
+
+/** One panel's composed judge: its registry entry, and the prompt it judges by. */
+export interface PanelRubric {
+  def: PanelDef;
+  /** Core rubric with this panel's vocabulary and the project extensions. */
+  text: string;
+  /** max(core, panel, extension): the human-readable ledger field. */
+  version: number;
+  /** Hand-off prose for the conditional {{handoff}} fill; "" except design-parity. */
+  handoff: string;
+}
 
 export interface Rubric {
   text: string;

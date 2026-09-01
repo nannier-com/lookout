@@ -10,15 +10,23 @@
 import { LookoutError, type Severity, type ShotRecord } from "../types.js";
 import { renderSkill } from "../skills/load.js";
 import { recordIncident } from "../skills/incidents.js";
-import { parseRegion, type Region } from "../backlog/region.js";
-import { CATEGORIES, SEVERITIES, type Category } from "./rubric.js";
+import type { Region } from "../backlog/region.js";
+import type { Category } from "./rubric.js";
 
 import { extractJson, invokeClaude } from "./claude.js";
-import { kebab } from "./grouping.js";
+import { ingestJudgeReply, type PanelLane } from "./reply.js";
 
 export interface AiFinding {
   shotId: string;
   category: Category;
+  /**
+   * The panel that owns the finding's category, stamped at ingestion so a
+   * ticket can say which specialist filed it and an amendment can target that
+   * specialist's skill. Optional because verdicts cached before the stamp
+   * existed come back without it; readers fall back to deriving it from the
+   * category.
+   */
+  judge?: string;
   attribute: string;
   /**
    * Which part of the frame the defect lives in. Never trusted blindly: an
@@ -74,6 +82,11 @@ export interface JudgeContext {
   handoff?: string;
   /** What lookout already has open on these views, so a re-file keeps its name. */
   prior?: PriorFinding[];
+  /**
+   * The lane this call judges in. Absent, the full vocabulary applies, which
+   * is what the transitional monolith and the regression replay want.
+   */
+  panel?: PanelLane;
 }
 
 /** At most this many deterministic signals per shot: corroboration, not a list. */
@@ -202,6 +215,7 @@ export async function judgeBatch(
           message: "judge reply was not parseable JSON after a retry",
           detail: text.slice(0, 1000),
           project,
+          judge: ctx.panel?.name,
         });
         throw new LookoutError(
           "judge reply was not parseable JSON after a retry",
@@ -211,109 +225,9 @@ export async function judgeBatch(
     }
   }
 
-  const known = new Set(shots.map((s) => s.id));
-  const findings: AiFinding[] = [];
-  const rejected: { reason: string; raw: unknown }[] = [];
-  // Counted rather than rejected: a region outside the closed set degrades to
-  // "content" so the finding survives, but a judge that keeps mangling the
-  // field is a contract failure worth one incident per batch, not silence.
-  let badRegions = 0;
-  const obj = parsed as { findings?: unknown; cleanShotIds?: unknown };
-  const rawFindings = Array.isArray(obj.findings) ? obj.findings : [];
-  for (const f of rawFindings) {
-    const r = f as Record<string, unknown>;
-    const category = String(r.category ?? "");
-    const severity = String(r.severity ?? "");
-    const shotId = String(r.shotId ?? "");
-    const region = parseRegion(r.region);
-    if (region === undefined) badRegions++;
-    if (!(CATEGORIES as readonly string[]).includes(category)) {
-      rejected.push({ reason: `unknown category "${category}"`, raw: f });
-      continue;
-    }
-    if (!(SEVERITIES as readonly string[]).includes(severity)) {
-      rejected.push({ reason: `unknown severity "${severity}"`, raw: f });
-      continue;
-    }
-    if (!known.has(shotId)) {
-      rejected.push({ reason: `unknown shotId "${shotId}"`, raw: f });
-      continue;
-    }
-    findings.push({
-      shotId,
-      category: category as Category,
-      attribute: kebab(String(r.attribute ?? "general")),
-      region: region ?? "content",
-      severity: severity as Severity,
-      title: String(r.title ?? "").slice(0, 200),
-      problem: String(r.problem ?? "").slice(0, 1500),
-      expected: String(r.expected ?? "").slice(0, 800),
-      observed: String(r.observed ?? "").slice(0, 800),
-      confidence: (["high", "medium", "low"] as const).includes(
-        r.confidence as "high" | "medium" | "low",
-      )
-        ? (r.confidence as "high" | "medium" | "low")
-        : "medium",
-      // Capped and trimmed: this is a checklist somebody reads, and a judge
-      // that returns a paragraph per entry has written prose, not a criterion.
-      acceptance: (Array.isArray(r.acceptance) ? r.acceptance : [])
-        .filter((a): a is string => typeof a === "string" && a.trim().length > 0)
-        .slice(0, 6)
-        .map((a) => a.trim().slice(0, 300)),
-    });
-  }
-  const cleanShotIds = (Array.isArray(obj.cleanShotIds) ? obj.cleanShotIds : [])
-    .map(String)
-    .filter((id) => known.has(id));
-
-  // The contract's own check: every shot was to appear in one list or the other.
-  // A shot in neither is one the judge did not rule on, and treating that as
-  // clean is the false negative this whole pipeline exists to avoid.
-  const accountedFor = new Set([...findings.map((f) => f.shotId), ...cleanShotIds]);
-  const unaccounted = shots.map((s) => s.id).filter((id) => !accountedFor.has(id));
-  if (unaccounted.length > 0) {
-    recordIncident({
-      at: new Date().toISOString(),
-      kind: "judge-rejected",
-      verb: "check",
-      message:
-        `${unaccounted.length} shot(s) appeared in neither findings nor cleanShotIds: ` +
-        unaccounted.join(", ").slice(0, 300),
-      project,
-    });
-  }
-
-  if (badRegions > 0) {
-    recordIncident({
-      at: new Date().toISOString(),
-      kind: "judge-rejected",
-      verb: "check",
-      message: `${badRegions} finding(s) arrived with a missing or unknown region; defaulted to content`,
-      project,
-    });
-  }
-
-  // A rejected finding is work the judge did and lookout threw away, because
-  // the reply did not honour the contract it was given. That is a failure of
-  // the instructions, and it is only visible if it is written down.
-  if (rejected.length > 0) {
-    recordIncident({
-      at: new Date().toISOString(),
-      kind: "judge-rejected",
-      verb: "check",
-      message: `${rejected.length} finding(s) rejected at ingestion: ${rejected
-        .map((r) => r.reason)
-        .join("; ")
-        .slice(0, 300)}`,
-      project,
-    });
-  }
-
+  const ingested = ingestJudgeReply(parsed, { shots, project, panel: ctx.panel });
   return {
-    findings,
-    cleanShotIds,
-    unaccounted,
-    rejected,
+    ...ingested,
     raw: text,
     costUsd,
     durationMs: Date.now() - started,
@@ -325,3 +239,4 @@ export async function judgeBatch(
 // them from.
 export { claudeBin, extractJson, invokeClaude, type JudgeInvocation } from "./claude.js";
 export { batchShots, groupShots, viewGroupId } from "./grouping.js";
+export { ingestJudgeReply, type PanelLane } from "./reply.js";
