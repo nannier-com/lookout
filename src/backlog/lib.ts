@@ -117,10 +117,11 @@ export interface BacklogFinding {
  *
  * The id is random, so unlike the `key` it cannot be recomputed. This registry
  * is the only place it exists, which is why it lives in backlog.json rather
- * than under evidence/: the evidence store is routinely cleaned and rebuilt,
- * and a clean there would re-roll every id and orphan every issue folder on
- * disk. (.lookout/ as a whole stays out of git; the backlog is durable
- * relative to the evidence, not relative to the checkout.)
+ * than in the capture workspace: the workspace, under the operator's lookout
+ * home, is working state one capture rebuilds, and a clean there would
+ * re-roll every id and orphan every issue folder on disk. (The backlog
+ * belongs to the project's own `.lookout/`; it is durable relative to the
+ * capture workspace, which keeps nothing.)
  *
  * Nothing is ever pruned. An issue that was fixed years ago keeps its number,
  * so a commit message or a conversation that names it still resolves.

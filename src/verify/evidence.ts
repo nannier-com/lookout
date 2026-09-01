@@ -149,12 +149,13 @@ export async function gatherFreshEvidence(args: {
 /**
  * Every shot lookout holds a previous hash for, from either source.
  *
- * `.lookout/evidence/` is gitignored and routinely cleaned, and an empty
- * baseline made every fresh shot look changed, which switched the pixels-moved
- * guard OFF exactly when it was needed: a wiped evidence directory would let
- * judge variance alone pass an issue. backlog.json is committed and its evidence
- * refs carry the hash each finding was filed against, so they outlive the
- * pixels. The report is fresher, so it wins where both know a shot.
+ * The capture workspace, under the operator's lookout home, is working state
+ * one capture rebuilds, and an empty baseline made every fresh shot look
+ * changed, which switched the pixels-moved guard OFF exactly when it was
+ * needed: a wiped capture workspace would let judge variance alone pass an
+ * issue. backlog.json is committed and its evidence refs carry the hash each
+ * finding was filed against, so they outlive the pixels. The report is
+ * fresher, so it wins where both know a shot.
  */
 export function baselineHashes(
   priorShots: readonly { id: string; hash: string }[],

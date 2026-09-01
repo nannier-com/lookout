@@ -31,7 +31,7 @@ export function paintWhere(): void {
   const text = page.notice ?? page.project.projectDir;
   if (where.textContent !== text) where.textContent = text;
   where.title = page.notice ? page.notice + "\n\n" + page.project.projectDir : page.project.projectDir;
-  where.classList.toggle("page.notice", page.notice !== null);
+  where.classList.toggle("notice", page.notice !== null);
 }
 
 /**

@@ -12,7 +12,7 @@
 import { readFile, rename, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { loadConfig, lookoutDir } from "../config.js";
+import { evidenceDir, loadConfig, lookoutDir } from "../config.js";
 import { loadReport } from "../capture/store.js";
 import { reconcileIssues } from "../issues/registry.js";
 import { materializeIssues } from "../issues/store.js";
@@ -138,8 +138,14 @@ export async function mergeLatest(
   // 2. AI findings from the given or on-disk judge report.
   let judge = opts.judgeOutcome ?? null;
   if (!judge) {
-    const jp = join(lookoutDir(resolved), "evidence", "judge-report.json");
-    if (existsSync(jp)) judge = JSON.parse(await readFile(jp, "utf8")) as CheckOutcome;
+    // The workspace lives under the operator's home now, but a report an older
+    // lookout left under the project's own .lookout/evidence is still the only
+    // judgement of these shots; adopt it while it is there, the way frames are.
+    const jp = [
+      join(evidenceDir(resolved), "judge-report.json"),
+      join(lookoutDir(resolved), "evidence", "judge-report.json"),
+    ].find((p) => existsSync(p));
+    if (jp) judge = JSON.parse(await readFile(jp, "utf8")) as CheckOutcome;
   }
   const shotsById = new Map(report.shots.map((s) => [s.id, s]));
   const ai = judge
