@@ -16,7 +16,7 @@ import type { Server } from "bun";
 import { evidenceDir } from "../config.js";
 import { issuesDir } from "../issues/paths.js";
 import { launchHandoff, toolsAvailable } from "../report/handoff.js";
-import { json, readJson, text } from "./http.js";
+import { json, readJson, sameOrigin, text } from "./http.js";
 import { serveClient } from "./assets.js";
 import { serveIssueDoc } from "./document.js";
 import { serveEvidence, serveThumb } from "./evidence.js";
@@ -38,6 +38,11 @@ export async function handle(req: Request, server: Server<undefined>): Promise<R
   // this one stays open and is written to whenever the run log moves, which is
   // how a finding reaches the page while `lookout check` is still going.
   if (url.pathname === "/api/live") {
+    // Refused before the upgrade, because after it the server has already
+    // spoken. A handshake needs no preflight and ignores the same-origin
+    // policy, so this is the only thing standing between a page the reader
+    // happened to visit and their board.
+    if (!sameOrigin(req)) return text(403, "that origin did not come from this server");
     return openLive(req, server) ? undefined : text(400, "expected a websocket upgrade");
   }
 

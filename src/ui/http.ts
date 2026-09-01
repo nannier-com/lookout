@@ -79,3 +79,36 @@ export async function readJson(req: Request): Promise<Record<string, unknown>> {
     return {};
   }
 }
+
+/**
+ * Whether a request came from the page this server itself serves.
+ *
+ * This exists for the live socket. A websocket handshake is not subject to the
+ * same-origin policy and needs no preflight, so any page in any tab can open
+ * `ws://127.0.0.1:7333/api/live`, and this server speaks first: it greets a new
+ * socket with the board and the judge's transcript before the other end says
+ * anything. Measured on 2026-09-01, a handshake carrying
+ * `Origin: http://evil.example` was answered `101 Switching Protocols` and
+ * handed two kilobytes naming the project's absolute path and every issue on
+ * it. The HTTP routes never had this exposure: they send no
+ * `Access-Control-Allow-Origin`, so a foreign page cannot read their answers,
+ * and Chrome blocks a cross-site POST to a loopback address outright.
+ *
+ * `Origin` is set by the browser and cannot be forged from page JavaScript, and
+ * `Host` is set from the address actually being connected to, so comparing them
+ * is exactly the question "was the page that opened this served from here".
+ *
+ * A request with no `Origin` at all is not a browser: curl, a test, another
+ * local process. Those are allowed, because anything that can open a loopback
+ * socket on this machine can already read the files this server is reading.
+ */
+export function sameOrigin(req: Request): boolean {
+  const origin = req.headers.get("origin");
+  if (!origin) return true;
+  try {
+    return new URL(origin).host === req.headers.get("host");
+  } catch {
+    // An Origin that is not a URL is not one this server handed out.
+    return false;
+  }
+}
