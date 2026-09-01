@@ -271,11 +271,16 @@ async function drive(): Promise<number> {
     "a box with neither component nor source falls back to its cssPath",
     ((await page.locator("#svHint").textContent()) ?? "").includes("main > p:nth-of-type(2)"),
   );
-  // Three ways out, and all three are checked: the drive used to press Escape
+  // Four ways out, and all four are checked: the drive used to press Escape
   // only, which is how an overlay nobody could dismiss by clicking shipped.
   await page.click("#svClose");
   await page.waitForTimeout(400);
   check("the close button closes the inspector", !(await page.locator("#shotview").isVisible()));
+  await provTile.click();
+  await page.waitForTimeout(600);
+  await page.click("#svX");
+  await page.waitForTimeout(400);
+  check("the picture's own corner button closes it", !(await page.locator("#shotview").isVisible()));
   await provTile.click();
   await page.waitForTimeout(600);
   // Inside the body's padding, so the click lands on the scrim rather than on

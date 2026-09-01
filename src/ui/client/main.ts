@@ -97,7 +97,9 @@ document.addEventListener("click", (e) => {
     setFilter(page.filter.kind, page.filter.value, page.filter.label);
     return;
   }
-  if (hit(e, "#svClose")) { closeShot(); return; }
+  // Two close controls, one handler: the bar's button and the one in the
+  // corner of the picture itself.
+  if (hit(e, "#svClose,#svX")) { closeShot(); return; }
   // Clicking the scrim beside the picture closes it too, because that is the
   // gesture people reach for before they look for a button.
   if (shotOpen() && shotBackdrop(e)) { closeShot(); return; }
