@@ -37,7 +37,9 @@ describe("shipped skills", () => {
     // The include is resolved, not left as a directive.
     expect(skill.text).not.toContain("{{include:");
     expect(skill.text).toContain("## Category vocabulary");
-    expect(skill.text).toContain("design-parity");
+    // The bullets themselves live in the panel skills; the core carries the
+    // slot they compose into.
+    expect(skill.text).toContain("{{panel}}");
   });
 
   test("an unknown skill names the path it looked for", async () => {
@@ -98,10 +100,12 @@ describe("rendering", () => {
 });
 
 describe("loadRubric composes the judge prompt", () => {
-  test("the rubric arrives with its extension slot filled", async () => {
+  test("the rubric arrives with its extension and panel slots filled", async () => {
     const rubric = await loadRubric(project());
     expect(rubric.text).not.toContain("{{extensions}}");
+    expect(rubric.text).not.toContain("{{panel}}");
     expect(rubric.text).toContain("## Category vocabulary");
+    expect(rubric.text).toContain("design-parity");
     expect(rubric.version).toBeGreaterThan(0);
   });
 

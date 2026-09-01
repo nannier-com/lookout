@@ -14,6 +14,7 @@ import { existsSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 import { fillPlaceholders, loadSkill, shippedSkillDir } from "../skills/load.js";
 import { LookoutError, type ResolvedConfig } from "../types.js";
+import { PANELS } from "./panels.js";
 
 export interface Rubric {
   text: string;
@@ -64,7 +65,15 @@ function parseVersion(text: string, source: string): number {
 
 export async function loadRubric(resolved: ResolvedConfig): Promise<Rubric> {
   const skill = await loadSkill(resolved, "visual-judge");
-  let version = skill.version;
+
+  // The category vocabulary lives in the panel skills, one per specialist,
+  // each carrying its own amendment layer. Until the pipeline judges per
+  // panel, the core's {{panel}} slot takes their union, in registry order:
+  // today's rubric with the bullets regrouped.
+  const panels = await Promise.all(PANELS.map((p) => loadSkill(resolved, p.name)));
+  const panelText = panels.map((p) => p.text.trim()).join("\n");
+
+  let version = Math.max(skill.version, ...panels.map((p) => p.version));
   let extensions = "";
 
   // Hand-written project rules come after anything lookout learned on its own:
@@ -93,12 +102,12 @@ export async function loadRubric(resolved: ResolvedConfig): Promise<Rubric> {
       "\n";
   }
 
-  const handoffPath = join(shippedSkillDir("visual-judge"), "handoff.md");
+  const handoffPath = join(shippedSkillDir("judge-design-parity"), "handoff.md");
   const handoff = existsSync(handoffPath) ? await readFile(handoffPath, "utf8") : "";
 
   // The skill says where project rules belong; filling it here keeps them in
   // the rubric rather than trailing the shot manifest. `{{handoff}}` is left
   // for the prompt builder, which is the only thing that knows whether this
   // batch has a design reference to compare against.
-  return { text: fillPlaceholders(skill.text, { extensions }), version, handoff };
+  return { text: fillPlaceholders(skill.text, { panel: panelText, extensions }), version, handoff };
 }

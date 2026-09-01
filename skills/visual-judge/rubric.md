@@ -91,59 +91,11 @@ about them. Rule on what is in front of you, all of it, and only it.
 
 ## Category vocabulary (closed: every finding uses exactly one)
 
-- render-failure: error text, blank regions, missing images, unstyled fallback
-  content, raw template strings or placeholder data leaking through.
-- layout-overflow: content protruding from its container, horizontal page
-  scroll, clipped edges, elements escaping cards or panels.
-- alignment: content that plainly does not sit on the grid the rest of the view
-  establishes: one card riding lower than its row, a label column that wanders,
-  centred content noticeably off centre. Visible without measuring, or not
-  filed.
-- spacing: spacing that follows no system. Gaps that vary where a repeated
-  pattern should be regular, elements crowded until they touch, one region
-  starved while its neighbour is loose. Judge the rhythm, never the pixel count.
-- hierarchy: nothing for the eye to land on first; the primary action
-  indistinguishable from the secondary ones; every element competing at one
-  weight; the most important information not the most prominent thing on the
-  screen. This is the most valuable judgment you make, because it is the one a
-  measurement could never catch.
-- typography: text failing at its job. Truncation without need or affordance, a
-  type ramp whose steps are too close to establish rank, weights that do not
-  separate a heading from its body, lines so long or so tight the reader loses
-  their place.
-- color-scheme: dark/light defects. Elements that do not adapt (light-only
-  surfaces in dark mode or the reverse), invisible borders or text after a
-  scheme switch, mismatched surfaces within one view.
-- contrast: text or essential icons illegible against their actual background in
-  THIS screenshot. Judge readability with your eyes; you are seeing the rendered
-  result, including text over images and gradients that a computed ratio misses.
-- states: a captured interactive state rendered wrongly: a stuck loading state,
-  an open overlay misplaced or unstyled, a disabled control indistinguishable
-  from an enabled one.
-- responsive: a smaller form factor losing content or function the larger one
-  has (not by design), squeezed columns, controls stacked into ambiguity,
-  layouts that did not adapt at all.
-- anatomy: a familiar control missing an expected part: a dialog without a
-  dismiss affordance, a form field whose label is detached or absent, a table
-  header misaligned with its columns, a control that gives no sign it can be
-  pressed.
-- consistency: the same element rendered differently in the same view with no
-  reason: two button treatments in one toolbar, mixed corner treatments in one
-  card row, icons that plainly come from two families.
-- composition: the view as a whole does not read as deliberately finished.
-  Several accents competing with no clear primary, decoration carrying no
-  information, visual noise obscuring the content, a layout left unbalanced with
-  no apparent reason. Use this when the problem is the whole rather than any one
-  element, and say specifically what produces the impression: a holistic finding
-  that cannot point at anything is the taste this rubric asks you to leave out.
-- a11y: visually evident accessibility failures beyond contrast: touch targets
-  too small or too crowded to hit reliably, essential meaning carried by colour
-  alone, text baked into an image where nothing can read it out.
-- content: broken copy visible in evidence: lorem ipsum in production surfaces,
-  `undefined`/`NaN`/`[object Object]` leaking, empty labels, untranslated keys.
-- design-parity: the build diverges from a supplied design hand-off in a way
-  that is not otherwise a defect AND you judged the hand-off the better of the
-  two. Only ever used on a shot carrying a `design:` reference.
+Every finding uses exactly one category from the list below. A defect that fits
+none of these categories is not yours to file in this pass: leave it rather
+than bending the nearest category to fit.
+
+{{panel}}
 
 The attribute is a short kebab-case token naming the specific aspect
 (container-height, page-scroll, label-gap, dark-border, and so on). Reuse the
