@@ -208,15 +208,22 @@ export async function judgeBatch(
       voice,
       attempt === 0 ? `${about} · ${shots.length} shot(s)` : `${about} · asked again for JSON`,
     );
-    const res = await invokeClaude({
-      prompt: attempt === 0 ? prompt : prompt + RETRY_SUFFIX,
-      cwd: evidenceDir,
-      model,
-      // Only when something is reading it: streaming costs the CLI an order of
-      // magnitude more lines and a run nobody is watching should not pay them.
-      onSay: narrating() ? (s) => say(call, voice, s) : undefined,
-    });
-    closeCall(call, voice);
+    // In a finally, because a panel that throws is exactly the panel whose call
+    // must be seen to end: an unclosed call leaves the page pulsing at a judge
+    // that stopped, for as long as the tab is open.
+    let res: Awaited<ReturnType<typeof invokeClaude>>;
+    try {
+      res = await invokeClaude({
+        prompt: attempt === 0 ? prompt : prompt + RETRY_SUFFIX,
+        cwd: evidenceDir,
+        model,
+        // Only when something is reading it: streaming costs the CLI an order of
+        // magnitude more lines and a run nobody is watching should not pay them.
+        onSay: narrating() ? (s) => say(call, voice, s) : undefined,
+      });
+    } finally {
+      closeCall(call, voice);
+    }
     text = res.text;
     costUsd = (costUsd ?? 0) + (res.costUsd ?? 0);
     try {

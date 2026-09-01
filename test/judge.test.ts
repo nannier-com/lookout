@@ -1,7 +1,11 @@
 // Judge machinery tests: JSON extraction, batching, vocabulary enforcement,
 // ledger keys, and a full engine round-trip through the mock claude binary.
 import { afterEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { evidenceDir } from "../src/config.js";
+import { Narration, readNarration, setCurrentNarration } from "../src/report/narration.js";
 import {
   batchShots,
   buildJudgePrompt,
@@ -18,7 +22,7 @@ import { loadRubric } from "../src/judge/rubric.js";
 // keeps that true whatever directory the run was started from.
 import "./setup.js";
 import { tmpProject } from "./tmp-project.js";
-import type { ShotRecord } from "../src/types.js";
+import type { ResolvedConfig, ShotRecord } from "../src/types.js";
 
 const MOCK = join(import.meta.dir, "mock-claude.ts");
 
@@ -243,6 +247,38 @@ describe("batchShots", () => {
     expect(bigBatch).toBeDefined();
     expect(new Set(bigBatch!.map(viewGroupId)).size).toBe(1);
     expect(batches.flat().length).toBe(10);
+  });
+});
+
+describe("what a judge call says while it works", () => {
+  test("a call that fails is still seen to end", async () => {
+    // The page counts a run's progress in open and close lines. A panel that
+    // throws is exactly the one whose close matters: without it the rail pulses
+    // at a judge that stopped, for as long as the tab stays open.
+    const home = mkdtempSync(join(tmpdir(), "lookout-close-"));
+    const r = {
+      config: {} as ResolvedConfig["config"],
+      configPath: join(home, "lookout.config.ts"),
+      projectDir: home,
+      project: "proj",
+    } as ResolvedConfig;
+    mkdirSync(evidenceDir(r), { recursive: true });
+    const n = new Narration(r, "check-1");
+    n.start();
+    setCurrentNarration(n);
+    // A binary that does not exist: invokeClaude rejects before it says a word.
+    process.env.LOOKOUT_CLAUDE_BIN = join(home, "no-such-claude");
+    try {
+      await expect(
+        judgeBatch(rubric.text, "proj", [shot("web/app/x/rest/desktop/dark")], "/tmp", "sonnet"),
+      ).rejects.toThrow();
+      const kinds = readNarration(r).map((l) => l.kind);
+      expect(kinds).toContain("open");
+      expect(kinds).toContain("close");
+    } finally {
+      setCurrentNarration(null);
+      delete process.env.LOOKOUT_CLAUDE_BIN;
+    }
   });
 });
 

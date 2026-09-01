@@ -124,13 +124,19 @@ export async function verifyFindings(
   let parsedOk = false;
   for (let attempt = 0; attempt < 2; attempt++) {
     const call = openCall("refuter", `weighing ${serious.length} finding(s)`);
-    const res = await invokeClaude({
-      prompt: attempt === 0 ? prompt : prompt + RETRY_SUFFIX,
-      cwd: evidenceDir,
-      model,
-      onSay: narrating() ? (s) => say(call, "refuter", s) : undefined,
-    });
-    closeCall(call, "refuter");
+    // In a finally: a refuter that throws must still be seen to stop, or the
+    // page pulses at it for as long as the tab is open.
+    let res: Awaited<ReturnType<typeof invokeClaude>>;
+    try {
+      res = await invokeClaude({
+        prompt: attempt === 0 ? prompt : prompt + RETRY_SUFFIX,
+        cwd: evidenceDir,
+        model,
+        onSay: narrating() ? (s) => say(call, "refuter", s) : undefined,
+      });
+    } finally {
+      closeCall(call, "refuter");
+    }
     costUsd += res.costUsd ?? 0;
     try {
       const parsed = extractJson(res.text) as { verdicts?: unknown };

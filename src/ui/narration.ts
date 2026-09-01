@@ -13,6 +13,13 @@
  * the same way and are noticed the same way: the file got shorter than what has
  * already been read. The page is told to clear and given the tail as it stands,
  * which is the honest answer to "I have lost track of where you were".
+ *
+ * Pointing lookout at another project is the third way, and it is the one that
+ * cannot be noticed after the fact: the new file is a different file, and being
+ * longer or shorter than the old cursor says nothing. So it is recorded when it
+ * happens. Without that the page appended one project's judges under another's,
+ * or, when the new project had never been captured, went on showing the old
+ * project's transcript indefinitely.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { narrationPath, type NarrationLine } from "../report/narration.js";
@@ -39,11 +46,20 @@ const MAX_LINES = 400;
 
 let cursor = 0;
 let readingPath = "";
+/**
+ * Whether the next frame has to tell the page to throw away what it has.
+ *
+ * Set rather than inferred, because the events that invalidate the cursor
+ * without shortening the file (a project switch) leave no trace to infer it
+ * from. Cleared only once a frame has actually carried it.
+ */
+let clearNext = false;
 
 /** Forget where we were: a different project's narration is a different file. */
 export function forgetNarration(): void {
   cursor = 0;
   readingPath = "";
+  clearNext = true;
 }
 
 /**
@@ -58,12 +74,14 @@ export function newNarration(resolved: ResolvedConfig): NarrationFrame | null {
   if (path !== readingPath) {
     readingPath = path;
     cursor = 0;
+    clearNext = true;
   }
   if (!existsSync(path)) {
-    // A project with nothing captured yet, or a run that cleared it. Only worth
-    // saying once, which is what a cursor already at zero means.
-    if (cursor === 0) return null;
+    // A project with nothing captured yet, or a run that cleared it. The page
+    // still has to be told, once, or it goes on showing the last one's judges.
     cursor = 0;
+    if (!clearNext) return null;
+    clearNext = false;
     return { reset: true, lines: [] };
   }
   let raw: string;
@@ -74,15 +92,20 @@ export function newNarration(resolved: ResolvedConfig): NarrationFrame | null {
   }
   // Shorter than what has been read means the run replaced or trimmed it, and
   // the cursor now points into the middle of somebody else's sentence.
-  const reset = raw.length < cursor;
+  const reset = clearNext || raw.length < cursor;
   if (reset) cursor = 0;
   const fresh = raw.slice(cursor);
   // Only whole lines: the last one may still be being written.
   const end = fresh.lastIndexOf("\n");
-  if (end === -1) return reset ? { reset, lines: [] } : null;
+  if (end === -1) {
+    if (!reset) return null;
+    clearNext = false;
+    return { reset, lines: [] };
+  }
   cursor += end + 1;
   const lines = parse(fresh.slice(0, end));
   if (lines.length === 0 && !reset) return null;
+  clearNext = false;
   return { reset, lines: lines.slice(-MAX_LINES) };
 }
 

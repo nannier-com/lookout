@@ -46,11 +46,22 @@ function pinned(log: HTMLElement): boolean {
  */
 const prose = new Map<string, HTMLElement>();
 
+/**
+ * The calls that have opened and not yet closed, and which judge each one is.
+ *
+ * This is what "a judge is speaking" means, and the last line of a frame is not
+ * it: that line is as likely to be the `close` that says one just stopped. The
+ * rail used to take the last line either way, so the dot pulsed and named a
+ * finished judge for as long as the tab stayed open.
+ */
+const live = new Map<string, string>();
+
 /** Throw away what is shown: a new run, or a page that has lost its place. */
 export function clearTranscript(): void {
   el("streamLog").textContent = "";
   prose.clear();
-  paintHead(null);
+  live.clear();
+  paintHead();
 }
 
 /** Append what the server just sent, following the bottom if the reader is there. */
@@ -61,13 +72,15 @@ export function addNarration(frame: NarrationFrame): void {
   const follow = pinned(log);
   for (const line of frame.lines) append(log, line);
   while (log.childElementCount > MAX_NODES) log.firstElementChild?.remove();
-  paintHead(frame.lines[frame.lines.length - 1]!);
+  paintHead();
   if (follow) log.scrollTop = log.scrollHeight;
 }
 
 function append(log: HTMLElement, line: NarrationLine): void {
+  if (line.kind === "open") live.set(line.call, line.panel);
   if (line.kind === "close") {
     prose.delete(line.call);
+    live.delete(line.call);
     return;
   }
   if (line.kind === "text") {
@@ -92,10 +105,18 @@ function append(log: HTMLElement, line: NarrationLine): void {
   log.append(node);
 }
 
-/** Who is speaking, above the transcript, so the rail says something at a glance. */
-function paintHead(line: NarrationLine | null): void {
+/**
+ * Who is speaking, above the transcript, so the rail says something at a glance.
+ *
+ * The most recently opened call still running, because two run at once and the
+ * newer one is the one whose words are arriving. Nothing open means nothing is
+ * being judged, and the rail says so by going quiet rather than by pulsing at a
+ * judge that finished.
+ */
+function paintHead(): void {
+  const names = [...live.values()];
+  const next = names.length > 0 ? names[names.length - 1]! : "";
   const head = el("streamWho");
-  const next = line ? line.panel : "";
   if (head.textContent !== next) head.textContent = next;
-  el("stream").classList.toggle("talking", line !== null);
+  el("stream").classList.toggle("talking", names.length > 0);
 }
