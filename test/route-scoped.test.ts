@@ -14,6 +14,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { evidenceDir } from "../src/config.js";
 import { loadBacklog, mergeLatest } from "../src/verbs/backlog.js";
 import { checkBacklog, renderMarkdown } from "../src/backlog/lib.js";
 import { issuesOf } from "../src/issues/registry.js";
@@ -21,13 +22,15 @@ import type { CaptureReport, ResolvedConfig } from "../src/types.js";
 
 function project(): ResolvedConfig {
   const dir = mkdtempSync(join(tmpdir(), "lookout-route-"));
-  mkdirSync(join(dir, ".lookout", "evidence"), { recursive: true });
-  return {
+  mkdirSync(join(dir, ".lookout"), { recursive: true });
+  const r = {
     config: {} as ResolvedConfig["config"],
     configPath: join(dir, "lookout.config.ts"),
     projectDir: dir,
     project: "app",
   } as ResolvedConfig;
+  mkdirSync(evidenceDir(r), { recursive: true });
+  return r;
 }
 
 function shot(route: string, formFactor: string, scheme: string, det: unknown[] = []) {
@@ -51,7 +54,7 @@ function shot(route: string, formFactor: string, scheme: string, det: unknown[] 
 /** A capture report on disk, which is what mergeLatest reads. */
 function writeReport(r: ResolvedConfig, shots: unknown[]): void {
   writeFileSync(
-    join(r.projectDir, ".lookout", "evidence", "capture-report.json"),
+    join(evidenceDir(r), "capture-report.json"),
     JSON.stringify({
       version: 1,
       project: "app",

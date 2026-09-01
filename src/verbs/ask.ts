@@ -8,6 +8,7 @@
  * scope with the usual flags (--targets, --routes, --viewports, --schemes).
  * Always exits 0 unless execution failed: an answer is not a defect.
  */
+import { join } from "node:path";
 import { evidenceDir } from "../config.js";
 import { invokeClaude } from "../judge/engine.js";
 import { loadSkill, renderSkill } from "../skills/load.js";
@@ -60,7 +61,7 @@ export async function ask(parsed: Parsed): Promise<number> {
     printJson({
       question,
       answer: res.text,
-      shots: shots.map((s) => ({ id: s.id, path: `.lookout/evidence/${s.path}` })),
+      shots: shots.map((s) => ({ id: s.id, path: join(evDir, s.path) })),
       costUsd: res.costUsd,
     });
   } else {

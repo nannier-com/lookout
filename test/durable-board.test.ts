@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { buildBoard, severityTally, tally } from "../src/report/board.js";
+import { evidenceDir } from "../src/config.js";
 import { forgetForges } from "../src/report/forge.js";
 import { EventLog } from "../src/report/events.js";
 import type { BacklogFinding } from "../src/backlog/lib.js";
@@ -22,13 +23,15 @@ import type { ResolvedConfig } from "../src/types.js";
 
 function project(): ResolvedConfig {
   const dir = mkdtempSync(join(tmpdir(), "lookout-durable-"));
-  mkdirSync(join(dir, ".lookout", "evidence"), { recursive: true });
-  return {
+  mkdirSync(join(dir, ".lookout"), { recursive: true });
+  const r = {
     config: {} as ResolvedConfig["config"],
     configPath: join(dir, "lookout.config.ts"),
     projectDir: dir,
     project: "app",
   } as ResolvedConfig;
+  mkdirSync(evidenceDir(r), { recursive: true });
+  return r;
 }
 
 function finding(over: Partial<BacklogFinding> = {}): BacklogFinding {
@@ -186,7 +189,7 @@ describe("the board survives a truncated log", () => {
     const b = (await buildBoard(r))[0]!;
     expect(b.shots[0]!.path).toBe("web/app/dash/rest--desktop-dark.png");
     expect(b.shots[0]!.absPath).toBe(
-      join(r.projectDir, ".lookout/evidence/web/app/dash/rest--desktop-dark.png"),
+      join(evidenceDir(r), "web/app/dash/rest--desktop-dark.png"),
     );
   });
 });

@@ -7,20 +7,23 @@ import { join } from "node:path";
 import { archiveIssue, reconcileIssues, unarchiveIssue } from "../src/issues/registry.js";
 import { issueArchiveDir, issueDir } from "../src/issues/paths.js";
 import { buildBoard } from "../src/report/board.js";
+import { evidenceDir } from "../src/config.js";
 import { loadBacklog, saveBacklog } from "../src/verbs/backlog.js";
 import type { Backlog, BacklogFinding } from "../src/backlog/lib.js";
 import type { ResolvedConfig } from "../src/types.js";
 
 function project(): ResolvedConfig {
   const dir = mkdtempSync(join(tmpdir(), "lookout-archive-"));
-  mkdirSync(join(dir, ".lookout", "evidence", "web", "app"), { recursive: true });
-  writeFileSync(join(dir, ".lookout", "evidence", "web", "app", "settings--desktop-dark.png"), "px");
-  return {
+  const r = {
     config: {} as ResolvedConfig["config"],
     configPath: join(dir, "lookout.config.ts"),
     projectDir: dir,
     project: "app",
   } as ResolvedConfig;
+  mkdirSync(join(evidenceDir(r), "web", "app"), { recursive: true });
+  writeFileSync(join(evidenceDir(r), "web", "app", "settings--desktop-dark.png"), "px");
+  mkdirSync(join(dir, ".lookout"), { recursive: true });
+  return r;
 }
 
 function finding(over: Partial<BacklogFinding> = {}): BacklogFinding {

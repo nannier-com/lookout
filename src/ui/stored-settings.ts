@@ -14,7 +14,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { lookoutHome } from "../skills/incidents.js";
+import { lookoutHome } from "../home.js";
 
 export interface UiSettings {
   /** Project root holding the lookout.config.ts to drive. */

@@ -13,6 +13,7 @@ import { launchHandoff, TOOLS, toolsAvailable } from "../src/report/handoff.js";
 import { renderIssueDocument } from "../src/issues/document.js";
 import { issuesOf } from "../src/issues/registry.js";
 import { issueDir } from "../src/issues/paths.js";
+import { evidenceDir } from "../src/config.js";
 import { loadBacklog } from "../src/verbs/backlog.js";
 import { allRuleFiles, globalRuleFiles } from "../src/fix/rules.js";
 import type { BacklogFinding } from "../src/backlog/lib.js";
@@ -20,13 +21,15 @@ import type { ResolvedConfig } from "../src/types.js";
 
 function project(): ResolvedConfig {
   const dir = mkdtempSync(join(tmpdir(), "lookout-handoff-"));
-  mkdirSync(join(dir, ".lookout", "evidence"), { recursive: true });
-  return {
+  mkdirSync(join(dir, ".lookout"), { recursive: true });
+  const r = {
     config: {} as ResolvedConfig["config"],
     configPath: join(dir, "lookout.config.ts"),
     projectDir: dir,
     project: "app",
   } as ResolvedConfig;
+  mkdirSync(evidenceDir(r), { recursive: true });
+  return r;
 }
 
 function finding(over: Partial<BacklogFinding> = {}): BacklogFinding {
@@ -101,7 +104,7 @@ describe("a handoff stands on its own", () => {
     const paths = markdown.match(/^\s*-?\s*(\/[^\s,]+\.png)/gm) ?? [];
     expect(paths.length).toBeGreaterThan(0);
     for (const p of paths) expect(p.trim().replace(/^-\s*/, "").startsWith("/")).toBe(true);
-    expect(markdown).toContain(join(r.projectDir, ".lookout/evidence/web/app/dash/rest--phone-dark.png"));
+    expect(markdown).toContain(join(evidenceDir(r), "web/app/dash/rest--phone-dark.png"));
     expect(markdown).toContain(`repository: ${r.projectDir}`);
     // Relative paths would be read against whatever directory the tool opened in.
     expect(markdown).not.toContain("- web/app/dash");

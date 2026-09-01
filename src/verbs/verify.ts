@@ -2,7 +2,8 @@
  * `lookout verify --criteria <file|text>`: capture the scoped evidence, then
  * rule on each acceptance criterion strictly from what the screenshots show.
  * Exit 1 when any criterion fails (add --strict to also fail on
- * not-verifiable); the report lands in .lookout/evidence/verify-report.json.
+ * not-verifiable); the report lands in the capture workspace as
+ * verify-report.json, and its path is printed.
  */
 import { readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";

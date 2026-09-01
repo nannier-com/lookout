@@ -64,6 +64,7 @@ function backlogOf(findings: BacklogFinding[]): Backlog {
 }
 
 function writeBacklog(r: ResolvedConfig, findings: BacklogFinding[]): void {
+  mkdirSync(join(r.projectDir, ".lookout"), { recursive: true });
   writeFileSync(
     join(r.projectDir, ".lookout", "backlog.json"),
     JSON.stringify({
@@ -77,7 +78,7 @@ function writeBacklog(r: ResolvedConfig, findings: BacklogFinding[]): void {
 
 /** A screenshot on disk where the evidence store keeps it. */
 function writeShot(r: ResolvedConfig, relPath: string, bytes = "png"): void {
-  const p = join(r.projectDir, ".lookout", "evidence", relPath);
+  const p = join(evidenceDir(r), relPath);
   mkdirSync(join(p, ".."), { recursive: true });
   writeFileSync(p, bytes);
 }

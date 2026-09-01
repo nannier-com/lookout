@@ -5,7 +5,7 @@
  * surfaced, so callers can gate on it.
  */
 import { join } from "node:path";
-import { assertTargetsAllowed, loadConfig } from "../config.js";
+import { assertTargetsAllowed, evidenceDir, loadConfig } from "../config.js";
 import { preflight, requireUp, resolveTargets } from "../targets.js";
 import { captureWeb, type WebCaptureOptions } from "../capture/web.js";
 import { mergeRun, loadReport } from "../capture/store.js";
@@ -205,8 +205,8 @@ export async function runCapture(parsed: Parsed): Promise<{
       infos: all.filter((f) => f.severity === "info").length,
     },
     failures: run.failures,
-    reportPath: `${resolved.projectDir}/.lookout/evidence/capture-report.json`,
-    evidenceDir: `${resolved.projectDir}/.lookout/evidence`,
+    reportPath: join(evidenceDir(resolved), "capture-report.json"),
+    evidenceDir: evidenceDir(resolved),
   };
   return { outcome, resolved };
 }
@@ -258,7 +258,7 @@ export async function runContactSheet(
   findingsByShot?: Map<string, number>,
   outName = "contact-sheet.png",
 ): Promise<Awaited<ReturnType<typeof buildContactSheet>>> {
-  const evDir = join(resolved.projectDir, ".lookout", "evidence");
+  const evDir = evidenceDir(resolved);
   return buildContactSheet(
     shots.map((shot) => ({ shot, findings: findingsByShot?.get(shot.id) })),
     evDir,

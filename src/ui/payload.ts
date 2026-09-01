@@ -13,7 +13,7 @@
  */
 import { statSync } from "node:fs";
 import { join } from "node:path";
-import { evidenceDir } from "../config.js";
+import { evidenceDir, lookoutDir } from "../config.js";
 import { readEvents, summarise, type LookoutEvent, type RunStatus } from "../report/events.js";
 import { buildBoard, severityTally, tally, type BoardEntry } from "../report/board.js";
 import { buildLearning, learningBadge, learningKey, type Learning } from "../report/learning.js";
@@ -30,9 +30,9 @@ let boardCache: { key: string; body: string } | null = null;
 function diskKey(resolved: ResolvedConfig): string {
   const parts: string[] = [];
   for (const p of [
-    join(lookoutRoot(resolved), "backlog.json"),
+    join(lookoutDir(resolved), "backlog.json"),
     join(evidenceDir(resolved), "events.jsonl"),
-    join(lookoutRoot(resolved), "issues"),
+    join(lookoutDir(resolved), "issues"),
   ]) {
     try {
       const st = statSync(p);
@@ -42,10 +42,6 @@ function diskKey(resolved: ResolvedConfig): string {
     }
   }
   return parts.join("|");
-}
-
-function lookoutRoot(resolved: ResolvedConfig): string {
-  return join(evidenceDir(resolved), "..");
 }
 
 /** Throw the board away: the project changed under it. */

@@ -14,8 +14,8 @@
  * own checkout should not accumulate a log of its bad days either.
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { lookoutHome } from "../home.js";
 
 export type IncidentKind =
   | "crash"
@@ -39,11 +39,6 @@ export interface Incident {
   /** Which judge panel was answering, when one was. */
   judge?: string;
   version?: string;
-}
-
-/** Overridable so a test does not write into the operator's home. */
-export function lookoutHome(): string {
-  return process.env.LOOKOUT_HOME ?? join(homedir(), ".lookout");
 }
 
 export function incidentsPath(): string {

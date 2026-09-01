@@ -19,11 +19,11 @@ import { CONFIG_FILENAME } from "../config-locate.js";
 import {
   clusterIncidents,
   incidentsPath,
-  lookoutHome,
   shapeOf,
   type Incident,
   type IncidentKind,
 } from "./incidents.js";
+import { lookoutHome } from "../home.js";
 
 export interface Heal {
   at: string;

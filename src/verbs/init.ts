@@ -4,8 +4,9 @@
  *
  * The config sits at the root, next to package.json, and is meant to be
  * committed: it is what the team agrees lookout looks at. Everything lookout
- * produces (evidence, the backlog, the issue folders, the learned skill
- * layers) stays under `.lookout/`, which init adds to `.gitignore`. The cost
+ * records about the project (the backlog, the issue folders, the learned
+ * skill layers) stays under `.lookout/`, which init adds to `.gitignore`;
+ * the capture workspace itself lives under the operator's lookout home. The cost
  * is stated rather than hidden: that state is per-checkout, so it does not
  * follow the repo to another machine, and deleting the directory re-rolls
  * every issue id.
@@ -74,7 +75,7 @@ async function ignoreWorkingState(root: string): Promise<void> {
   const sep = current.endsWith("\n") ? "" : "\n";
   await appendFile(
     gitignore,
-    `${sep}\n# lookout working state (evidence, backlog, issue folders; per-checkout).\n` +
+    `${sep}\n# lookout working state (backlog, issue folders; per-checkout).\n` +
       `# lookout.config.ts is not here on purpose: it is the project's to commit.\n${ignoreLine}\n`,
   );
   console.log(`added ${ignoreLine} to .gitignore`);

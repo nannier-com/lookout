@@ -13,6 +13,7 @@ import { basename, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { LookoutError, type LookoutConfig, type ResolvedConfig } from "./types.js";
 import { CONFIG_FILENAME, LOOKOUT_DIR, locateConfig, projectDirFor } from "./config-locate.js";
+import { lookoutHome, workspaceKey } from "./home.js";
 import { isLocalUrl } from "./util.js";
 
 export interface LoadOptions {
@@ -154,11 +155,23 @@ export function assertTargetsAllowed(config: LookoutConfig, allowRemote: boolean
   }
 }
 
-/** Where evidence, reports, and the backlog live for a project. */
+/**
+ * The project's own lookout directory: the backlog, the issue folders, the
+ * ledger, the skill amendments. The durable record of what lookout found,
+ * which belongs to the project.
+ */
 export function lookoutDir(resolved: ResolvedConfig): string {
   return join(resolved.projectDir, LOOKOUT_DIR);
 }
 
+/**
+ * The capture workspace: screenshots, the capture report, the run log, the
+ * contact sheet. Under the operator's lookout home rather than inside the
+ * judged project, because all of it is working state one capture rebuilds;
+ * the pixels worth keeping are copied into the issue folders the moment an
+ * issue is filed. Keyed by the project's real path, so two checkouts of one
+ * project cannot trample each other's runs.
+ */
 export function evidenceDir(resolved: ResolvedConfig): string {
-  return join(lookoutDir(resolved), "evidence");
+  return join(lookoutHome(), "evidence", workspaceKey(resolved.projectDir));
 }

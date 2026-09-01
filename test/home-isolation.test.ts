@@ -11,7 +11,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { incidentsPath, lookoutHome } from "../src/skills/incidents.js";
+import { incidentsPath } from "../src/skills/incidents.js";
+import { lookoutHome } from "../src/home.js";
 import { SUITE_HOME } from "./setup.js";
 
 const OPERATOR_HOME = join(homedir(), ".lookout");

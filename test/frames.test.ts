@@ -6,6 +6,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ensureBeforeFrames, freezeFrames, loadFrames, framesDir } from "../src/issues/frames.js";
+import { evidenceDir } from "../src/config.js";
 import { buildBoard } from "../src/report/board.js";
 import type { FixCluster } from "../src/fix/cluster.js";
 import type { BacklogFinding } from "../src/backlog/lib.js";
@@ -13,18 +14,20 @@ import type { ResolvedConfig } from "../src/types.js";
 
 function project(): ResolvedConfig {
   const dir = mkdtempSync(join(tmpdir(), "lookout-frames-"));
-  mkdirSync(join(dir, ".lookout", "evidence", "web", "app"), { recursive: true });
-  return {
+  mkdirSync(join(dir, ".lookout"), { recursive: true });
+  const r = {
     config: {} as ResolvedConfig["config"],
     configPath: join(dir, "lookout.config.ts"),
     projectDir: dir,
     project: "app",
   } as ResolvedConfig;
+  mkdirSync(join(evidenceDir(r), "web", "app"), { recursive: true });
+  return r;
 }
 
 /** A screenshot on disk, with content a test can tell apart from another one. */
 function shotFile(r: ResolvedConfig, rel: string, body: string): void {
-  writeFileSync(join(r.projectDir, ".lookout", "evidence", rel), body);
+  writeFileSync(join(evidenceDir(r), rel), body);
 }
 
 function member(over: Partial<BacklogFinding> = {}): BacklogFinding {
@@ -191,7 +194,7 @@ describe("the board carries both sides", () => {
     expect(entry.after).toHaveLength(1);
     // Evidence-relative, because that is what the page's own routes serve.
     expect(entry.before[0]!.path).toBe(`fix-frames/${id}/before/web-app-settings--desktop-dark.png`);
-    expect(entry.after[0]!.absPath).toContain(".lookout/evidence/fix-frames/");
+    expect(entry.after[0]!.absPath).toContain(join(evidenceDir(r), "fix-frames"));
   });
 });
 

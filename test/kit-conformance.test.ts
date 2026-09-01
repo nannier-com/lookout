@@ -1,14 +1,14 @@
 // The conformance pass: choosing what to read, refusing to believe the reply,
 // and merging what a model saw with what the scanner saw.
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { mergeHandRolls, readConformance } from "../src/design/conformance.js";
 import { conformanceCandidates } from "../src/design/conformance-candidates.js";
 import { verifyClaim } from "../src/design/conformance-batch.js";
 import type { ConformanceResult } from "../src/design/conformance-types.js";
 import { loadCache, readerIdentity, saveCache } from "../src/design/conformance-cache.js";
+import { evidenceDir } from "../src/config.js";
 import { detect } from "../src/design/detect.js";
 import { tmpProject } from "./tmp-project.js";
 import type { DesignInventory, DetectedKit, HandRoll } from "../src/design/inventory.js";
@@ -22,19 +22,18 @@ function write(dir: string, rel: string, text: string): string {
   return p;
 }
 
-/** Run with a claude stand-in and an incident log of its own, then restore. */
+/**
+ * Run with a claude stand-in, then restore. Incidents already land in the
+ * suite-wide throwaway home (test/setup.ts), and the home must NOT change
+ * mid-test: the capture workspace is keyed under it, so a fixture written
+ * before the swap would vanish from everything called after it.
+ */
 function withMockClaude<T>( fn: () => Promise<T>): Promise<T> {
   const beforeBin = process.env.LOOKOUT_CLAUDE_BIN;
-  const beforeHome = process.env.LOOKOUT_HOME;
   process.env.LOOKOUT_CLAUDE_BIN = MOCK;
-  // Incidents are appended to the operator's home by default, and a test run
-  // has no business writing there.
-  process.env.LOOKOUT_HOME = mkdtempSync(join(tmpdir(), "lookout-home-"));
   return fn().finally(() => {
     if (beforeBin === undefined) delete process.env.LOOKOUT_CLAUDE_BIN;
     else process.env.LOOKOUT_CLAUDE_BIN = beforeBin;
-    if (beforeHome === undefined) delete process.env.LOOKOUT_HOME;
-    else process.env.LOOKOUT_HOME = beforeHome;
   });
 }
 
@@ -413,9 +412,9 @@ describe("merging the scanner and the skill", () => {
 describe("filing what the reader found", () => {
   function withReport(prefix: string) {
     const r = appWithKit(prefix);
-    mkdirSync(join(r.projectDir, ".lookout", "evidence"), { recursive: true });
+    mkdirSync(evidenceDir(r), { recursive: true });
     writeFileSync(
-      join(r.projectDir, ".lookout", "evidence", "capture-report.json"),
+      join(evidenceDir(r), "capture-report.json"),
       JSON.stringify({
         version: 1,
         project: "proj",

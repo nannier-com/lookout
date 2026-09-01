@@ -10,6 +10,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { evidenceDir } from "../src/config.js";
 import { skills } from "../src/verbs/skills.js";
 import { claimsByShot, evaluateReplay, usableCases, type RegressionSet } from "../src/skills/regression.js";
 import { gatherSignals } from "../src/skills/signals.js";
@@ -67,12 +68,14 @@ function finding(over: Partial<BacklogFinding> = {}): BacklogFinding {
 /** A project with one adjudicated finding and the screenshot that settled it. */
 function project(findings: BacklogFinding[] = [finding()]): ResolvedConfig {
   const dir = mkdtempSync(join(tmpdir(), "lookout-improve-"));
-  mkdirSync(join(dir, ".lookout", "evidence", "web", "app", "root"), { recursive: true });
+  const evDir = evidenceDir({ projectDir: dir } as ResolvedConfig);
+  mkdirSync(join(evDir, "web", "app", "root"), { recursive: true });
   writeFileSync(
     join(dir, "lookout.config.json"),
     JSON.stringify({ project: "demo", targets: [{ name: "app", url: "http://localhost:1" }] }),
   );
-  writeFileSync(join(dir, ".lookout", "evidence", "web", "app", "root", "rest--desktop-dark.png"), "png");
+  writeFileSync(join(evDir, "web", "app", "root", "rest--desktop-dark.png"), "png");
+  mkdirSync(join(dir, ".lookout"), { recursive: true });
   const backlog: Backlog = emptyBacklog("demo", "2026-01-01T00:00:00.000Z");
   for (const f of findings) backlog.findings[f.fingerprint] = f;
   reconcileIssues(backlog, "2026-01-01T00:00:00.000Z");

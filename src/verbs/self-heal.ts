@@ -21,7 +21,8 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { loadSkill, renderSkill } from "../skills/load.js";
-import { lookoutHome, readIncidents, recordIncident, shapeOf } from "../skills/incidents.js";
+import { readIncidents, recordIncident, shapeOf } from "../skills/incidents.js";
+import { lookoutHome } from "../home.js";
 import {
   activeGroups,
   compactIncidents,
