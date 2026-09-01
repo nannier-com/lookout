@@ -8,6 +8,7 @@
  * staleness instead of letting drift accumulate silently.
  */
 import type { Category } from "../judge/rubric.js";
+import type { Region } from "./region.js";
 import type { FormFactor, PlatformKind, Scheme, Severity } from "../types.js";
 import type { AcceptanceCriterion } from "../issues/acceptance.js";
 
@@ -69,6 +70,23 @@ export interface BacklogFinding {
   scheme?: Scheme;
   /** Set on code-channel findings only. */
   source?: SourceRef;
+  /**
+   * Which part of the frame the defect lives in. Absent and "content" are not
+   * the same fact, and the shell migration turns on the difference: absent
+   * means nothing has ever asked, so the record was filed before regions
+   * existed and may be absorbed into a shell finding; "content" means the
+   * question WAS asked and answered "the route's own body", and an answer is
+   * never overridden by a later claim about a different screen.
+   */
+  region?: Region;
+  /**
+   * Every route this defect has been photographed on. Carried only when the
+   * identity no longer names one: `route` keeps the first as provenance, and
+   * this is what a fix verification has to cover.
+   */
+  seenRoutes?: string[];
+  /** The route-scoped fingerprints this record absorbed when it collapsed. */
+  absorbed?: string[];
   category: Category;
   attribute: string;
   severity: Severity;
@@ -173,6 +191,11 @@ export interface Backlog {
   note: string;
   project: string;
   updatedAt: string;
+  /**
+   * Which shape this file is in. Absent means 1, the pre-region shape; the
+   * one-shot migrations that run on load key off it.
+   */
+  schema?: 2;
   findings: Record<string, BacklogFinding>;
   /** Issue ids by id. Assigned once, never reused, never pruned. */
   issues: Record<string, IssueRecord>;
@@ -194,6 +217,7 @@ export function emptyBacklog(project: string, now: string): Backlog {
 // backlog verb and the ingestion path want. Nothing here is a facade over
 // anything: each name is defined in exactly one place.
 export { fingerprintOf, sourceFingerprintOf } from "./fingerprint.js";
+export { REGIONS, isShellRegion, parseRegion, type Region } from "./region.js";
 export {
   aiToFindings,
   deterministicToFindings,
