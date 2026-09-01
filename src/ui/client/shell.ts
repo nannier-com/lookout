@@ -64,6 +64,50 @@ export function paintPlay(): void {
       : "Open settings (the cog) and choose a project first";
 }
 
+/**
+ * Whether the judge's column is folded away.
+ *
+ * Remembered per browser rather than per project, for the same reason the tool
+ * choice is: whether you want a transcript beside the board is a preference
+ * about the reader, not about the repository being looked at.
+ */
+let judgeShut = false;
+try {
+  judgeShut = localStorage.getItem("lookout.judge") === "shut";
+} catch {
+  // A private window refuses storage. The preference is then per visit.
+}
+
+/**
+ * The fold, in whichever state it is in.
+ *
+ * Two classes, because they do two different things. The one on the body
+ * narrows the token that both the column's width and the board's padding are
+ * written in, so neither can move without the other. The one on the column is
+ * what turns its header into the strip.
+ */
+export function paintJudge(): void {
+  const btn = el("streamFold");
+  el("stream").classList.toggle("shut", judgeShut);
+  document.body.classList.toggle("judgeshut", judgeShut);
+  btn.setAttribute("aria-expanded", String(!judgeShut));
+  // Shut, the strip says nothing on its own, so the name lives in the label and
+  // the tooltip, the way the rail's icons do at the other edge.
+  const name = judgeShut ? "Show the judge's transcript" : "Collapse the judge's transcript";
+  btn.setAttribute("aria-label", name);
+  btn.title = name;
+}
+
+export function toggleJudge(): void {
+  judgeShut = !judgeShut;
+  try {
+    localStorage.setItem("lookout.judge", judgeShut ? "shut" : "open");
+  } catch {
+    // Storage refused: the fold still works, it just does not outlive the tab.
+  }
+  paintJudge();
+}
+
 export function setView(next: string): void {
   if (page.view === next) return;
   page.view = next;
