@@ -22,21 +22,40 @@ import type { StatusPayload } from "../payload.js";
 
 const STALE_MS = 10 * 60 * 1000;
 
-export function render(d: StatusPayload): void {
-  paintToggle();
-  const s = d.status;
+/**
+ * The last run state the server described, kept so the clock can be re-read.
+ *
+ * Everything else on this page changes only when the server says so, which is
+ * why the socket replaced the poll. Staleness is the exception: it is a
+ * statement about how long ago the last event was, and it becomes true by the
+ * passage of time with nothing arriving. Holding the state here is what lets
+ * `runState` be re-run on a clock without asking the server anything.
+ */
+let lastRun: StatusPayload["status"] | null = null;
 
-  // lookout cannot see a process die, so a killed run leaves the log claiming it
-  // is still running, forever. Silence is the only evidence available: past
-  // STALE_MS with nothing said, stop animating and say how long it has been
-  // quiet rather than show a live clock for a run that ended hours ago.
+/**
+ * Say whether a run is live, stalled, or over.
+ *
+ * lookout cannot see a process die, so a killed run leaves the log claiming it
+ * is still running, forever. Silence is the only evidence available: past
+ * STALE_MS with nothing said, stop animating and say how long it has been quiet
+ * rather than show a live clock for a run that ended hours ago.
+ *
+ * Its own function, called from `render` and from the page's one-second tick,
+ * because the two callers arrive for different reasons. The poll this page used
+ * to run re-read the clock 40 times a minute as a side effect of asking for
+ * everything else; a pushed page is told nothing at all while a run sits dead,
+ * which is exactly the case this has to notice. Without the tick, a run killed
+ * with -9 animates as "running" until somebody reloads.
+ */
+export function runState(): void {
+  const s = lastRun;
+  if (!s) return;
   const silent = s.lastEventAt ? Date.now() - Date.parse(s.lastEventAt) : 0;
   const stalled = s.running && silent > STALE_MS;
   const live = s.running && !stalled;
   document.body.classList.toggle("live", live);
   document.body.classList.toggle("stalled", stalled);
-  const ttl = d.project ? "lookout \u00b7 " + d.project : "lookout";
-  if (el("ttl").textContent !== ttl) el("ttl").textContent = ttl;
   const phase = !s.runId ? "no run recorded yet" : stalled ? s.phase + " \u00b7 stalled" : s.phase;
   if (el("phase").textContent !== phase) el("phase").textContent = phase;
   const elapsedNode = el("el");
@@ -52,6 +71,16 @@ export function render(d: StatusPayload): void {
       elapsedNode.dataset.prefix = (s.running ? "running " : "ran for ");
     }
   }
+}
+
+export function render(d: StatusPayload): void {
+  paintToggle();
+  const s = d.status;
+
+  lastRun = s;
+  runState();
+  const ttl = d.project ? "lookout \u00b7 " + d.project : "lookout";
+  if (el("ttl").textContent !== ttl) el("ttl").textContent = ttl;
 
   page.project = {
     configured: !!d.configured,

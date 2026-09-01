@@ -17,7 +17,7 @@ import { el, hit, repaint, ticks } from "./dom.js";
 import { setFilter } from "./filters.js";
 import { toggleSettings, loadConfigState, saveConfigState } from "./settings.js";
 import { paintJudge, say, setView, toggleJudge } from "./shell.js";
-import { render } from "./status.js";
+import { render, runState } from "./status.js";
 import { connected, listen } from "./stream.js";
 import { addNarration } from "./transcript.js";
 import { archive, chooseTool, launch, loadTools } from "./tools.js";
@@ -193,4 +193,11 @@ setInterval(() => {
   void tick();
   void tickNarration();
 }, 5000);
-setInterval(ticks, 1000);
+// Both of these are clocks rather than requests. `ticks` re-renders every
+// duration on the page from the current time, and `runState` re-reads how long
+// the run has been silent: a run killed outright says nothing more, so the only
+// way the page can notice is by looking at the clock itself.
+setInterval(() => {
+  ticks();
+  runState();
+}, 1000);
