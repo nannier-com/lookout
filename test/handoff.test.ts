@@ -110,6 +110,28 @@ describe("a handoff stands on its own", () => {
     expect(markdown).not.toContain("- web/app/dash");
   });
 
+  test("it says where the defect was rendering, with only verified paths", async () => {
+    const { markdown } = await issueDoc(
+      withBacklog([
+        finding({
+          renderedBy: {
+            component: "ActivityRow",
+            file: "/definitely/not/a/real/file.tsx",
+            line: 8,
+            selector: "#activity",
+            cssPath: "#activity",
+          },
+        }),
+      ]),
+    );
+    expect(markdown).toContain("## Where it renders");
+    expect(markdown).toContain("- ActivityRow");
+    // The file failed the existence check, so the component prints alone.
+    expect(markdown).not.toContain("/definitely/not/a/real/file.tsx");
+    const bare = await issueDoc(withBacklog([finding()]));
+    expect(bare.markdown).not.toContain("## Where it renders");
+  });
+
   test("it names the judge that filed it, falling back for pre-panel backlogs", async () => {
     const stamped = await issueDoc(withBacklog([finding({ judge: "judge-geometry" })]));
     expect(stamped.markdown).toContain("found by:   judge-geometry");

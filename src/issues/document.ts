@@ -12,7 +12,7 @@
  */
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { evidenceDir } from "../config.js";
 import { issueDir } from "./paths.js";
 import { frameAbsPath, loadFrames } from "./frames.js";
@@ -241,6 +241,34 @@ export async function renderIssueDocument(
         l.push(`- ${join(evDir, ev.path)}`);
         l.push(`  route ${m.route}, ${m.formFactor}, ${m.scheme} scheme, state ${m.state}`);
       }
+    }
+
+    // Where it was rendering, when capture joined the finding to an element.
+    // Facts observed on the page, not placement advice; a path is printed only
+    // after it is verified to exist, and a member whose file is gone still
+    // names its component.
+    const rendered = new Map<string, string>();
+    for (const m of cluster.members) {
+      const r = m.renderedBy;
+      if (!r || (!r.component && !r.file && !r.cssPath)) continue;
+      let at = "";
+      if (r.file) {
+        const abs = isAbsolute(r.file) ? r.file : join(resolved.projectDir, r.file);
+        if (existsSync(abs)) at = `  (${abs}${r.line ? `:${r.line}` : ""})`;
+      }
+      const line = `- ${r.component ?? r.cssPath}${at}`;
+      rendered.set(line, line);
+    }
+    if (rendered.size > 0) {
+      l.push("", "## Where it renders", "");
+      l.push(
+        "Recorded from the running page at capture time: the element each check",
+        "fired on, and its source where the page's dev tooling said. A starting",
+        "point for finding the code; the section above (when present) says where",
+        "the fix belongs.",
+        "",
+        ...rendered.values(),
+      );
     }
   }
 
