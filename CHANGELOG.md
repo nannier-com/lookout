@@ -1,5 +1,14 @@
 # @nannier-com/lookout
 
+## 0.33.3
+
+### Patch Changes
+
+- 7373c5a: Groundwork for navigation discovery: the NavigationConfig surface is
+  validated, route fields (name, element, states, navigation) are validated
+  instead of cast through, and scope/pruning treat states named by
+  .lookout/navigation.json as configured intent. Inert until a plan exists.
+
 ## 0.33.2
 
 ### Patch Changes
