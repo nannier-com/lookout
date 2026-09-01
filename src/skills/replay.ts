@@ -63,6 +63,10 @@ export const GATED_SKILLS = new Set([
 // does not contain. So an amendment to it is written down as a proposal for a
 // person to read, which is what this file already does for everything the gate
 // cannot grade.
+//
+// plan-navigation is not gated for the same structural reason: its output is
+// a plan of clicks against a live page, and no frozen screenshot can grade
+// whether a different curation of affordances would have been better.
 
 
 export interface ReplayScope {

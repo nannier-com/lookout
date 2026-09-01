@@ -11,6 +11,9 @@
 //   conform read the first file in the prompt's list, file its first component
 //           as a hand-roll of whatever the prompt says the kit provides, plus
 //           one claim that must be rejected at ingestion
+//   navplan plan an overlay, a destructive click, and a navigation state from
+//           the prompt's own affordance list, plus junk the parser must drop;
+//           MOCK_NAVPLAN overrides the whole reply
 //   verify  confirm index 0, refute every other index
 //   prose   reply with prose + a trailing fenced json (parser must cope)
 //   ask     plain-text answer
@@ -41,7 +44,9 @@ if (mode === "auto") {
             ? "placement"
             : promptText.includes("conformance reader")
               ? "conform"
-              : "judge";
+              : promptText.includes("navigation planner")
+                ? "navplan"
+                : "judge";
 }
 
 const shotIds = [...promptText.matchAll(/^- shotId: (.+)$/gm)].map((m) => m[1]!);
@@ -160,6 +165,35 @@ if (mode === "placement") {
         examined: files.slice(1),
       }) +
       "\n```";
+} else if (mode === "navplan") {
+  // A real reply plans from the prompt's own affordance list, so the mock
+  // does the same: first button becomes an overlay state, that same button is
+  // re-planned as destructive (ordering, not blocking, is the contract), the
+  // first link becomes a navigation state (the parser reroutes it to checks
+  // itself when its destination is configured), and one entry is deliberate
+  // junk the parser must drop.
+  const affs = [...promptText.matchAll(/^- (a\d+) \[([a-z-]+)\] "([^"]*)"(?: \([^)]*\))?(?: -> (\S+))?$/gm)]
+    .map((m) => ({ id: m[1]!, role: m[2]!, name: m[3]!, href: m[4] ?? null }));
+  const kebab = (s: string) =>
+    s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "state";
+  const button = affs.find((a) => a.role !== "link");
+  const link = affs.find((a) => a.role === "link" && a.href);
+  const states = [];
+  if (button) {
+    states.push({ affordance: button.id, name: kebab(button.name) + "-open", outcome: "overlay",
+      risk: "safe", why: "mock overlay" });
+    states.push({ affordance: button.id, name: "danger-click", outcome: "in-page-change",
+      risk: "destructive", why: "mock destructive entry, must stay executable" });
+  }
+  if (link) {
+    states.push({ affordance: link.id, name: "goto-" + kebab(link.name), outcome: "navigation",
+      risk: "safe", why: "mock navigation" });
+  }
+  states.push({ affordance: "a999", name: "Bad Name!!", outcome: "overlay", risk: "safe",
+    why: "must be dropped by the parser" });
+  result = process.env.MOCK_NAVPLAN
+    ? "```json\n" + process.env.MOCK_NAVPLAN + "\n```"
+    : "```json\n" + JSON.stringify({ states, checks: [], skipped: [] }) + "\n```";
 } else if (mode === "heal") {
   const file = process.env.MOCK_HEAL_FILE;
   if (file) writeFileSync(file, "// written by the mock healer\n");

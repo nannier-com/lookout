@@ -22,6 +22,7 @@ import { judgeInBatches, type RunCheckOptions } from "../check/batches.js";
 import { reverifyCached } from "../check/reverify.js";
 import { recordOutcome, type CheckOutcome } from "../check/outcome.js";
 import { planJudging } from "../check/plan.js";
+import { maybeRefreshNavigation } from "../check/navigate.js";
 import { resolveScope } from "../check/scope.js";
 import { SEVERITIES } from "../judge/rubric.js";
 import { emit, EventLog, setCurrentLog } from "../report/events.js";
@@ -51,7 +52,6 @@ export async function runCheck(
   toJudge: ShotRecord[];
 }> {
   const scope = await resolveScope(parsed);
-  const plan = await planJudging(scope.resolved, scope.shots, parsed);
 
   // --json and --quiet both mean the caller is reading the result, not the
   // narration. The event log is written either way.
@@ -59,6 +59,13 @@ export async function runCheck(
   const log = (line: string): void => {
     if (!quiet) console.log(line);
   };
+
+  // Navigation discovery's model spend happens here, before judging plans
+  // are drawn up: stale routes get fresh interaction plans, their states are
+  // captured, and the new shots join the scope the panels will see.
+  const nav = await maybeRefreshNavigation({ scope, parsed, log });
+
+  const plan = await planJudging(scope.resolved, scope.shots, parsed);
 
   // Refute-on-read before the fresh batches: cached groups holding findings
   // the refuter never saw (a --no-verify run, a refuter that failed) get the
@@ -80,7 +87,7 @@ export async function runCheck(
     opts,
   });
   pass.refuted.push(...repairs.refuted);
-  pass.costUsd += repairs.costUsd;
+  pass.costUsd += repairs.costUsd + nav.costUsd;
   const outcome = await recordOutcome({
     resolved: scope.resolved,
     scope,
