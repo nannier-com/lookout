@@ -31,6 +31,13 @@ const AT = "2026-08-28T14:02:11.000Z";
 const OPEN_ISSUE = "418203";
 const INTENTIONAL_ISSUE = "552140";
 const SETTLED_ISSUE = "731094";
+// Two deterministic findings on one route, which lookout clusters into a single
+// route-scoped issue. They carry the two shapes a problem text comes in: one
+// that explains itself in two paragraphs, and one filed before lookout could,
+// whose problem is still its own title. Seeded like the rest, because an id
+// lookout has to mint is a save, and a save freezes frames onto every issue
+// including the one that is meant to have none.
+const EXPLAINED_ISSUE = "864512";
 
 /** A frozen clock for the transcript, so two captures a minute apart match. */
 function stamp(i: number): string {
@@ -245,6 +252,45 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
             expected: "A dark rendering.",
             observed: "The light rendering, unchanged.",
           }),
+          // The two shapes the problem text now comes in. A deterministic
+          // finding explains itself in two parts, the half a person reads and
+          // the half an agent acts on, separated by a blank line: the card has
+          // to render that as two paragraphs rather than collapsing it into
+          // one. A finding filed before lookout explained its own checks still
+          // carries a problem that is its title again, and the card has to drop
+          // it rather than print the same sentence twice under its own heading.
+          "app.root.rest.desktop.dark.a11y.axe-heading-order": finding({
+            fingerprint: "app.root.rest.desktop.dark.a11y.axe-heading-order",
+            category: "a11y",
+            attribute: "axe-heading-order",
+            severity: "medium",
+            channel: "deterministic",
+            status: "open",
+            title: "heading-order: Heading levels should only increase by one",
+            problem:
+              "Ensures the order of headings is semantically correct. This is a rule about how " +
+              "the page is built rather than how it looks, so the screenshot may well look " +
+              "correct: the problem is what somebody navigating with a screen reader or a " +
+              "keyboard gets instead of what a sighted mouse user gets. axe rates this moderate, " +
+              "meaning it frustrates somebody using assistive technology without stopping them " +
+              "outright.\n\nThe failing rule is `heading-order`: Heading levels should only " +
+              "increase by one. It fired on 2 elements on this screen: `#root > div > h4`, " +
+              "`main section > h5`.",
+            expected: "The page satisfies the accessibility rule `heading-order`.",
+            observed: "2 elements on this screen fail it.",
+          }),
+          "app.root.rest.desktop.dark.a11y.axe-region": finding({
+            fingerprint: "app.root.rest.desktop.dark.a11y.axe-region",
+            category: "a11y",
+            attribute: "axe-region",
+            severity: "low",
+            channel: "deterministic",
+            status: "open",
+            title: "region: All page content should be contained by landmarks",
+            problem: "region: All page content should be contained by landmarks",
+            expected: "",
+            observed: "",
+          }),
           "app.settings.rest.desktop.dark.layout-overflow.horizontal-scroll": finding({
             fingerprint: "app.settings.rest.desktop.dark.layout-overflow.horizontal-scroll",
             route: "/settings",
@@ -291,6 +337,12 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
             createdAt: AT,
             acceptance: [],
           },
+          [EXPLAINED_ISSUE]: {
+            id: EXPLAINED_ISSUE,
+            key: "app--root--a11y",
+            createdAt: AT,
+            acceptance: [],
+          },
         },
       },
       null,
@@ -317,6 +369,7 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
   for (const [id, title] of [
     [OPEN_ISSUE, "Body text sits at 3.1:1 against the page background"],
     [SETTLED_ISSUE, "The settings table scrolls the page sideways"],
+    [EXPLAINED_ISSUE, "heading-order: Heading levels should only increase by one"],
   ] as const) {
     const where = join(lk, "issues", id);
     mkdirSync(where, { recursive: true });
