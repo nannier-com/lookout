@@ -94,6 +94,19 @@ describe("the live channel", () => {
     page.close();
   });
 
+  test("greets a second page even when nothing has changed", async () => {
+    // The push that follows a change is skipped when the body matches what was
+    // last sent, and a tab opening into that state would otherwise be handed
+    // nothing at all and render an empty board until something moved.
+    const first = await openPage();
+    await until(() => first.sent.length >= 1);
+    const second = await openPage();
+    expect(await until(() => second.sent.length >= 1)).toBe(true);
+    expect(second.sent[0]!.projectDir).toBe(project.projectDir);
+    first.close();
+    second.close();
+  });
+
   test("refuses a plain request to the socket's own route", async () => {
     const res = await fetch(`http://${origin}/api/live`);
     expect(res.status).toBe(400);

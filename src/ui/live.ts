@@ -49,23 +49,32 @@ export function openLive(req: Request, server: Server<undefined>): boolean {
  */
 let pushing = false;
 let pendingPush = false;
+let pendingForce = false;
 
 /**
- * Send the current status to every open socket, if it has changed.
+ * Send the current status to every open socket.
  *
- * Called by the watcher when the run log or the backlog moves, and directly by
- * the few transitions no file records: a run starting, a child dying.
+ * Called by the watcher when the run log or the backlog moves, by the few
+ * transitions no file records (a run starting, a child dying), and by a socket
+ * opening, which forces a send because a page that has just connected has
+ * nothing on it yet.
+ *
+ * Forcing goes through here rather than being a send of its own so that both
+ * kinds of push are ordered against each other. A greeting built beside this
+ * could be delivered after a newer payload and leave that tab stale until
+ * something else happened to move.
  */
-export async function pushNow(): Promise<void> {
+export async function pushNow(force = false): Promise<void> {
   if (sockets.size === 0) return;
   if (pushing) {
     pendingPush = true;
+    pendingForce ||= force;
     return;
   }
   pushing = true;
   try {
     const body = await snapshot();
-    if (body !== null && body !== lastSent) {
+    if (body !== null && (force || body !== lastSent)) {
       lastSent = body;
       for (const ws of [...sockets]) {
         try {
@@ -81,7 +90,9 @@ export async function pushNow(): Promise<void> {
     pushing = false;
     if (pendingPush) {
       pendingPush = false;
-      void pushNow();
+      const again = pendingForce;
+      pendingForce = false;
+      void pushNow(again);
     }
   }
 }
@@ -114,17 +125,10 @@ export const live = {
     sockets.add(ws);
     // Greet with the board as it stands. A tab that reconnects after a laptop
     // slept has missed every push in between, and asking it to wait for the
-    // next disk event would leave it showing yesterday's run.
-    void (async () => {
-      const body = await snapshot();
-      if (body === null) return;
-      lastSent = body;
-      try {
-        ws.send(body);
-      } catch {
-        sockets.delete(ws);
-      }
-    })();
+    // next disk event would leave it showing yesterday's run. The other tabs
+    // get a frame they already had, which is cheaper than the ordering bug the
+    // alternative buys.
+    void pushNow(true);
     heartbeat ??= setInterval(() => {
       for (const s of sockets) s.ping();
     }, HEARTBEAT_MS);
