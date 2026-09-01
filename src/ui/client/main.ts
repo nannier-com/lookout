@@ -212,7 +212,7 @@ document.addEventListener("click", (e) => {
         ProjectView & { cancelled?: boolean };
       if (picked.cancelled) return;
       if (picked.error) { say(picked.error); return; }
-      if (!picked.configured) { say("no .lookout/page.config.ts in " + picked.projectDir); return; }
+      if (!picked.configured) { say("no lookout.config.ts in " + picked.projectDir); return; }
       await saveConfigState({ projectDir: picked.projectDir });
     })();
     return;

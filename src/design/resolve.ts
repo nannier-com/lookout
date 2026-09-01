@@ -55,7 +55,7 @@ export function applyDeclaration(
     id: existing?.id ?? name,
     name,
     via: "declared",
-    evidence: ["declared in .lookout/config.ts as designSystem"],
+    evidence: ["declared in lookout.config.ts as designSystem"],
     // Declaring a path to something you cannot edit would be pointless, so a
     // declared packageRoot implies the kit is this repository's to change
     // unless the project says otherwise outright.

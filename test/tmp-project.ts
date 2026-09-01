@@ -10,7 +10,7 @@ export function tmpProject(prefix = "lookout-test-", project = "proj"): Resolved
   mkdirSync(join(dir, ".lookout"), { recursive: true });
   return {
     config: { targets: [{ name: "app", url: "http://localhost:1" }] },
-    configPath: join(dir, ".lookout", "config.ts"),
+    configPath: join(dir, "lookout.config.ts"),
     projectDir: dir,
     project,
   };

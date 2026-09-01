@@ -17,7 +17,7 @@ function project(): ResolvedConfig {
   writeFileSync(join(dir, ".lookout", "evidence", "web", "app", "settings--desktop-dark.png"), "px");
   return {
     config: {} as ResolvedConfig["config"],
-    configPath: join(dir, ".lookout/config.ts"),
+    configPath: join(dir, "lookout.config.ts"),
     projectDir: dir,
     project: "app",
   } as ResolvedConfig;

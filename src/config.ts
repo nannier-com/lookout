@@ -1,22 +1,19 @@
 /**
  * Config loading and validation.
  *
- * A project declares its targets in `.lookout/config.ts` (or .js / .json). The
- * TypeScript form is first-class because recipes are functions; that is why the
- * CLI runs under bun, which imports .ts natively. Zero-config runs synthesize a
- * one-target config from --url so lookout works in any directory.
+ * A project declares its targets in `lookout.config.ts` at its root (or .js /
+ * .mjs / .json). The TypeScript form is first-class because recipes are
+ * functions; that is why the CLI runs under bun, which imports .ts natively.
+ * Zero-config runs synthesize a one-target config from --url so lookout works
+ * in any directory. Where the file is found, and where it is written, is
+ * `config-locate.ts` and `config-write.ts`; this file loads it.
  */
 import { existsSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { LookoutError, type LookoutConfig, type ResolvedConfig } from "./types.js";
-import { findUp, isLocalUrl } from "./util.js";
-
-const CONFIG_CANDIDATES = [
-  ".lookout/config.ts",
-  ".lookout/config.js",
-  ".lookout/config.json",
-];
+import { CONFIG_FILENAME, LOOKOUT_DIR, locateConfig, projectDirFor } from "./config-locate.js";
+import { isLocalUrl } from "./util.js";
 
 export interface LoadOptions {
   /** Explicit config path from --config. */
@@ -87,16 +84,13 @@ export async function loadConfig(opts: LoadOptions = {}): Promise<ResolvedConfig
       throw new LookoutError(`config file not found: ${path}`);
     }
   } else {
-    for (const rel of CONFIG_CANDIDATES) {
-      path = findUp(rel, cwd);
-      if (path) break;
-    }
+    path = locateConfig(cwd)?.path ?? null;
   }
 
   if (!path) {
     throw new LookoutError(
-      "no .lookout/config.ts found here or in any parent directory",
-      "run `lookout init` to scaffold one, or pass --url for a zero-config run",
+      `no ${CONFIG_FILENAME} found here or in any parent directory`,
+      "run `lookout init` to write one, or pass --url for a zero-config run",
     );
   }
 
@@ -132,7 +126,7 @@ export async function loadConfig(opts: LoadOptions = {}): Promise<ResolvedConfig
   config.setScheme = setScheme;
   if (opts.baseUrl) applyBaseUrl(config, opts.baseUrl);
 
-  const projectDir = dirname(dirname(path)); // .lookout/config.ts -> project root
+  const projectDir = projectDirFor(path);
   return {
     config,
     configPath: path,
@@ -162,7 +156,7 @@ export function assertTargetsAllowed(config: LookoutConfig, allowRemote: boolean
 
 /** Where evidence, reports, and the backlog live for a project. */
 export function lookoutDir(resolved: ResolvedConfig): string {
-  return join(resolved.projectDir, ".lookout");
+  return join(resolved.projectDir, LOOKOUT_DIR);
 }
 
 export function evidenceDir(resolved: ResolvedConfig): string {

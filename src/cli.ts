@@ -12,7 +12,7 @@
  *   backlog   adjudicate findings (merge / set / reopen / regen / check / stats)
  *   skills    lookout's own instructions: list, freeze, replay, improve
  *   targets   list configured targets and probe reachability
- *   init      scaffold .lookout/config.ts in this repo
+ *   init      write lookout.config.ts at this project's root
  *   status    what the run in flight is doing, from the event log
  *   ui        a local page rendering that same log, live, for a person
  *   doctor    check prerequisites (claude CLI, chromium, sharp, simctl, adb)
@@ -24,9 +24,27 @@
  */
 import { recordIncident } from "./skills/incidents.js";
 import { LookoutError } from "./types.js";
-import { parseFlags, type Parsed } from "./util.js";
+import { parseFlags, str, type Parsed } from "./util.js";
 
 type Verb = (parsed: Parsed) => Promise<number>;
+
+/**
+ * Verbs that go and look at an app, and so need a config to look at.
+ *
+ * They are the ones lookout writes a config for, because they are the ones
+ * that would otherwise fail for the want of it. The verbs that only read what
+ * earlier runs left behind (backlog, skills, status, ui) are not here: a poll
+ * or a report is no reason to put a file in someone's repository.
+ */
+const NEEDS_CONFIG = new Set([
+  "capture",
+  "check",
+  "verify-fix",
+  "verify",
+  "ask",
+  "targets",
+  "design-system",
+]);
 
 // Verbs register here as their phases land; the registry is the single source
 // for dispatch and help.
@@ -77,7 +95,7 @@ const VERBS: Record<string, { load: () => Promise<Verb>; summary: string }> = {
   },
   init: {
     load: async () => (await import("./verbs/init.js")).init,
-    summary: "scaffold .lookout/config.ts in this repo",
+    summary: "write lookout.config.ts at this project's root",
   },
   status: {
     load: async () => (await import("./verbs/status.js")).status,
@@ -183,7 +201,17 @@ async function main(): Promise<number> {
     return 2;
   }
   const verb = await entry.load();
-  return verb(parseFlags(rest));
+  const parsed = parseFlags(rest);
+  if (NEEDS_CONFIG.has(verbName)) {
+    const { ensureProjectConfig } = await import("./config-write.js");
+    const ready = await ensureProjectConfig({
+      cwd: process.cwd(),
+      configPath: str(parsed.flags.config),
+      url: str(parsed.flags.url),
+    });
+    if (ready === "stop") return 2;
+  }
+  return verb(parsed);
 }
 
 main()

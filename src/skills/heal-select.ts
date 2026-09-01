@@ -15,6 +15,7 @@
  */
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, basename } from "node:path";
+import { CONFIG_FILENAME } from "../config-locate.js";
 import {
   clusterIncidents,
   incidentsPath,
@@ -159,7 +160,7 @@ export async function discoverReplayProjects(incidents: Incident[], limit = 2): 
     seen.add(dir);
     const resolved = {
       projectDir: dir,
-      configPath: join(dir, ".lookout", "config.ts"),
+      configPath: join(dir, CONFIG_FILENAME),
       project: basename(dir),
       config: { targets: [] },
     } as never;

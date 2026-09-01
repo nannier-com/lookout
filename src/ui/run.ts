@@ -17,7 +17,7 @@ export async function startCheck(project: ResolvedConfig): Promise<{ started: bo
     return { started: false, reason: "a check is already running" };
   }
   if (!project.configPath) {
-    return { started: false, reason: "no .lookout/config.ts in that folder" };
+    return { started: false, reason: "no lookout.config.ts in that folder" };
   }
 
   // Ask whether the app is even reachable before spending a run on it. The CLI

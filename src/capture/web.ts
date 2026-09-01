@@ -366,7 +366,7 @@ function markSchemeMismatches(shots: ShotRecord[]): void {
         severity: "warning",
         message:
           "dark and light captures are byte-identical; the app ignored the scheme mechanism " +
-          "(configure scheme: url-param or a setScheme recipe in .lookout/config.ts)",
+          "(configure scheme: url-param or a setScheme recipe in lookout.config.ts)",
       });
     }
   }

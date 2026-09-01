@@ -16,7 +16,7 @@ function project(): ResolvedConfig {
   mkdirSync(join(dir, ".lookout", "evidence", "web", "app"), { recursive: true });
   return {
     config: {} as ResolvedConfig["config"],
-    configPath: join(dir, ".lookout/config.ts"),
+    configPath: join(dir, "lookout.config.ts"),
     projectDir: dir,
     project: "app",
   } as ResolvedConfig;

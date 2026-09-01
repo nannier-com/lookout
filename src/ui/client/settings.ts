@@ -21,7 +21,7 @@ export function paintSettings(): void {
   if (page.config.error) {
     box.innerHTML = '<div class="tgt down">' + esc(page.config.error) + "</div>";
   } else if (!page.config.configured) {
-    box.innerHTML = '<div class="tgt">Choose a folder holding .lookout/page.config.ts.</div>';
+    box.innerHTML = '<div class="tgt">Choose a folder holding lookout.config.ts.</div>';
   } else if (!page.config.targets.length) {
     box.innerHTML = '<div class="tgt">That config declares no targets.</div>';
   } else {

@@ -183,7 +183,7 @@ export async function captureNative(
   if (!native || (!native.ios && !native.android)) {
     throw new LookoutError(
       "this project declares no native apps",
-      "add native: { ios: { deepLinkScheme, bundleId }, android: { ... } } to .lookout/config.ts",
+      "add native: { ios: { deepLinkScheme, bundleId }, android: { ... } } to lookout.config.ts",
     );
   }
 

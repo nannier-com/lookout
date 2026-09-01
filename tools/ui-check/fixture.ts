@@ -135,7 +135,7 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
   }
 
   writeFileSync(
-    join(lk, "config.ts"),
+    join(project, "lookout.config.ts"),
     'export default { targets: [{ name: "app", url: "http://127.0.0.1:5999", routes: ["/", "/settings"] }] };\n',
   );
   for (const [name, bg, bar] of [

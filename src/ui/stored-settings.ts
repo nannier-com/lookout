@@ -17,7 +17,7 @@ import { join } from "node:path";
 import { lookoutHome } from "../skills/incidents.js";
 
 export interface UiSettings {
-  /** Project root holding the .lookout/config.ts to drive. */
+  /** Project root holding the lookout.config.ts to drive. */
   projectDir: string | null;
   /**
    * Where the app actually is, when it is not where the config says.

@@ -178,8 +178,8 @@ describe("applyDeclaration", () => {
     mkdirSync(join(r.projectDir, "kit/src"), { recursive: true });
     const inv = applyDeclaration(r, base(r), {
       name: "House",
-      packageRoot: "../kit",
-      componentRoots: ["../kit/src"],
+      packageRoot: "./kit",
+      componentRoots: ["./kit/src"],
       importPrefixes: ["@house/ui"],
     });
     expect(inv.kits[0]!.name).toBe("House");

@@ -1,5 +1,5 @@
 /**
- * Library surface: the types a .lookout/config.ts imports, plus the loaders
+ * Library surface: the types a lookout.config.ts imports, plus the loaders
  * other tools may embed. The CLI is the primary interface; this keeps configs
  * type-checked in consumer repos.
  */

@@ -227,7 +227,7 @@ export async function detect(
 
   if (kits.length === 0) {
     notes.push(
-      "No design system detected. Either this project does not use one, or it uses an in-house kit with no dependency, marker file, or workspace package to name it. Declare it in .lookout/config.ts as `designSystem` if the scan is wrong.",
+      "No design system detected. Either this project does not use one, or it uses an in-house kit with no dependency, marker file, or workspace package to name it. Declare it in lookout.config.ts as `designSystem` if the scan is wrong.",
     );
   }
   if (kits.length > 0 && fromKit === 0 && !isOwnKit) {

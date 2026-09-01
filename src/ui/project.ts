@@ -64,7 +64,7 @@ export async function useProject(dir: string): Promise<ProjectView> {
   } catch {
     // No config found up the tree: say so rather than serving an empty board
     // that looks like a project with nothing wrong with it.
-    return { projectDir: dir, configured: false, error: "no .lookout/config.ts found there" };
+    return { projectDir: dir, configured: false, error: "no lookout.config.ts found there" };
   }
   forgetBoard();
   return {

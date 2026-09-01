@@ -1,5 +1,5 @@
 // Pure-function coverage of config validation and target resolution: the
-// contract every consumer repo's .lookout/config.ts is held to.
+// contract every consumer repo's lookout.config.ts is held to.
 import { describe, expect, test } from "bun:test";
 import { validateConfig } from "../src/config.js";
 import { resolveRoutes, resolveTargets } from "../src/targets.js";
@@ -61,16 +61,16 @@ describe("design hand-off references", () => {
     const [r] = resolveRoutes(
       { name: "app", url: "http://localhost:1", routes: [{ path: "/x", design: "mocks/x.png" }] },
       undefined,
-      "/repo/.lookout/config.ts",
+      "/repo/lookout.config.ts",
     );
-    expect(r!.design).toBe("/repo/.lookout/mocks/x.png");
+    expect(r!.design).toBe("/repo/mocks/x.png");
   });
 
   test("leaves routes without a design reference undefined", () => {
     const [r] = resolveRoutes(
       { name: "app", url: "http://localhost:1", routes: ["/x"] },
       undefined,
-      "/repo/.lookout/config.ts",
+      "/repo/lookout.config.ts",
     );
     expect(r!.design).toBeUndefined();
   });
