@@ -13,7 +13,7 @@
  * a silent mislabeled capture is the one unforgivable failure mode.
  */
 import { existsSync, readFileSync } from "node:fs";
-import { chromium, type Browser, type Locator, type Page } from "playwright";
+import { chromium, type Browser, type Page } from "playwright";
 import {
   DEFAULT_VIEWPORTS,
   type DeterministicFinding,
@@ -34,6 +34,15 @@ import {
   runAxe,
 } from "./checks.js";
 import { shotId, writeShotFile, type ShotAxes } from "./store.js";
+import {
+  markSchemeMismatches,
+  resolveElement,
+  schemeUrl,
+  setScheme,
+  settle,
+} from "./web-page.js";
+import { harvestRoute } from "../navigate/harvest.js";
+import { routeKey, type RouteHarvest, type RoutePlan } from "../navigate/store.js";
 import { nowIso, sha256 } from "../util.js";
 
 export interface WebCaptureOptions {
@@ -54,6 +63,15 @@ export interface WebCaptureOptions {
    * capture live needs the record while the capture is still going.
    */
   onShot?: (shot: ShotRecord) => void;
+  /**
+   * Navigation discovery, when the config enables it: cached plans to execute
+   * (keyed by target|route) and the sink each route's fresh affordance
+   * harvest lands in. Absent = no harvesting, no synthesized states.
+   */
+  navigation?: {
+    plans: ReadonlyMap<string, RoutePlan>;
+    onHarvest: (routeKey: string, harvest: RouteHarvest) => void;
+  };
 }
 
 export interface WebCaptureResult {
@@ -149,6 +167,7 @@ export async function captureWeb(
         axe: opts.axe,
         states: opts.states,
         settleMs: opts.settleMs,
+        navigation: !!opts.navigation,
       },
       failures,
       skips: [],
@@ -165,37 +184,6 @@ interface RouteCtx extends WebCaptureOptions {
   shots: ShotRecord[];
   collectorDrain: () => DeterministicFinding[];
   progress: (line: string) => void;
-}
-
-function schemeUrl(resolved: ResolvedConfig, routeUrl: string, scheme: Scheme): string {
-  const mode = resolved.config.scheme;
-  if (mode?.mode !== "url-param") return routeUrl;
-  const u = new URL(routeUrl);
-  u.searchParams.set(mode.param, scheme);
-  return u.toString();
-}
-
-async function setScheme(resolved: ResolvedConfig, page: Page, scheme: Scheme): Promise<void> {
-  const mode = resolved.config.scheme ?? { mode: "emulate" as const };
-  if (mode.mode === "emulate") {
-    await page.emulateMedia({ colorScheme: scheme });
-  } else if (mode.mode === "recipe") {
-    await resolved.config.setScheme!(page, scheme);
-  }
-  // url-param is handled in the navigation URL.
-}
-
-async function settle(page: Page, settleMs: number): Promise<void> {
-  // Fonts first (framework splash gates render nothing until they resolve),
-  // then two frames so layout from late effects lands, then the buffer.
-  await page
-    .evaluate(async () => {
-      const d = document as Document & { fonts?: { ready: Promise<unknown> } };
-      if (d.fonts?.ready) await d.fonts.ready;
-      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    })
-    .catch(() => {});
-  await page.waitForTimeout(settleMs);
 }
 
 async function captureRoute(
@@ -316,6 +304,27 @@ async function captureRoute(
           `shot ${shotId(axes)}${findings.length ? `  (${findings.length} finding${findings.length === 1 ? "" : "s"})` : ""}`,
         );
 
+        // Harvest once per route, at the first form factor and scheme, while
+        // the page still sits at rest. A failed harvest costs discovery on
+        // this route, never the route's shots.
+        if (
+          ctx.navigation &&
+          route.navigation !== false &&
+          stateName === "rest" &&
+          formFactor === ctx.formFactors[0] &&
+          scheme === ctx.schemes[0]
+        ) {
+          try {
+            const nav = resolved.config.navigation ?? {};
+            ctx.navigation.onHarvest(
+              routeKey(target.def.name, route.path),
+              await harvestRoute(page, { exclude: nav.exclude, include: nav.include }),
+            );
+          } catch (e) {
+            ctx.progress(`harvest failed on ${route.path}: ${(e as Error).message.slice(0, 200)}`);
+          }
+        }
+
         if (recipe) {
           if (recipe.restore) {
             await recipe.restore(page);
@@ -334,40 +343,3 @@ async function captureRoute(
   }
 }
 
-async function resolveElement(page: Page, selector: string | undefined): Promise<Locator | null> {
-  if (!selector) return null;
-  const loc = page.locator(selector).first();
-  await loc.waitFor({ state: "visible", timeout: 10_000 });
-  return loc;
-}
-
-/**
- * Scheme read-back: when the dark and light shots of the same route, state,
- * and form factor are byte-identical, the app ignored the configured scheme
- * mechanism and one label is a lie. The capture-ui lesson: never trust a
- * scheme switch without reading it back. Filed on the light shot as a warning
- * (a page can legitimately look near-identical, but byte-identical means the
- * mechanism did nothing).
- */
-function markSchemeMismatches(shots: ShotRecord[]): void {
-  const byKey = new Map<string, ShotRecord[]>();
-  for (const s of shots) {
-    const key = [s.platform, s.target, s.route, s.state, s.formFactor].join("|");
-    const arr = byKey.get(key) ?? [];
-    arr.push(s);
-    byKey.set(key, arr);
-  }
-  for (const group of byKey.values()) {
-    const dark = group.find((s) => s.scheme === "dark");
-    const light = group.find((s) => s.scheme === "light");
-    if (dark && light && dark.hash === light.hash) {
-      light.deterministicFindings.push({
-        type: "scheme-mismatch",
-        severity: "warning",
-        message:
-          "dark and light captures are byte-identical; the app ignored the scheme mechanism " +
-          "(configure scheme: url-param or a setScheme recipe in lookout.config.ts)",
-      });
-    }
-  }
-}

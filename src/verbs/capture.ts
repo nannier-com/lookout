@@ -9,7 +9,13 @@ import { assertTargetsAllowed, loadConfig } from "../config.js";
 import { preflight, requireUp, resolveTargets } from "../targets.js";
 import { captureWeb, type WebCaptureOptions } from "../capture/web.js";
 import { mergeRun, loadReport } from "../capture/store.js";
-import { plannedStateIndex } from "../navigate/store.js";
+import {
+  loadHarvests,
+  loadPlans,
+  plannedStateIndex,
+  saveHarvests,
+  type RouteHarvest,
+} from "../navigate/store.js";
 import { buildContactSheet, sheetNote } from "../capture/sheet.js";
 import { emit, EventLog, setCurrentLog } from "../report/events.js";
 import type { FormFactor, Scheme, ShotRecord } from "../types.js";
@@ -96,6 +102,19 @@ export async function runCapture(parsed: Parsed): Promise<{
     onShot: emitShot,
   };
 
+  // Navigation discovery rides along when the config enables it: capture
+  // harvests every route's affordances and executes already-planned states;
+  // only `check` ever refreshes the plan (capture stays AI-free).
+  const navEnabled = !!resolved.config.navigation?.enabled && !parsed.flags["no-navigation"];
+  const harvests = new Map<string, RouteHarvest>();
+  if (navEnabled) {
+    const plans = await loadPlans(resolved);
+    opts.navigation = {
+      plans: new Map(Object.entries(plans.routes)),
+      onHarvest: (key, harvest) => harvests.set(key, harvest),
+    };
+  }
+
   const platforms = list(parsed.flags.platforms) ?? ["web"];
   for (const p of platforms) {
     if (!["web", "ios", "android"].includes(p)) {
@@ -131,6 +150,14 @@ export async function runCapture(parsed: Parsed): Promise<{
       const line = `pruned ${pruned} shot(s) for routes or states no longer configured`;
       if (!quiet) console.log(line);
       emit("note", line, { pruned });
+    }
+    if (navEnabled && harvests.size > 0) {
+      const file = await loadHarvests(resolved);
+      for (const [key, harvest] of harvests) file.routes[key] = harvest;
+      await saveHarvests(resolved, file);
+      const line = `navigation: harvested ${harvests.size} route(s)`;
+      if (!quiet) console.log(line);
+      emit("note", line, { harvested: harvests.size });
     }
   }
 

@@ -22,6 +22,8 @@ export interface ResolvedRoute {
   element?: string;
   /** Absolute path of the route's design hand-off image, when configured. */
   design?: string;
+  /** False when the route opted out of navigation discovery. */
+  navigation?: boolean;
 }
 
 export interface ResolvedTarget {
@@ -66,6 +68,7 @@ export function resolveRoutes(
           ? resolve(dirname(designBase), def.design)
           : def.design
         : undefined,
+      navigation: def.navigation,
     };
   });
 }
