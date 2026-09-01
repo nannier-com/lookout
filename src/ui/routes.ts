@@ -9,6 +9,7 @@
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { evidenceDir } from "../config.js";
+import { issuesDir } from "../issues/paths.js";
 import { launchHandoff, toolsAvailable } from "../report/handoff.js";
 import { json, readJson } from "./http.js";
 import { serveClient } from "./assets.js";
@@ -24,7 +25,7 @@ import { servePage } from "./page.js";
 export function handle(req: IncomingMessage, res: ServerResponse): void {
   const resolved = currentProject();
   const url = new URL(req.url ?? "/", "http://localhost");
-  const evDir = evidenceDir(resolved);
+  const roots = { evidence: evidenceDir(resolved), issues: issuesDir(resolved) };
 
   if (req.method === "POST" && (url.pathname === "/api/project" || url.pathname === "/api/pick")) {
     void (async () => {
@@ -192,12 +193,12 @@ export function handle(req: IncomingMessage, res: ServerResponse): void {
   }
 
   if (url.pathname.startsWith("/thumb/")) {
-    serveThumb(req, res, evDir, url);
+    serveThumb(req, res, roots, url);
     return;
   }
 
   if (url.pathname.startsWith("/evidence/")) {
-    serveEvidence(res, evDir, url);
+    serveEvidence(res, roots, url);
     return;
   }
 

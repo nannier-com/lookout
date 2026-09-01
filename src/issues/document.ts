@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { evidenceDir } from "../config.js";
 import { issueDir } from "./paths.js";
-import { loadFrames } from "./frames.js";
+import { frameAbsPath, loadFrames } from "./frames.js";
 import { commitUrl, forgeOf } from "../report/forge.js";
 import type { FixCluster } from "../fix/cluster.js";
 import { allRuleFiles } from "../fix/rules.js";
@@ -217,19 +217,20 @@ export async function renderIssueDocument(
     l.push("");
   } else {
     l.push("## Look at these first", "");
-    // The frozen frames rather than the live store, whenever there are any. The
-    // store keeps one file per view and overwrites it on every capture, so by
-    // the time somebody opens this document its copy of the defect may already
-    // be a picture of whatever replaced it. These two do not move.
+    // The frozen frames rather than the live workspace, whenever there are
+    // any. The workspace keeps one file per view and overwrites it on every
+    // capture, so by the time somebody opens this document its copy of the
+    // defect may already be a picture of whatever replaced it. The frames live
+    // in this issue's own folder and do not move.
     const frames = await loadFrames(resolved, cluster.id);
     const where = (f: { route: string; formFactor: string; scheme: string; state?: string }): string =>
       "  " + [`route ${f.route}`, f.formFactor, `${f.scheme} scheme`, f.state ? `state ${f.state}` : ""]
         .filter(Boolean).join(", ");
     if (frames.before.length > 0) {
-      for (const f of frames.before) l.push(`- ${join(evDir, f.path)}`, where(f));
+      for (const f of frames.before) l.push(`- ${frameAbsPath(resolved, cluster.id, f)}`, where(f));
       if (frames.after.length > 0) {
         l.push("", "The same views after the fix lookout ruled on:", "");
-        for (const f of frames.after) l.push(`- ${join(evDir, f.path)}`, where(f));
+        for (const f of frames.after) l.push(`- ${frameAbsPath(resolved, cluster.id, f)}`, where(f));
       }
     } else {
       const seen = new Set<string>();

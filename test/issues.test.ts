@@ -10,7 +10,7 @@ import { ISSUE_ID_MAX, ISSUE_ID_MIN, isIssueId, mintIssueId } from "../src/issue
 import { issueByKey, issuesOf, reconcileIssues } from "../src/issues/registry.js";
 import { checkBacklog } from "../src/backlog/lib.js";
 import { issueDir, issueImgDir } from "../src/issues/paths.js";
-import { freezeFrames, loadFrames } from "../src/issues/frames.js";
+import { frameAbsPath, freezeFrames, loadFrames } from "../src/issues/frames.js";
 import { evidenceDir } from "../src/config.js";
 import { loadBacklog, saveBacklog } from "../src/verbs/backlog.js";
 import { emptyBacklog, type Backlog, type BacklogFinding } from "../src/backlog/lib.js";
@@ -186,7 +186,7 @@ describe("the issue folder", () => {
     // Byte-exact listing rather than existsSync: on a case-insensitive
     // filesystem (the macOS default) existsSync("issue.json") is true when
     // only Issue.json exists, so it cannot pin the casing.
-    expect(readdirSync(dir).sort()).toEqual(["Issue.json", "Issue.md", "img"]);
+    expect(readdirSync(dir).sort()).toEqual(["Issue.json", "Issue.md", "frames.json", "img"]);
 
     const doc = JSON.parse(readFileSync(join(dir, "Issue.json"), "utf8")) as Record<string, unknown>;
     expect(doc.id).toBe(id);
@@ -225,7 +225,7 @@ describe("the issue folder", () => {
 
     const frames = await loadFrames(r, id);
     expect(frames.before).toHaveLength(1);
-    expect(readFileSync(join(evidenceDir(r), frames.before[0]!.path), "utf8")).toBe("the defect");
+    expect(readFileSync(frameAbsPath(r, id, frames.before[0]!), "utf8")).toBe("the defect");
     expect(readFileSync(join(issueImgDir(r, id), "pre", "web-app-dash-rest--desktop-dark.png"), "utf8"))
       .toBe("the defect");
   });
@@ -345,7 +345,7 @@ describe("a legacy folder migrates on save", () => {
     // Byte-exact listing, never existsSync: on a case-insensitive filesystem
     // (the macOS default) existsSync("issue.json") is true when only
     // Issue.json exists, so it cannot tell a migrated folder from a stale one.
-    expect(readdirSync(dir).sort()).toEqual(["Issue.json", "Issue.md", "img"]);
+    expect(readdirSync(dir).sort()).toEqual(["Issue.json", "Issue.md", "frames.json", "img"]);
     const doc = JSON.parse(readFileSync(join(dir, "Issue.json"), "utf8")) as { id: string };
     expect(doc.id).toBe(id);
     // The wanted shot was refreshed from the evidence store; the stale one
@@ -396,7 +396,7 @@ describe("a legacy folder migrates on save", () => {
     // to Issue.json and deletes it. Linux CI is case-sensitive and cannot
     // reproduce that, so the local macOS run of this suite is the real gate.
     expect(readdirSync(dir).sort()).toEqual(first);
-    expect(first).toEqual(["Issue.json", "Issue.md", "img"]);
+    expect(first).toEqual(["Issue.json", "Issue.md", "frames.json", "img"]);
     const doc = JSON.parse(readFileSync(join(dir, "Issue.json"), "utf8")) as { id: string };
     expect(doc.id).toBe(id);
   });

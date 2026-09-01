@@ -1,37 +1,40 @@
 /**
  * What the defect looked like, and what replaced it.
  *
- * The evidence store writes one file per view, at a path derived from the view
- * itself, so a re-capture overwrites the frame it is replacing. That is the
- * right behaviour for a store whose job is "what does this app render now", and
- * it means the moment `verify-fix` proves a defect gone, the pixels that proved
- * it existed are gone too. The card kept showing a strip labelled "where
- * lookout saw it" that was, by then, a picture of the fixed screen.
+ * The capture workspace writes one file per view, at a path derived from the
+ * view itself, so a re-capture overwrites the frame it is replacing. That is
+ * the right behaviour for a workspace whose job is "what does this app render
+ * now", and it means the moment `verify-fix` proves a defect gone, the pixels
+ * that proved it existed are gone too.
  *
- * So two frames per view are frozen out of the way. The BEFORE is taken when
- * the issue is filed, and only once: later attempts on the same issue keep the
+ * So two frames per view live in the issue's own folder, which is the durable
+ * record of the defect. `img/pre/` is the defect as filed, and each view's
+ * frame is written only once: later attempts on the same issue keep the
  * original, because the thing worth comparing against is the defect as filed,
- * not as it looked after somebody's first try at it. The AFTER is taken when a
- * ruling passes, which is the only moment lookout is willing to say the screen
- * is fixed.
+ * not as it looked after somebody's first try at it. `img/post/` is the same
+ * views once a ruling passed, which is the only moment lookout is willing to
+ * say the screen is fixed, and it is rewritten whole each time one does.
+ * `frames.json` beside them carries what each frame is a picture of; parsing
+ * that back out of a flattened filename would be guessing. None of this is a
+ * projection of anything: the workspace is routinely cleaned and rebuilt, and
+ * these files are the only copy of the defect anybody keeps.
  *
  * Filing time is the earliest moment the pixels are guaranteed to be the
  * defect's, and it is why `ensureBeforeFrames` runs from every backlog save
  * rather than from `verify-fix` alone. An issue nobody ever asks lookout to
- * verify used to reach the board with no before frame at all, and the card fell
- * back to the live store, which the next `check` had already overwritten.
+ * verify used to reach the board with no before frame at all, and the card
+ * fell back to the live store, which the next `check` had already overwritten.
  *
- * They live in the evidence store because that is what the ui serves and what
- * `/thumb/` resizes, and under a reserved `fix-frames/` prefix that no capture
- * writes into, so nothing overwrites them the way the store overwrites
- * everything else. A manifest beside them carries what each frame is a picture
- * of; parsing that back out of a flattened filename would be guessing.
+ * Issues filed before the workspace left the project kept these frames in
+ * `.lookout/evidence/fix-frames/`; the first load after the move folds them
+ * into the folder, because they are irreplaceable and everything else in that
+ * old store is not.
  */
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
-import { evidenceDir } from "../config.js";
-import { flatShotName } from "./paths.js";
+import { join, relative, sep } from "node:path";
+import { evidenceDir, lookoutDir } from "../config.js";
+import { flatShotName, issueDir } from "./paths.js";
 import { wasPhotographed } from "../backlog/lib.js";
 import { nowIso } from "../util.js";
 import type { FixCluster } from "../fix/cluster.js";
@@ -40,8 +43,11 @@ import type { ResolvedConfig } from "../types.js";
 /** Which side of the fix a frame is a picture of. */
 export type FrameSide = "before" | "after";
 
+/** The folder a side's frames sit in, named the way the dossier names them. */
+const SIDE_DIR: Record<FrameSide, string> = { before: "pre", after: "post" };
+
 export interface Frame {
-  /** Evidence-relative, which is what the ui serves and thumbnails. */
+  /** Relative to the issue's folder, e.g. `img/pre/web-app-root--dark.png`. */
   path: string;
   route: string;
   formFactor: string;
@@ -52,56 +58,117 @@ export interface Frame {
 }
 
 export interface FrameSet {
-  schema: 1;
+  schema: 2;
   before: Frame[];
   after: Frame[];
 }
 
-const EMPTY: FrameSet = { schema: 1, before: [], after: [] };
-
-/**
- * `fix-frames/<id>`, evidence-relative: the prefix no capture writes into.
- *
- * Not `frozen/`, which would have been the obvious name and is already taken:
- * `lookout skills freeze` keeps a frozen regression set, and two unrelated
- * things wearing one word is how somebody ends up deleting the wrong directory.
- */
-export function framesRel(id: string): string {
-  return join("fix-frames", id);
-}
-
-export function framesDir(resolved: ResolvedConfig, id: string): string {
-  return join(evidenceDir(resolved), framesRel(id));
-}
+const EMPTY: FrameSet = { schema: 2, before: [], after: [] };
 
 function manifestPath(resolved: ResolvedConfig, id: string): string {
-  return join(framesDir(resolved, id), "frames.json");
+  return join(issueDir(resolved, id), "frames.json");
 }
 
-/** The frames frozen for this issue, or an empty set. */
+/** Where this frame is on disk, wherever the issue's folder is right now. */
+export function frameAbsPath(resolved: ResolvedConfig, id: string, f: Frame): string {
+  return join(issueDir(resolved, id), f.path);
+}
+
+/**
+ * The frame in the two path forms the page needs: `path` relative to the
+ * project's `.lookout/` (which is how the ui's routes serve it, `issues/...`
+ * distinguishing it from a workspace shot), and `absPath` for whoever wants
+ * the file itself.
+ */
+export function frameServedPath(
+  resolved: ResolvedConfig,
+  id: string,
+  f: Frame,
+): { path: string; absPath: string } {
+  const absPath = frameAbsPath(resolved, id, f);
+  const path = relative(lookoutDir(resolved), absPath).split(sep).join("/");
+  return { path, absPath };
+}
+
+/** The frames kept for this issue, or an empty set. */
 export async function loadFrames(resolved: ResolvedConfig, id: string): Promise<FrameSet> {
   const p = manifestPath(resolved, id);
-  if (!existsSync(p)) return EMPTY;
+  if (!existsSync(p)) {
+    return (await adoptStoreFrames(resolved, id)) ?? EMPTY;
+  }
   try {
     const raw = JSON.parse(await readFile(p, "utf8")) as FrameSet;
-    if (raw?.schema !== 1) return EMPTY;
-    return { schema: 1, before: raw.before ?? [], after: raw.after ?? [] };
+    if (raw?.schema !== 2) return EMPTY;
+    return { schema: 2, before: raw.before ?? [], after: raw.after ?? [] };
   } catch {
     return EMPTY;
   }
 }
 
-async function saveFrames(
-  resolved: ResolvedConfig,
-  id: string,
-  set: FrameSet,
-): Promise<void> {
-  await mkdir(framesDir(resolved, id), { recursive: true });
+async function saveFrames(resolved: ResolvedConfig, id: string, set: FrameSet): Promise<void> {
+  await mkdir(issueDir(resolved, id), { recursive: true });
   await writeFile(manifestPath(resolved, id), JSON.stringify(set, null, 2) + "\n");
 }
 
 /**
- * Copy this issue's current frames aside as one side of the comparison.
+ * Fold in frames an older lookout froze into the project's evidence store.
+ *
+ * The store under `.lookout/evidence/` is not written any more, but the
+ * frames in it are the only picture of a defect as it was filed, so the first
+ * read adopts them instead of letting them go stale with the rest. The
+ * dossier already holds a faithful copy of every frozen frame under `img/`
+ * (the old save kept them in sync), so mostly this writes the manifest; a
+ * copy that never landed is taken from the old store while it is still there.
+ */
+async function adoptStoreFrames(resolved: ResolvedConfig, id: string): Promise<FrameSet | null> {
+  const storeDir = join(lookoutDir(resolved), "evidence");
+  const legacyManifest = join(storeDir, "fix-frames", id, "frames.json");
+  if (!existsSync(legacyManifest)) return null;
+  interface LegacyFrame {
+    path: string;
+    route: string;
+    formFactor: string;
+    scheme: string;
+    state?: string;
+    at?: string;
+  }
+  let raw: { schema?: number; before?: LegacyFrame[]; after?: LegacyFrame[] };
+  try {
+    raw = JSON.parse(await readFile(legacyManifest, "utf8")) as typeof raw;
+  } catch {
+    return null;
+  }
+  if (raw?.schema !== 1) return null;
+
+  const set: FrameSet = { schema: 2, before: [], after: [] };
+  for (const side of ["before", "after"] as const) {
+    for (const f of raw[side] ?? []) {
+      const file = f.path.split(/[\\/]/).pop()!;
+      const rel = join("img", SIDE_DIR[side], file);
+      const dest = join(issueDir(resolved, id), rel);
+      if (!existsSync(dest)) {
+        const src = join(storeDir, f.path);
+        if (!existsSync(src)) continue;
+        await mkdir(join(dest, ".."), { recursive: true });
+        await copyFile(src, dest).catch(() => {});
+        if (!existsSync(dest)) continue;
+      }
+      set[side].push({
+        path: rel,
+        route: f.route,
+        formFactor: f.formFactor,
+        scheme: f.scheme,
+        ...(f.state ? { state: f.state } : {}),
+        at: f.at ?? nowIso(),
+      });
+    }
+  }
+  await saveFrames(resolved, id, set);
+  return set;
+}
+
+/**
+ * Freeze this issue's current workspace views as one side of the comparison.
  *
  * `before` is written once PER VIEW. A view already frozen keeps the pixels it
  * was filed against, so an issue re-verified three times still shows the defect
@@ -115,7 +182,7 @@ async function saveFrames(
  *
  * Returns the side as it now stands, which is empty when there was nothing to
  * copy: a code-channel issue has no screenshots at all, and a frame whose file
- * has been cleaned out of the evidence store cannot be frozen after the fact.
+ * has been cleaned out of the workspace cannot be frozen after the fact.
  */
 export async function freezeFrames(
   resolved: ResolvedConfig,
@@ -127,7 +194,7 @@ export async function freezeFrames(
   const frozen = new Set(kept.map((f) => f.path));
 
   const evDir = evidenceDir(resolved);
-  const dir = join(framesDir(resolved, cluster.id), side);
+  const dir = join(issueDir(resolved, cluster.id), "img", SIDE_DIR[side]);
   const frames: Frame[] = [];
   const seen = new Set<string>();
   const at = nowIso();
@@ -136,7 +203,7 @@ export async function freezeFrames(
     const ev = m.evidence[m.evidence.length - 1];
     if (!ev || !wasPhotographed(m) || seen.has(ev.path)) continue;
     const file = flatShotName(ev.path);
-    const rel = join(framesRel(cluster.id), side, file);
+    const rel = join("img", SIDE_DIR[side], file);
     if (frozen.has(rel)) continue;
     const src = join(evDir, ev.path);
     if (!existsSync(src)) continue;
@@ -161,7 +228,7 @@ export async function freezeFrames(
 
   if (frames.length === 0) return kept;
   const merged = [...kept, ...frames];
-  await saveFrames(resolved, cluster.id, { ...existing, schema: 1, [side]: merged });
+  await saveFrames(resolved, cluster.id, { ...existing, schema: 2, [side]: merged });
   return merged;
 }
 
@@ -176,7 +243,7 @@ export async function freezeFrames(
  *
  * One case is skipped, and only one: an issue that has nothing frozen at all
  * AND has already spent a fix attempt. That is the retroactive case, an issue
- * filed before lookout froze anything, and its frames in the store are of
+ * filed before lookout froze anything, and its frames in the workspace are of
  * unknown vintage, because something has claimed to change that screen since.
  * Copying them now would file a picture of somebody's fix under a label saying
  * "the defect". Those issues report no pre-fix frame, which is true, and

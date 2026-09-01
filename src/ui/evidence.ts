@@ -1,14 +1,23 @@
 /**
  * Serving the pixels: the screenshots themselves, and thumbnails of them.
  *
- * Both are reads out of one directory, and both are the only routes in the
- * server that touch a path a browser supplied, so they are kept together with
- * the check that a URL cannot leave the evidence store however it is spelled.
+ * Two roots serve one namespace. A path starting `issues/` is a frozen frame
+ * in an issue's own folder under the project's `.lookout/issues/`; everything
+ * else is a live shot in the capture workspace. These are the only routes in
+ * the server that touch a path a browser supplied, so they are kept together
+ * with the check that a URL cannot leave its root however it is spelled.
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { extname, resolve, sep } from "node:path";
 import { MIME } from "./http.js";
+
+export interface EvidenceRoots {
+  /** The capture workspace: every live shot, the sheets, the run log. */
+  evidence: string;
+  /** The project's `.lookout/issues`, holding each dossier's frozen frames. */
+  issues: string;
+}
 
 /**
  * Thumbnails are re-requested every time the page re-renders a tile, and
@@ -18,10 +27,12 @@ import { MIME } from "./http.js";
  */
 const thumbCache = new Map<string, Buffer>();
 
-/** Serve only from inside the evidence directory, whatever the URL claims. */
-export function safeEvidencePath(evDir: string, rel: string): string | null {
-  const target = resolve(evDir, decodeURIComponent(rel));
-  const root = resolve(evDir);
+/** Serve only from inside the path's own root, whatever the URL claims. */
+export function safeEvidencePath(roots: EvidenceRoots, rel: string): string | null {
+  const decoded = decodeURIComponent(rel);
+  const inIssues = decoded === "issues" || decoded.startsWith("issues/");
+  const root = resolve(inIssues ? roots.issues : roots.evidence);
+  const target = resolve(root, inIssues ? decoded.slice("issues/".length) : decoded);
   if (target !== root && !target.startsWith(root + sep)) return null;
   return existsSync(target) && statSync(target).isFile() ? target : null;
 }
@@ -31,8 +42,8 @@ export function safeEvidencePath(evDir: string, rel: string): string | null {
  * page for the whole run. Thumbnails are generated on demand and cropped the
  * same way the contact sheet crops, so the grid matches what the sheet shows.
  */
-export function serveThumb(req: IncomingMessage, res: ServerResponse, evDir: string, url: URL): void {
-  const p = safeEvidencePath(evDir, url.pathname.slice("/thumb/".length));
+export function serveThumb(req: IncomingMessage, res: ServerResponse, roots: EvidenceRoots, url: URL): void {
+  const p = safeEvidencePath(roots, url.pathname.slice("/thumb/".length));
   if (!p) {
     res.writeHead(404).end("not found");
     return;
@@ -76,8 +87,8 @@ export function serveThumb(req: IncomingMessage, res: ServerResponse, evDir: str
 }
 
 /** The screenshot itself, streamed as it is on disk. */
-export function serveEvidence(res: ServerResponse, evDir: string, url: URL): void {
-  const p = safeEvidencePath(evDir, url.pathname.slice("/evidence/".length));
+export function serveEvidence(res: ServerResponse, roots: EvidenceRoots, url: URL): void {
+  const p = safeEvidencePath(roots, url.pathname.slice("/evidence/".length));
   if (!p) {
     res.writeHead(404).end("not found");
     return;

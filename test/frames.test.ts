@@ -5,7 +5,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ensureBeforeFrames, freezeFrames, loadFrames, framesDir } from "../src/issues/frames.js";
+import { ensureBeforeFrames, freezeFrames, loadFrames } from "../src/issues/frames.js";
+import { issueImgDir } from "../src/issues/paths.js";
 import { evidenceDir } from "../src/config.js";
 import { buildBoard } from "../src/report/board.js";
 import type { FixCluster } from "../src/fix/cluster.js";
@@ -101,12 +102,12 @@ describe("freezing the frames either side of a fix", () => {
 
     const frozen = await freezeFrames(r, c, "before");
     expect(frozen).toHaveLength(1);
-    expect(frozen[0]!.path).toBe("fix-frames/246813/before/web-app-settings--desktop-dark.png");
+    expect(frozen[0]!.path).toBe("img/pre/web-app-settings--desktop-dark.png");
     expect(frozen[0]!.route).toBe("/settings");
     expect(frozen[0]!.formFactor).toBe("desktop");
 
     // The copy is the pixels, not a reference to a file that is about to change.
-    const copied = readFileSync(join(framesDir(r, "246813"), "before", "web-app-settings--desktop-dark.png"), "utf8");
+    const copied = readFileSync(join(issueImgDir(r, "246813"), "pre", "web-app-settings--desktop-dark.png"), "utf8");
     expect(copied).toBe("the defect");
     expect((await loadFrames(r, "246813")).before).toHaveLength(1);
   });
@@ -121,7 +122,7 @@ describe("freezing the frames either side of a fix", () => {
     shotFile(r, "web/app/settings--desktop-dark.png", "a failed attempt");
     await freezeFrames(r, c, "before");
 
-    const copied = readFileSync(join(framesDir(r, "246813"), "before", "web-app-settings--desktop-dark.png"), "utf8");
+    const copied = readFileSync(join(issueImgDir(r, "246813"), "pre", "web-app-settings--desktop-dark.png"), "utf8");
     expect(copied).toBe("the defect");
   });
 
@@ -133,7 +134,7 @@ describe("freezing the frames either side of a fix", () => {
     shotFile(r, "web/app/settings--desktop-dark.png", "later pass");
     await freezeFrames(r, c, "after");
 
-    const copied = readFileSync(join(framesDir(r, "246813"), "after", "web-app-settings--desktop-dark.png"), "utf8");
+    const copied = readFileSync(join(issueImgDir(r, "246813"), "post", "web-app-settings--desktop-dark.png"), "utf8");
     expect(copied).toBe("later pass");
   });
 
@@ -158,7 +159,7 @@ describe("freezing the frames either side of a fix", () => {
     } as unknown as Partial<BacklogFinding>);
     const frozen = await freezeFrames(r, cluster([source], { channel: "code" }), "before");
     expect(frozen).toEqual([]);
-    expect(await loadFrames(r, "246813")).toEqual({ schema: 1, before: [], after: [] });
+    expect(await loadFrames(r, "246813")).toEqual({ schema: 2, before: [], after: [] });
   });
 
   test("a frame whose file has been cleaned out of the store is skipped, not invented", async () => {
@@ -192,9 +193,10 @@ describe("the board carries both sides", () => {
     const entry = (await buildBoard(r))[0]!;
     expect(entry.before).toHaveLength(1);
     expect(entry.after).toHaveLength(1);
-    // Evidence-relative, because that is what the page's own routes serve.
-    expect(entry.before[0]!.path).toBe(`fix-frames/${id}/before/web-app-settings--desktop-dark.png`);
-    expect(entry.after[0]!.absPath).toContain(join(evidenceDir(r), "fix-frames"));
+    // Relative to `.lookout/`, because that is what the page's routes serve:
+    // an `issues/` prefix sends the read to the issue folder's own root.
+    expect(entry.before[0]!.path).toBe(`issues/${id}/img/pre/web-app-settings--desktop-dark.png`);
+    expect(entry.after[0]!.absPath).toContain(join(r.projectDir, ".lookout", "issues"));
   });
 });
 
@@ -203,7 +205,7 @@ describe("the board carries both sides", () => {
 // defect, and the card fell back to a store the next capture had overwritten.
 describe("every issue gets a picture of its own defect", () => {
   const preFile = (r: ResolvedConfig): string =>
-    join(framesDir(r, "246813"), "before", "web-app-settings--desktop-dark.png");
+    join(issueImgDir(r, "246813"), "pre", "web-app-settings--desktop-dark.png");
 
   test("freezes the before on an issue nothing has tried to fix yet", async () => {
     const r = project();
@@ -244,7 +246,7 @@ describe("every issue gets a picture of its own defect", () => {
     expect(set.before.map((f) => f.formFactor).sort()).toEqual(["desktop", "phone"]);
     expect(readFileSync(preFile(r), "utf8")).toBe("the defect on desktop");
     expect(
-      readFileSync(join(framesDir(r, "246813"), "before", "web-app-settings--phone-dark.png"), "utf8"),
+      readFileSync(join(issueImgDir(r, "246813"), "pre", "web-app-settings--phone-dark.png"), "utf8"),
     ).toBe("the defect on phone");
   });
 
@@ -261,6 +263,47 @@ describe("every issue gets a picture of its own defect", () => {
     );
 
     expect(set.before).toEqual([]);
-    expect(await loadFrames(r, "246813")).toEqual({ schema: 1, before: [], after: [] });
+    expect(await loadFrames(r, "246813")).toEqual({ schema: 2, before: [], after: [] });
+  });
+});
+
+// Issues filed before the workspace left the project kept their frames in
+// `.lookout/evidence/fix-frames/`. That store is never written again, but the
+// frames in it are the only picture of the defect as filed, so the first read
+// folds them into the issue folder rather than letting them go stale.
+describe("frames an older lookout froze into the evidence store", () => {
+  test("are adopted into the issue folder on first read", async () => {
+    const r = project();
+    const legacy = join(r.projectDir, ".lookout", "evidence", "fix-frames", "246813");
+    mkdirSync(join(legacy, "before"), { recursive: true });
+    writeFileSync(join(legacy, "before", "web-app-settings--desktop-dark.png"), "the defect");
+    writeFileSync(
+      join(legacy, "frames.json"),
+      JSON.stringify({
+        schema: 1,
+        before: [
+          {
+            path: "fix-frames/246813/before/web-app-settings--desktop-dark.png",
+            route: "/settings",
+            formFactor: "desktop",
+            scheme: "dark",
+            at: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+        after: [],
+      }),
+    );
+
+    const set = await loadFrames(r, "246813");
+    expect(set.before).toHaveLength(1);
+    expect(set.before[0]!.path).toBe("img/pre/web-app-settings--desktop-dark.png");
+    expect(set.before[0]!.route).toBe("/settings");
+    expect(
+      readFileSync(join(issueImgDir(r, "246813"), "pre", "web-app-settings--desktop-dark.png"), "utf8"),
+    ).toBe("the defect");
+
+    // Adopted once: the manifest now lives with the issue, so a later read
+    // stands on it rather than on the old store.
+    expect((await loadFrames(r, "246813")).before).toHaveLength(1);
   });
 });

@@ -12,6 +12,7 @@
 import { statSync } from "node:fs";
 import { join } from "node:path";
 import { evidenceDir } from "../config.js";
+import { frameServedPath, type Frame } from "../issues/frames.js";
 import { wasPhotographed, type IssueRecord } from "../backlog/lib.js";
 import { commitUrl, forgeOf } from "./forge.js";
 import type { ClusterState } from "../fix/state.js";
@@ -66,14 +67,16 @@ export function fixOf(
   };
 }
 
-/** A frozen frame, in the two path forms the page needs. */
-export function asBoardShot(
-  resolved: ResolvedConfig,
-  f: { path: string; route: string; formFactor: string; scheme: string; state?: string; at?: string },
-): BoardShot {
+/**
+ * A frozen frame, in the two path forms the page needs. Frames live in the
+ * issue's own folder, so the served path is `issues/...` rather than a
+ * workspace shot's, and the ui routes each to its own root.
+ */
+export function asBoardShot(resolved: ResolvedConfig, id: string, f: Frame): BoardShot {
+  const { path, absPath } = frameServedPath(resolved, id, f);
   return {
-    path: f.path,
-    absPath: join(evidenceDir(resolved), f.path),
+    path,
+    absPath,
     route: f.route,
     formFactor: f.formFactor,
     scheme: f.scheme,
