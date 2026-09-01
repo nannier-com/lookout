@@ -10,11 +10,11 @@ It is four commands, meant to be run in this order around a change:
 ```bash
 bun tools/ui-check/run.ts fixture              # a throwaway project with issues, history and incidents
 bun tools/ui-check/run.ts serve                # start lookout ui against it, prints the port
-bun tools/ui-check/run.ts shots before         # capture the nine views
+bun tools/ui-check/run.ts shots before         # capture every view
 #   ... make your change, restart serve ...
 bun tools/ui-check/run.ts shots after
 bun tools/ui-check/run.ts diff before after    # pixel comparison, per view
-bun tools/ui-check/run.ts drive                # sixteen interaction checks
+bun tools/ui-check/run.ts drive                # every interaction check
 ```
 
 Everything lands under `.lookout-ui-check/` in the repo root, which is ignored.

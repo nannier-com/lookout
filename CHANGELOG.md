@@ -1,5 +1,85 @@
 # @nannier-com/lookout
 
+## 0.38.1
+
+### Patch Changes
+
+- fe35ba7: The shot inspector carries a close button in the corner of the picture itself.
+
+  The bar's "Close" sits at the corner of the screen, which is not where anyone is
+  looking once a screenshot has their attention. A round cross now sits over the
+  top right of the picture, with its own dark scrim and light ring so it reads
+  against whatever the screenshot happens to show there. It closes the inspector
+  like the bar's button, the scrim and the Escape key do, and the interaction gate
+  drives all four.
+
+## 0.38.0
+
+### Minor Changes
+
+- eb3b2df: The judge's column folds away.
+
+  New capability: a control in the transcript's header that folds it down to a
+  strip the width of the rail on the other side of the page, and unfolds it
+  again. The choice is remembered per browser, so the page comes back the shape
+  it was left in.
+
+  The transcript is a fixed column rather than a drawer on purpose: the question
+  it answers ("is this thing still working?") is one you have while looking at
+  something else, and a drawer you have to go and open answers it too late. What
+  that costs is 340px of board, held whether or not anything is being judged, and
+  on a laptop that is a column of cards. Folding hands the width back without
+  giving up the answer: the strip keeps the live dot, so a judge that starts
+  talking still says so.
+
+  Shut, the page has the same furniture at both edges: icons on the left, a way
+  back into the transcript on the right. `tools/ui-check` captures the folded
+  state as its own view and drives the control through folding, reloading and
+  unfolding, so both shapes are gated the way every other region is.
+
+### Patch Changes
+
+- 07541e0: `lookout ui` no longer times out the folder picker, and drops a heartbeat that
+  was doing nothing.
+
+  bun has two `idleTimeout` options: the one on the `websocket` handler governs a
+  socket, and the one at the top level is the HTTP inactivity timeout. The value
+  was set at the top level believing it governed the socket. It did not. What it
+  did govern was every HTTP request, and that turns out to matter: `POST
+/api/pick` opens a native folder picker and does not answer until somebody has
+  chosen a directory, while bun's default closes a quiet connection after ten
+  seconds. The option now carries the maximum bun accepts, named for the reason
+  that is real, so choosing a project from the page cannot fail for anyone who
+  browses rather than types.
+
+  The server's own thirty-second ping is removed. bun's `sendPings` defaults to
+  true, so it already pings and answers pings; a socket with no ping of lookout's
+  stays open indefinitely.
+
+## 0.37.5
+
+### Patch Changes
+
+- c02bbda: Two judges talking at once no longer shred each other's verdicts.
+
+  A check runs two workers over view groups and both walk their panels in the
+  same order, so at almost every moment two calls to the SAME judge are in flight
+  against different views. The transcript gathered prose by judge NAME, so those
+  two streams went into one buffer: reassembled, a single `judge-integrity`
+  heading carried two JSON replies spliced together, with nothing to say which
+  view either half belonged to. Measured on a two-route run, every one of the ten
+  panel calls came out spliced.
+
+  Narration is now gathered per call rather than per name, and every line carries
+  the id of the call that wrote it. The rail grows each call's paragraph in its
+  own block instead of appending to whichever block came last, and a call's
+  heading names the view it is judging (`judge-integrity app/dashboard · 6
+shot(s)`) so two blocks under the same judge can be told apart. The same
+  two-route run now produces ten calls, each with its verdict intact.
+
+  `tools/ui-check`'s fixture seeds two interleaved calls of one judge, so the
+  visual gate covers the case rather than only the tidy one.
+
 ## 0.37.4
 
 ### Patch Changes
