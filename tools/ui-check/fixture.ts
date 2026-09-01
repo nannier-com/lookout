@@ -249,6 +249,41 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
     ),
   );
 
+  // The folders the backlog projects. lookout writes one per issue on every
+  // save, and the card links each issue's document, so a fixture without them
+  // draws a board whose documents are all missing: the gate would capture that
+  // absent state on every card and never once render the link.
+  //
+  // The intentional issue is left without one on purpose, the same way it is
+  // the one issue with no frozen frames. `.lookout/issues/` is a projection of
+  // the backlog and people delete it; a card whose folder is not on disk has to
+  // render without a link rather than offering one that answers 404, and a
+  // fixture where every issue has a document would never draw that.
+  //
+  // Both folders sit beside each other rather than one under `archive/`,
+  // because that is where lookout would put them: the folder follows the
+  // record's `archived` field, and the intentional issue here carries the older
+  // adjudication instead, which never moved a folder.
+  for (const [id, title] of [
+    [OPEN_ISSUE, "Body text sits at 3.1:1 against the page background"],
+    [SETTLED_ISSUE, "The settings table scrolls the page sideways"],
+  ] as const) {
+    const where = join(lk, "issues", id);
+    mkdirSync(where, { recursive: true });
+    writeFileSync(
+      join(where, "Issue.md"),
+      `# ${title}\n\n` +
+        "```\n" +
+        `issue:      ${id}\n` +
+        `folder:     ${where}\n` +
+        `repository: ${project}\n` +
+        "```\n\n" +
+        "This is a visual defect lookout found in the running application, filed\n" +
+        "against the screenshots below. lookout did not send you here; somebody read\n" +
+        "it and decided to. Nothing about how you fix it is prescribed.\n",
+    );
+  }
+
   // What lookout has done to its own instructions here.
   const skills = join(lk, "skills");
   mkdirSync(join(skills, "design-placement"), { recursive: true });
@@ -336,10 +371,17 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
 
   // A checkout with heals that stuck, so the commits panel has something in it.
   mkdirSync(join(checkout, "src"), { recursive: true });
+  // Fixed dates, because a commit's hash is made of them. Left to the clock,
+  // every `fixture` build mints two new shas at a new time, the commits panel
+  // draws different pixels, and the two learning views report a difference on
+  // any comparison that rebuilt in between: noise that reads exactly like a
+  // regression and trains whoever is looking to wave the panel through. Same
+  // reason the evidence mtimes are backdated.
   const git = (args: string[]) =>
     execFileSync("git", ["-c", "user.name=lookout", "-c", "user.email=lookout@example.com", ...args], {
       cwd: checkout,
       stdio: "ignore",
+      env: { ...process.env, GIT_AUTHOR_DATE: AT, GIT_COMMITTER_DATE: AT },
     });
   git(["init", "-q"]);
   for (const [n, subject] of [

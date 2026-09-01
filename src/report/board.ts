@@ -20,6 +20,7 @@
  * `board-durable` reads the state, `board-live` reads the narration, and what is
  * left here is the join, plus the two tallies that count what came out.
  */
+import { existsSync } from "node:fs";
 import { issuesOf } from "../issues/registry.js";
 import { clusterLabel } from "../fix/brief.js";
 import { loadBacklog } from "../verbs/backlog.js";
@@ -27,7 +28,7 @@ import { loadFrames } from "../issues/frames.js";
 import { loadState } from "../fix/state.js";
 import { forgeOf } from "./forge.js";
 import { readEvents, type LookoutEvent } from "./events.js";
-import { issueDir } from "../issues/paths.js";
+import { issueDir, issueDocPath } from "../issues/paths.js";
 import {
   asBoardShot,
   durableStatus,
@@ -69,10 +70,14 @@ export async function buildBoard(
       const frames = await loadFrames(resolved, c.id);
       const seen = lastSeenAt(resolved, c, state);
       const lastAttempt = state.attempts[state.attempts.length - 1];
+      const doc = issueDocPath(resolved, c.id);
       return {
         id: c.id,
         key: c.key,
         dir: issueDir(resolved, c.id),
+        // Only when it is actually there: a link to a document nobody wrote is
+        // worse than no link, because it looks like the issue has nothing in it.
+        doc: existsSync(doc) ? doc : null,
         label: clusterLabel(c),
         routes: c.routes,
         severity: c.severity,

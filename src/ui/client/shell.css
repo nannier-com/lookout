@@ -85,6 +85,16 @@ font:inherit;font-size:11.5px;line-height:1}
 .filed:hover{border-color:var(--dim);background:var(--sunk);color:var(--ink)}
 .filed:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .filed[disabled]{opacity:.55;cursor:default}
+/* The issue's own document. Same shape again, and a link rather than a button
+   because that is what it is: it opens a file in a tab and changes nothing.
+   Quiet like the filing control, since reading the write-up is not the act the
+   card is steering anyone towards. */
+.doc{display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border-radius:8px;
+border:1px solid var(--line);color:var(--dim);text-decoration:none;
+font-size:11.5px;line-height:1}
+.doc svg{display:block}
+.doc:hover{border-color:var(--dim);background:var(--sunk);color:var(--ink)}
+.doc:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .launched{font-size:11.5px;color:var(--dim);word-break:break-all}
 .launched code{font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--ink);
 user-select:all}

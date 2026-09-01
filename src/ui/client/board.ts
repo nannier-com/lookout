@@ -225,6 +225,28 @@ function cardAction(b: BoardEntry): string {
     + '</button>';
 }
 
+/**
+ * The issue's own document, opened in a tab.
+ *
+ * The card is a summary of what lookout knows; `Issue.md` is the whole of it,
+ * including the standing rules, where the fix belongs, and the command that
+ * rules on it. The "On disk" section names the folder that holds it, which
+ * helps anyone with a terminal open and nobody reading the board on a screen
+ * they cannot type into. The server hands the file over for that reason.
+ *
+ * Absent when there is no document to open, rather than rendered dead: an issue
+ * whose folder was never written links to nothing.
+ */
+function docLink(b: BoardEntry): string {
+  if (!b.doc) return "";
+  const page = '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" fill="none"'
+    + ' stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'
+    + '<path d="M13.5 3H7a1.5 1.5 0 0 0-1.5 1.5v15A1.5 1.5 0 0 0 7 21h10a1.5 1.5 0 0 0 1.5-1.5V8Z"/>'
+    + '<path d="M13.5 3v5h5"/><path d="M9 12.5h6M9 16h6"/></svg>';
+  return '<a class="doc" href="/issue/' + enc(b.id) + '/Issue.md" target="_blank"'
+    + ' rel="noreferrer noopener" title="' + esc(b.doc) + '">' + page + 'Issue.md</a>';
+}
+
 export function card(b: BoardEntry): string {
   const routes = b.routes.map((r) => '<span class="chip">' + esc(r) + '</span>').join("");
   const attempt = b.attempt ? '<span class="chip">attempt ' + esc(b.attempt) + '</span>' : "";
@@ -236,7 +258,7 @@ export function card(b: BoardEntry): string {
     + '<div class="top"><span class="pill">' + esc(b.status) + '</span>'
     + '<span class="issueid" title="issue id: verify-fix --issue ' + esc(b.id) + '">'
     + esc(b.id) + '</span>' + seen + '</div>'
-    + '<div class="meta">' + cardAction(b)
+    + '<div class="meta">' + cardAction(b) + docLink(b)
     + '<span class="launched" data-launched="' + esc(b.id) + '"></span></div>'
     + '<h3 class="title">' + esc(b.label) + '</h3>'
     + whatLine(b)

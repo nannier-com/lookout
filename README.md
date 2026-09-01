@@ -219,6 +219,12 @@ view and overwrites it on every capture: without that, a dossier opened after
 the next run describes the defect using a picture of whatever replaced it. lookout writes the folders and rules on
 the outcomes; who fixes an issue, and how, is not lookout's call.
 
+Every card on `lookout ui` links its own `Issue.md`, and the page serves it: a
+browser will not follow a `file://` link out of a page it loaded over HTTP, so
+the folder path a card prints is only useful to somebody with a terminal open.
+An issue whose folder is not on disk shows no link rather than one that answers
+404.
+
 When a fix is claimed, lookout rules on the claim:
 
 ```bash

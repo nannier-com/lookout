@@ -81,6 +81,15 @@ export interface BoardEntry {
   key: string;
   /** The issue's folder, absolute: everything about it is in there. */
   dir: string;
+  /**
+   * The issue's own document, absolute, or null when the folder holds none.
+   *
+   * Carried rather than derived from `dir`, because whether the file is there
+   * is the question: the document is written when the backlog is saved, and an
+   * issue whose folder has not been materialised has nothing to open. Null is
+   * what stops the page offering a link that answers 404.
+   */
+  doc: string | null;
   label: string;
   routes: string[];
   severity: string;

@@ -28,7 +28,7 @@ make that safe.
 | one step of `verify-fix` | `src/verify/` (evidence, acceptance, code) |
 | what the board contains | `src/report/board-types.ts` |
 | how the board is derived | `src/report/board-durable.ts` (state), `board-live.ts` (narration) |
-| the local page's server | `src/ui/` (routes, payload, evidence, run, project, session) |
+| the local page's server | `src/ui/` (routes, payload, evidence, document, run, project, session) |
 | the local page in the browser | `src/ui/client/` (`shell.css` for the frame, `board.css` for a card, one module per area) |
 | how lookout amends its own instructions | `src/skills/` (history, replay, amend, signals, regression) |
 | what a verb prints or exits with | `src/verbs/<verb>.ts` |

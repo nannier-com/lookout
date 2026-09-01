@@ -169,6 +169,19 @@ async function drive(): Promise<number> {
   const before = await shown();
   check("board renders cards", before.length > 0, `ids=${before.join(",")}`);
 
+  // The document link, on every card, followed rather than counted. A card
+  // linking a 404 is indistinguishable from one linking a document until
+  // somebody clicks it, and the URL is spelled in the client and matched in the
+  // server, so the only check worth making is whether the file comes back.
+  const docs = page.locator("article.card a.doc");
+  const links = await docs.count();
+  check("every card links its document", links === before.length, `${links} links for ${before.length} cards`);
+  const href = links > 0 ? await docs.first().getAttribute("href") : null;
+  const doc = href ? await page.request.get(URL + href.replace(/^\//, "")) : null;
+  check("the document link resolves", doc?.status() === 200, `${href} -> ${doc?.status() ?? "not requested"}`);
+  const text = doc ? await doc.text() : "";
+  check("what comes back is that issue's document", text.includes(`issue:      ${before[0]}`), text.slice(0, 40));
+
   // The fixture has one issue in each of open, adjudicated and settled, and the
   // board shows one status at a time, so what a filter changes is which card is
   // on the board, not how many.
@@ -177,6 +190,9 @@ async function drive(): Promise<number> {
   const during = await shown();
   check("filter changes which issues show", during.join() !== before.join(), `${before.join(",")} -> ${during.join(",")}`);
   check("filter bar appears", await page.locator("#filterbar").isVisible());
+  // The intentional issue's folder was never written, so its card has nothing
+  // to link. Offering a link there would be offering a 404.
+  check("a card with no document on disk links none", (await docs.count()) === 0, `${await docs.count()} links`);
   await page.keyboard.press("Escape");
   await page.waitForTimeout(1200);
   check("escape restores the board", (await shown()).join() === before.join());

@@ -12,6 +12,7 @@ import { evidenceDir } from "../config.js";
 import { launchHandoff, toolsAvailable } from "../report/handoff.js";
 import { json, readJson } from "./http.js";
 import { serveClient } from "./assets.js";
+import { serveIssueDoc } from "./document.js";
 import { serveEvidence, serveThumb } from "./evidence.js";
 import { learningNow, statusBody } from "./payload.js";
 import { pickFolder, settingsView, useProject } from "./project.js";
@@ -197,6 +198,14 @@ export function handle(req: IncomingMessage, res: ServerResponse): void {
 
   if (url.pathname.startsWith("/evidence/")) {
     serveEvidence(res, evDir, url);
+    return;
+  }
+
+  // One issue's own document. The card prints the folder for somebody at a
+  // terminal; this is the same material for somebody at the page, who cannot
+  // follow a file:// link out of an http:// one.
+  if (url.pathname.startsWith("/issue/")) {
+    serveIssueDoc(res, resolved, url.pathname);
     return;
   }
 
