@@ -16,6 +16,7 @@ import {
   saveHarvests,
   type RouteHarvest,
 } from "../navigate/store.js";
+import { navigationOn } from "../navigate/consent.js";
 import { buildContactSheet, sheetNote } from "../capture/sheet.js";
 import { emit, EventLog, setCurrentLog } from "../report/events.js";
 import type { FormFactor, Scheme, ShotRecord } from "../types.js";
@@ -106,7 +107,7 @@ export async function runCapture(parsed: Parsed): Promise<{
   // Navigation discovery rides along when the config enables it: capture
   // harvests every route's affordances and executes already-planned states;
   // only `check` ever refreshes the plan (capture stays AI-free).
-  const navEnabled = !!resolved.config.navigation?.enabled && !parsed.flags["no-navigation"];
+  const navEnabled = navigationOn(resolved.config, parsed.flags);
   const harvests = new Map<string, RouteHarvest>();
   if (navEnabled) {
     const plans = await loadPlans(resolved);
@@ -141,9 +142,7 @@ export async function runCapture(parsed: Parsed): Promise<{
       unscoped
         ? {
             pruneNotIn: resolveTargets(resolved.config, undefined, undefined, resolved.configPath),
-            plannedStates: resolved.config.navigation?.enabled
-              ? await plannedStateIndex(resolved)
-              : undefined,
+            plannedStates: navEnabled ? await plannedStateIndex(resolved) : undefined,
           }
         : {},
     );

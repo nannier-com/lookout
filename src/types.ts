@@ -60,7 +60,13 @@ export interface RouteDef {
  * environment and list anything untouchable in `exclude`.
  */
 export interface NavigationConfig {
-  /** Default false while the capability earns default-on (the shellScoping precedent). */
+  /**
+   * Default false while the capability earns default-on (the shellScoping
+   * precedent). This is the project committing to discovery for every run it
+   * will ever have; `--navigation` is a single caller consenting to a single
+   * run, and is what the ui's play button spends when the toggle beside it is
+   * on. `--no-navigation` turns it off whichever said yes.
+   */
   enabled?: boolean;
   /** Shot-producing interaction states the planner may pick per route. Default 5. */
   maxStatesPerRoute?: number;

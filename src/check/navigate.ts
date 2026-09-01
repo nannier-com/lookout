@@ -3,15 +3,28 @@
  * routes whose plans changed so their synthesized states join this run's
  * scope.
  *
- * Gated like kit-conformance: full-scope runs only, because a scoped run
- * cannot see the config's whole intent, and `--navigate` is the explicit
- * consent that overrides both the gate and signature freshness. Plain
- * `capture` never lands here: the model is only ever spent by `check`.
+ * Who gets to plan: a run that sees the config's whole intent. That is a
+ * full-scope check, or a `--first` walk, which sees the same intent one route
+ * at a time. The walk had to be named here because it reaches this module
+ * wearing a scoped run's clothes: it synthesizes --targets/--routes for every
+ * stop, so the old full-scope-only gate turned discovery off for the ui's play
+ * button, which runs `check --first` and had therefore never planned a single
+ * call to action. `--navigate` is the third way in, the explicit consent that
+ * also overrides signature freshness.
+ *
+ * A scoped run that does get in plans the routes in its scope and nothing
+ * else. Without that narrowing the step would re-plan and re-capture the whole
+ * application from inside one stop of a walk, which is the opposite of what
+ * the walk is for. `verify-fix` is scoped and never sets `first`, so a fix
+ * ruling still spends nothing here and rules on the plan that already exists.
+ *
+ * Plain `capture` never lands here: the model is only ever spent by `check`.
  */
 import { loadReport } from "../capture/store.js";
 import { resolveTargets, shotInConfig } from "../targets.js";
 import { planRoute } from "../navigate/plan.js";
 import { loadHarvests, loadPlans, plannedStateIndex, savePlans } from "../navigate/store.js";
+import { navigationOn } from "../navigate/consent.js";
 import { list, str, type Parsed } from "../util.js";
 import type { CheckScope } from "./scope.js";
 
@@ -28,8 +41,10 @@ export async function maybeRefreshNavigation(args: {
   const { scope, parsed, log } = args;
   const config = scope.resolved.config;
   const fullScope = !parsed.flags.targets && !parsed.flags.routes;
+  // A stop on the `--first` walk: scoped by the walk, not by the caller.
+  const walk = !!parsed.flags.first;
   const force = !!parsed.flags.navigate;
-  if (!config.navigation?.enabled || parsed.flags["no-navigation"] || (!fullScope && !force)) {
+  if (!navigationOn(config, parsed.flags) || (!fullScope && !walk && !force)) {
     return { costUsd: 0, refreshed: 0 };
   }
 
@@ -39,12 +54,22 @@ export async function maybeRefreshNavigation(args: {
 
   // Stale = the route's affordances changed since it was planned (or it was
   // never planned). --navigate re-plans even fresh routes.
+  const onlyTargets = list(parsed.flags.targets);
+  const onlyRoutes = list(parsed.flags.routes);
   const stale: { key: string; targetName: string; routePath: string }[] = [];
   for (const [key, harvest] of Object.entries(harvests.routes)) {
     const [targetName, routePath] = [key.slice(0, key.indexOf("|")), key.slice(key.indexOf("|") + 1)];
     const target = targets.find((t) => t.def.name === targetName);
     const route = target?.routes.find((r) => r.path === routePath);
     if (!target || !route || route.navigation === false) continue;
+    // A scoped run plans what it is looking at and leaves the rest alone: one
+    // stop of a walk must not re-plan and re-capture the whole application.
+    // The spellings are the ones --routes accepts elsewhere: the path, the
+    // path without its leading slash, or the route's name.
+    if (onlyTargets && !onlyTargets.includes(targetName)) continue;
+    if (onlyRoutes && !onlyRoutes.some((r) => r === routePath || `/${r}` === routePath || r === route.name)) {
+      continue;
+    }
     if (force || plans.routes[key]?.signature !== harvest.signature) {
       stale.push({ key, targetName, routePath: routePath! });
     }
@@ -73,7 +98,9 @@ export async function maybeRefreshNavigation(args: {
       restShots,
       recipeNames: route.states,
       configuredPaths,
-      navigation: config.navigation,
+      // Defaults when the flag turned discovery on and the config carries no
+      // block of its own, the same fallback capture's executor already uses.
+      navigation: config.navigation ?? {},
       model: str(parsed.flags.model),
     });
     costUsd += res.costUsd;
@@ -111,8 +138,6 @@ export async function maybeRefreshNavigation(args: {
   const report = await loadReport(scope.resolved);
   if (report) {
     const planned = await plannedStateIndex(scope.resolved);
-    const onlyTargets = list(parsed.flags.targets);
-    const onlyRoutes = list(parsed.flags.routes);
     scope.shots = report.shots.filter(
       (s) =>
         s.platform === "web" &&

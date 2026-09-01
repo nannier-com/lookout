@@ -180,4 +180,68 @@ describe("maybeRefreshNavigation gating", () => {
         .refreshed,
     ).toBe(0);
   });
+
+  // The ui's play button is why this case exists: it runs `check --first`,
+  // which walks the application one route at a time by synthesizing
+  // --targets/--routes for every stop. Skipping scoped runs outright meant
+  // that button never planned a single call to action.
+  test("a scoped run plans the route it is on and leaves the rest alone", async () => {
+    const r = await project();
+    r.config.targets[0]!.routes = ["/", "/pricing"];
+    await saveHarvests(r, {
+      version: 1,
+      routes: { [routeKey("app", "/")]: HARVEST, [routeKey("app", "/pricing")]: HARVEST },
+    });
+    const recaptured: string[][] = [];
+    const res = await maybeRefreshNavigation({
+      scope: { resolved: r, shots: [], shotsById: new Map() },
+      parsed: { ...parsedBase, flags: { first: true, targets: "app", routes: "/pricing" } },
+      log: () => {},
+      recapture: async (t, ro) => { recaptured.push([...t, ...ro]); },
+    });
+    expect(res.refreshed).toBe(1);
+    expect(recaptured).toEqual([["app", "/pricing"]]);
+    const plans = await loadPlans(r);
+    expect(plans.routes[routeKey("app", "/pricing")]).toBeDefined();
+    expect(plans.routes[routeKey("app", "/")]).toBeUndefined();
+  });
+
+  // The walk is what earns the exemption, not the scope flags it wears. A
+  // caller who narrowed the run themselves still sees nothing planned, which
+  // is what keeps verify-fix (scoped, never --first) free of plan calls.
+  test("the same scope without the walk still plans nothing", async () => {
+    const r = await project();
+    r.config.targets[0]!.routes = ["/", "/pricing"];
+    await saveHarvests(r, { version: 1, routes: { [routeKey("app", "/pricing")]: HARVEST } });
+    const res = await maybeRefreshNavigation({
+      scope: { resolved: r, shots: [], shotsById: new Map() },
+      parsed: { ...parsedBase, flags: { targets: "app", routes: "/pricing" } },
+      log: () => {},
+      recapture: async () => {},
+    });
+    expect(res.refreshed).toBe(0);
+    expect((await loadPlans(r)).routes[routeKey("app", "/pricing")]).toBeUndefined();
+  });
+
+  // The ui toggle's consent: one run, without the project's config having
+  // committed to discovery for every run it will ever have.
+  test("--navigation turns discovery on for a config that has not; --no-navigation still wins", async () => {
+    const r = await project();
+    delete r.config.navigation;
+    const scope = { resolved: r, shots: [], shotsById: new Map() };
+    const noop = { log: () => {}, recapture: async () => {} };
+    expect((await maybeRefreshNavigation({ scope, parsed: { ...parsedBase, flags: {} }, ...noop })).refreshed)
+      .toBe(0);
+    expect(
+      (await maybeRefreshNavigation({
+        scope,
+        parsed: { ...parsedBase, flags: { navigation: true, "no-navigation": true } },
+        ...noop,
+      })).refreshed,
+    ).toBe(0);
+    expect(
+      (await maybeRefreshNavigation({ scope, parsed: { ...parsedBase, flags: { navigation: true } }, ...noop }))
+        .refreshed,
+    ).toBe(1);
+  });
 });
