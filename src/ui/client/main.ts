@@ -1,159 +1,42 @@
 /**
- * The poll, the clicks, and the order things start in.
+ * The socket, the clicks, and the order things start in.
  *
  * Everything this file drives lives in a module beside it. What is left here is
- * the wiring: one request every 1.5 seconds, one delegated click listener for a
- * page whose regions are rebuilt under the reader several times a minute, and
- * the boot sequence, which is ordered rather than parallel for a reason stated
- * where it happens.
+ * the wiring: one socket the server pushes down, one delegated click listener
+ * for a page whose regions are rebuilt under the reader whenever a run says
+ * something, and the boot sequence, which is ordered rather than parallel for a
+ * reason stated where it happens.
+ *
+ * The page used to poll every 1.5 seconds. It fetches twice now: once at boot,
+ * because the board should be on screen before the socket has finished opening,
+ * and again after any action the reader took, because an action should repaint
+ * from its own answer rather than wait for the server to notice the disk moved.
+ * Everything else arrives unasked.
  */
-import { el, esc, paint, repaint, ticks } from "./dom.js";
-import { card } from "./board.js";
-import { matchesIssue, setFilter, stat, statFilter } from "./filters.js";
-import { loadLearning } from "./learning.js";
-import { paintRail, paintWhere, paintPlay, say, setView } from "./shell.js";
-import { loadConfigState, saveConfigState, toggleSettings } from "./settings.js";
-import { archive, chooseTool, launch, loadTools, paintToggle } from "./tools.js";
+import { el, hit, repaint, ticks } from "./dom.js";
+import { setFilter } from "./filters.js";
+import { toggleSettings, loadConfigState, saveConfigState } from "./settings.js";
+import { say, setView } from "./shell.js";
+import { render } from "./status.js";
+import { connected, listen } from "./stream.js";
+import { archive, chooseTool, launch, loadTools } from "./tools.js";
 import { onRefresh, page, type Filter } from "./state.js";
 import { closeShot, openShot, shotOpen } from "./shot-view.js";
-import { hit } from "./dom.js";
 import type { ProjectView } from "../project.js";
 import type { StatusPayload } from "../payload.js";
 
-const STALE_MS = 10 * 60 * 1000;
-
+/**
+ * Ask for the board rather than wait to be told.
+ *
+ * Two callers: the boot, and every action that changes something and wants the
+ * page to say so immediately.
+ */
 async function tick(): Promise<void> {
-  let d: StatusPayload;
   try {
-    d = (await (await fetch("/api/status")).json()) as StatusPayload;
+    render((await (await fetch("/api/status")).json()) as StatusPayload);
   } catch {
-    // One missed poll is not news. The page keeps what it last drew.
-    return;
+    // One missed request is not news. The page keeps what it last drew.
   }
-  paintToggle();
-  const s = d.status;
-
-  // lookout cannot see a process die, so a killed run leaves the log claiming it
-  // is still running, forever. Silence is the only evidence available: past
-  // STALE_MS with nothing said, stop animating and say how long it has been
-  // quiet rather than show a live clock for a run that ended hours ago.
-  const silent = s.lastEventAt ? Date.now() - Date.parse(s.lastEventAt) : 0;
-  const stalled = s.running && silent > STALE_MS;
-  const live = s.running && !stalled;
-  document.body.classList.toggle("live", live);
-  document.body.classList.toggle("stalled", stalled);
-  const ttl = d.project ? "lookout \u00b7 " + d.project : "lookout";
-  if (el("ttl").textContent !== ttl) el("ttl").textContent = ttl;
-  const phase = !s.runId ? "no run recorded yet" : stalled ? s.phase + " \u00b7 stalled" : s.phase;
-  if (el("phase").textContent !== phase) el("phase").textContent = phase;
-  const elapsedNode = el("el");
-  if (s.startedAt){
-    if (stalled) {
-      elapsedNode.dataset.since = s.lastEventAt ?? undefined;
-      delete elapsedNode.dataset.until;
-      elapsedNode.dataset.prefix = "nothing for ";
-    } else {
-      elapsedNode.dataset.since = s.startedAt;
-      if (s.endedAt && !s.running) elapsedNode.dataset.until = s.endedAt;
-      else delete elapsedNode.dataset.until;
-      elapsedNode.dataset.prefix = (s.running ? "running " : "ran for ");
-    }
-  }
-
-  page.project = {
-    configured: !!d.configured,
-    projectDir: d.projectDir || "",
-    checkRunning: !!s.checkRunning,
-  };
-  paintPlay();
-  // A run that died says why. The server keeps the child's stderr precisely so
-  // this is possible; before, the process exited into a discarded pipe.
-  if (d.lastFailure) {
-    say(d.lastFailure.message + (d.lastFailure.code ? " (exit " + d.lastFailure.code + ")" : ""));
-  }
-  paintWhere();
-
-  const a = s.issues;
-  const statsHtml =
-      statFilter("state", "open", "open", a.open + a.verifying, "var(--high)")
-    + statFilter("state", "blocked", "blocked", a.blocked, "var(--crit)")
-    + statFilter("state", "done", "done", a.done, "var(--ok)")
-    + statFilter("state", "archived", "archived", a.archived)
-    + '<div class="sep"></div>'
-    + statFilter("severity", "critical", "critical", s.findings.critical, "var(--crit)")
-    + statFilter("severity", "high", "high", s.findings.high, "var(--high)")
-    + statFilter("severity", "medium", "medium", s.findings.medium, "var(--med)")
-    + statFilter("severity", "low", "low", s.findings.low, "var(--low)")
-    + '<div class="sep"></div>'
-    + stat("shots", s.shots)
-    + (page.filter ? '<button type="button" class="stat clear" id="clearTile"'
-        + ' title="show everything again (Escape)"><b>\u00d7</b><span>clear</span></button>' : "");
-  paint("stats", statsHtml, statsHtml);
-
-  // A run stops at the first route with issues and files all of them, so the
-  // page says how far it got: "3 issues" means three on one route, not three
-  // across an application it has mostly not looked at.
-  const walked = (d.events || [])
-    .filter((e) => e.kind === "note" && e.data && typeof e.data.checked === "number")
-    .pop();
-  const note = el("runnote");
-  if (walked?.data?.found) {
-    note.hidden = false;
-    note.textContent = "Stopped at " + String(walked.data.route) + " after looking at "
-      + String(walked.data.checked) + " of " + String(walked.data.of)
-      + " routes. Fix these, then run again for the next route.";
-  } else note.hidden = true;
-
-  const bar = el("filterbar");
-  if (page.filter) {
-    bar.hidden = false;
-    bar.innerHTML = 'Showing only <b>' + esc(page.filter.label) + '</b>';
-  } else bar.hidden = true;
-
-  const allIssues = s.board || [];
-  const issues = allIssues.filter(matchesIssue);
-  el("bn").textContent = allIssues.length
-    ? (issues.length === allIssues.length
-        ? allIssues.length + " on record"
-        : issues.length + " of " + allIssues.length)
-    : "";
-  // Acceptance verdicts are part of the signature: a verify-fix that ticks a
-  // criterion without changing anything else is exactly the moment the card
-  // has to repaint, and leaving them out left it showing the old marks.
-  const sig = JSON.stringify([page.filter, issues.map((b) => [b.id, b.status, b.attempt, b.verdict,
-    b.shots.length, b.shots.filter((s) => s.provenance).length,
-    (b.before || []).length, (b.after || []).length,
-    b.lastSeenAt, (b.timeline || []).length, b.fix && b.fix.commit,
-    b.archived && b.archived.reason,
-    (b.acceptance || []).map((c) => c.id + c.verdict).join()])]);
-  const feedTops: Record<string, number> = {};
-  for (const f of document.querySelectorAll<HTMLElement>("[data-feed]")) {
-    feedTops[f.dataset.feed ?? ""] = f.scrollTop;
-  }
-  const rebuilt = paint("board", sig, issues.length
-    ? issues.map(card).join("")
-    : '<div class="panel empty">'
-      + (allIssues.length
-          ? (page.filter ? 'Nothing is ' + esc(page.filter.label) + '.' : 'No outstanding issues.')
-          : 'Nothing found yet. Run <code>lookout check</code>.')
-      + '</div>');
-  if (rebuilt) {
-    // A feed that is talking follows its newest line the way a log tail does;
-    // one nobody is writing to stays where the reader left it.
-    for (const f of document.querySelectorAll<HTMLElement>("[data-feed]")) {
-      const b = issues.find((x) => x.id === f.dataset.feed);
-      const was = feedTops[f.dataset.feed ?? ""];
-      f.scrollTop = (b && b.status === "verifying") || was === undefined ? f.scrollHeight : was;
-    }
-  }
-
-  // The rail reports lookout working on itself from whichever area is open.
-  // The area itself only refreshes while it is the one being read: it costs a
-  // dozen file reads and a git log, and nobody is looking at it.
-  paintRail(s.learning);
-  if (page.view === "learning") loadLearning();
-
-  ticks();
 }
 
 /**
@@ -257,12 +140,12 @@ document.addEventListener("keydown", (e) => {
 // painted before the list arrives says "open in your editor".
 // Settings first: the saved project decides whether Play is even live, so
 // resolving it before the first poll avoids a green button flashing grey.
-// The poll is what redraws the page, so it registers itself as the refresher
-// every other module asks for. Without this a filter click would change the
-// state and nothing would repaint.
+// The fetch is what redraws the page on demand, so it registers itself as the
+// refresher every other module asks for. Without this a filter click would
+// change the state and nothing would repaint.
 onRefresh(tick);
 
-void loadConfigState().then(loadTools).then(tick);
+void loadConfigState().then(loadTools).then(tick).then(() => listen(render));
 // Enter in the URL box saves, which is what anyone typing a URL expects.
 document.addEventListener("keydown", (e) => {
   const target = e.target;
@@ -271,5 +154,9 @@ document.addEventListener("keydown", (e) => {
     void saveConfigState({ baseUrl: target.value });
   }
 });
-setInterval(() => void tick(), 1500);
+// The only fallback left. While the socket is open this does nothing at all;
+// while it is not, the page is still a page and should still be right.
+setInterval(() => {
+  if (!connected()) void tick();
+}, 5000);
 setInterval(ticks, 1000);

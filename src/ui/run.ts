@@ -9,6 +9,7 @@
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { downReason, preflight, resolveTargets } from "../targets.js";
+import { pushNow } from "./live.js";
 import { session } from "./session.js";
 import type { ResolvedConfig } from "../types.js";
 
@@ -54,6 +55,10 @@ export async function startCheck(project: ResolvedConfig): Promise<{ started: bo
   child.on("error", (err) => {
     session.lastFailure = { code: null, message: err.message };
     session.running = null;
+    // Whether a run is in flight is not written down anywhere the watcher can
+    // see, so these three transitions say so themselves. Without them the page
+    // would wait on the backstop to notice a run that has already died.
+    void pushNow();
   });
   // Exit codes are contractual: 1 findings, 2 execution error, 3 blocked. Only
   // 2 and unexpected codes are failures worth surfacing; 0 and 1 are answers.
@@ -62,9 +67,11 @@ export async function startCheck(project: ResolvedConfig): Promise<{ started: bo
       session.lastFailure = { code, message: tailLines(stderr) || `check exited ${code}` };
     }
     session.running = null;
+    void pushNow();
   });
   session.lastFailure = null;
   session.running = { child, projectDir: project.projectDir };
+  void pushNow();
   return { started: true };
 }
 
