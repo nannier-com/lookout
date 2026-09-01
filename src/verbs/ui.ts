@@ -43,6 +43,28 @@ import type { ResolvedConfig } from "../types.js";
 // is the name of this thing however its parts are arranged.
 export { pageHtml } from "../ui/page.js";
 
+/**
+ * How long a request may go quiet before bun closes the connection under it.
+ *
+ * This is the HTTP inactivity timeout, not the socket's: the socket's own lives
+ * on the `websocket` handler object and defaults to two minutes, which bun's
+ * automatic pings keep resetting. Setting a value at this level does nothing
+ * for the page's socket at all.
+ *
+ * It is bun's maximum because one handler here waits on a person rather than on
+ * a computer: `POST /api/pick` opens a native folder picker and does not answer
+ * until somebody has chosen a directory. bun's default of ten seconds closes
+ * the connection under exactly that. Measured on bun 1.3.14: a handler that
+ * takes fourteen seconds is cut off at ten and the caller's fetch rejects with
+ * "the socket connection was closed unexpectedly". node's server, which this
+ * replaced, imposed no such limit, so leaving this unset is a regression rather
+ * than a default.
+ *
+ * Exported so the floor can be asserted: what matters is not the exact number
+ * but that it is far longer than a person takes to pick a folder.
+ */
+export const HTTP_IDLE_SECONDS = 255;
+
 export async function ui(parsed: Parsed): Promise<number> {
   // The page is where lookout gets configured now, so the server has to be able
   // to start with nothing configured. It used to refuse, which meant the one
@@ -75,10 +97,7 @@ export async function ui(parsed: Parsed): Promise<number> {
   const server = Bun.serve({
     port,
     hostname: "127.0.0.1",
-    // A tab left open all afternoon is a socket open all afternoon. live.ts
-    // pings every thirty seconds; this only has to be comfortably longer than
-    // that, so a genuinely dead connection is still reaped.
-    idleTimeout: 120,
+    idleTimeout: HTTP_IDLE_SECONDS,
     async fetch(req, self) {
       try {
         return await handle(req, self);

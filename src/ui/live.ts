@@ -170,15 +170,19 @@ function greetNarration(ws: ServerWebSocket<undefined>): void {
 /** How much of a run in progress a page that arrives late is shown. */
 const GREETING_LINES = 400;
 
-/**
- * Keep the connection from being closed for being quiet.
+/*
+ * Nothing here keeps the connection alive, and nothing needs to.
  *
- * Bun drops an idle socket after a couple of minutes, and a board with no run
- * against it is quiet for hours. A ping is invisible to the page: the browser
- * answers it at the protocol level without waking any handler.
+ * There was a thirty-second ping in this file, on the stated grounds that Bun
+ * reaps an idle socket after a couple of minutes and a board with no run
+ * against it is quiet for hours. The first half is wrong: `sendPings` defaults
+ * to true, so the server already pings and answers pings for us. Measured on
+ * 2026-09-01 against bun 1.3.14, a silent socket survived 150 seconds with no
+ * ping of ours, and survived 26 seconds against an explicit
+ * `websocket: { idleTimeout: 8 }`, which is the one that governs a socket. The
+ * interval was a timer and a lifecycle to get wrong in exchange for a job the
+ * server was already doing.
  */
-const HEARTBEAT_MS = 30_000;
-let heartbeat: ReturnType<typeof setInterval> | null = null;
 
 export const live = {
   open(ws: ServerWebSocket<undefined>): void {
@@ -198,16 +202,9 @@ export const live = {
     // nothing on it, so it is given the tail rather than only what happens to
     // be said next. Its reset replaces whatever the push above put there.
     greetNarration(ws);
-    heartbeat ??= setInterval(() => {
-      for (const s of sockets) s.ping();
-    }, HEARTBEAT_MS);
   },
   close(ws: ServerWebSocket<undefined>): void {
     sockets.delete(ws);
-    if (sockets.size === 0 && heartbeat) {
-      clearInterval(heartbeat);
-      heartbeat = null;
-    }
   },
   /**
    * The page never sends anything. Its writes are POSTs, deliberately, so this
