@@ -25,6 +25,7 @@ import { copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { evidenceDir, lookoutDir } from "../config.js";
+import { configuredScope, type ScopeCheck } from "../config-scope.js";
 import { flatShotName } from "../issues/paths.js";
 import { wasPhotographed, type Backlog, type BacklogFinding } from "../backlog/lib.js";
 import type { AiFinding } from "../judge/engine.js";
@@ -98,9 +99,13 @@ export function usableCases(resolved: ResolvedConfig, set: RegressionSet): Regre
 
 /**
  * Which claims a backlog can settle, keyed by the screenshot that proves them.
- * Pure, so the selection can be argued with without touching disk.
+ * Pure, so the selection can be argued with without touching disk: `inScope`
+ * is the config's reach handed in rather than read here.
  */
-export function claimsByShot(backlog: Backlog): Map<string, { case: Omit<RegressionCase, "file" | "width" | "height">; path: string }> {
+export function claimsByShot(
+  backlog: Backlog,
+  inScope: ScopeCheck,
+): Map<string, { case: Omit<RegressionCase, "file" | "width" | "height">; path: string }> {
   const out = new Map<string, { case: Omit<RegressionCase, "file" | "width" | "height">; path: string }>();
 
   const add = (f: BacklogFinding, kind: "mustNotFile" | "mustFile", why: string): void => {
@@ -117,6 +122,17 @@ export function claimsByShot(backlog: Backlog): Map<string, { case: Omit<Regress
     if (f.channel !== "ai") return;
     // Always true of an AI finding; the guard is what gives the case its axes.
     if (!wasPhotographed(f)) return;
+    // And it has to be about a screen this project still asks for. The backlog
+    // outlives the config that produced it, so a route or a state deleted from
+    // `lookout.config.ts` leaves settled findings behind. Their verdicts were
+    // real, but the cap here is on SCREENSHOTS: a claim about a screen the app
+    // no longer serves takes one of twenty slots away from a live one, and no
+    // later run will ever re-adjudicate it, because `check` stopped looking at
+    // that route. Evidence still on disk is not the test. `capture` prunes such
+    // shots from the report and deliberately leaves the PNGs, since backlog
+    // findings still point at them, so file existence would let exactly the
+    // findings this rejects back in.
+    if (!inScope(f)) return;
     let entry = out.get(ev.shotId);
     if (!entry) {
       entry = {
@@ -165,18 +181,25 @@ export function claimsByShot(backlog: Backlog): Map<string, { case: Omit<Regress
  *
  * Shots carrying the most claims come first: the cap is on screenshots, and the
  * gate is stronger the more it can decide per image.
+ *
+ * `outOfScope` is how many settled screenshots the current config no longer
+ * reaches. It is reported rather than persisted, because a set that comes back
+ * empty for that reason needs a different answer from one that is empty because
+ * nothing has been adjudicated.
  */
 export async function freezeRegressionSet(
   resolved: ResolvedConfig,
   backlog: Backlog,
   now: string,
   max = MAX_FROZEN_SHOTS,
-): Promise<RegressionSet> {
+): Promise<{ set: RegressionSet; outOfScope: number }> {
   const evDir = evidenceDir(resolved);
   const dir = regressionDir(resolved);
   await mkdir(join(dir, "shots"), { recursive: true });
 
-  const candidates = [...claimsByShot(backlog).values()].sort(
+  const scoped = claimsByShot(backlog, await configuredScope(resolved));
+  const outOfScope = claimsByShot(backlog, () => true).size - scoped.size;
+  const candidates = [...scoped.values()].sort(
     (a, b) =>
       b.case.mustNotFile.length + b.case.mustFile.length -
         (a.case.mustNotFile.length + a.case.mustFile.length) ||
@@ -206,7 +229,7 @@ export async function freezeRegressionSet(
   const tmp = `${p}.tmp`;
   await writeFile(tmp, JSON.stringify(set, null, 2));
   await rename(tmp, p);
-  return set;
+  return { set, outOfScope };
 }
 
 /** The frozen cases as shots the judge can be pointed at. */

@@ -137,7 +137,7 @@ async function improve(resolved: ResolvedConfig, model: string, opts: ImproveOpt
   let set = await loadRegressionSet(resolved);
   if (!set) {
     const backlog = await loadBacklog(resolved);
-    set = await freezeRegressionSet(resolved, backlog, nowIso());
+    set = (await freezeRegressionSet(resolved, backlog, nowIso())).set;
   }
   const gradeable = usableCases(resolved, set).length;
 

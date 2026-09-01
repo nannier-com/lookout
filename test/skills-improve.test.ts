@@ -12,7 +12,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { evidenceDir } from "../src/config.js";
 import { skills } from "../src/verbs/skills.js";
-import { claimsByShot, evaluateReplay, usableCases, type RegressionSet } from "../src/skills/regression.js";
+import {
+  claimsByShot,
+  evaluateReplay,
+  freezeRegressionSet,
+  usableCases,
+  type RegressionSet,
+} from "../src/skills/regression.js";
+import { loadBacklog } from "../src/verbs/backlog.js";
 import { gatherSignals } from "../src/skills/signals.js";
 import { projectSkillPath, shippedSkillDir } from "../src/skills/load.js";
 import { emptyBacklog, type Backlog, type BacklogFinding } from "../src/backlog/lib.js";
@@ -26,6 +33,14 @@ import type { ResolvedConfig } from "../src/types.js";
 import "./setup.js";
 
 const MOCK = join(import.meta.dir, "mock-claude.ts");
+
+/**
+ * Scope is somebody else's subject. The tests below are about which VERDICTS
+ * settle a claim, so they hand the selection a predicate that never narrows;
+ * the one test that is about scope builds a real config and lets `freeze`
+ * derive it.
+ */
+const anyScope = (): boolean => true;
 
 function finding(over: Partial<BacklogFinding> = {}): BacklogFinding {
   return {
@@ -63,6 +78,28 @@ function finding(over: Partial<BacklogFinding> = {}): BacklogFinding {
     fixedIn: null,
     ...over,
   } as BacklogFinding;
+}
+
+/**
+ * The same settled finding, on a route the config does not name any more.
+ *
+ * Its screenshot is still in the evidence workspace: pruning drops a shot from
+ * the capture REPORT and leaves the PNG, because backlog findings still point
+ * at it. So file existence proves nothing about scope.
+ */
+function staleFinding(): BacklogFinding {
+  return finding({
+    fingerprint: "app.gone.rest.desktop.dark.color-scheme.no-dark-theme",
+    route: "/gone",
+    evidence: [
+      {
+        shotId: "web/app/gone/rest/desktop/dark",
+        path: "web/app/gone/rest--desktop-dark.png",
+        hash: "h",
+        runId: "r1",
+      },
+    ],
+  });
 }
 
 /** A project with one adjudicated finding and the screenshot that settled it. */
@@ -103,7 +140,7 @@ describe("what the frozen set claims", () => {
     const b = emptyBacklog("demo", "t");
     const f = finding();
     b.findings[f.fingerprint] = f;
-    const claims = claimsByShot(b);
+    const claims = claimsByShot(b, anyScope);
     const entry = claims.get("web/app/root/rest/desktop/dark")!;
     expect(entry.case.mustNotFile).toHaveLength(1);
     expect(entry.case.mustNotFile[0]!.category).toBe("color-scheme");
@@ -115,7 +152,7 @@ describe("what the frozen set claims", () => {
     const b = emptyBacklog("demo", "t");
     const f = finding({ status: "open", reason: null, verified: true, severity: "critical" });
     b.findings[f.fingerprint] = f;
-    const entry = claimsByShot(b).get("web/app/root/rest/desktop/dark")!;
+    const entry = claimsByShot(b, anyScope).get("web/app/root/rest/desktop/dark")!;
     expect(entry.case.mustFile.map((c) => c.category)).toEqual(["color-scheme"]);
   });
 
@@ -125,7 +162,7 @@ describe("what the frozen set claims", () => {
     const b = emptyBacklog("demo", "t");
     const f = finding({ status: "open", reason: null, verified: true, severity: "medium" });
     b.findings[f.fingerprint] = f;
-    const entry = claimsByShot(b).get("web/app/root/rest/desktop/dark")!;
+    const entry = claimsByShot(b, anyScope).get("web/app/root/rest/desktop/dark")!;
     expect(entry.case.mustFile).toHaveLength(1);
   });
 
@@ -143,7 +180,7 @@ describe("what the frozen set claims", () => {
       attribute: "hero-width",
     });
     b.findings[f.fingerprint] = f;
-    expect(claimsByShot(b).size).toBe(0);
+    expect(claimsByShot(b, anyScope).size).toBe(0);
   });
 
   test("a deterministic measurement settles nothing about the judge", () => {
@@ -164,7 +201,7 @@ describe("what the frozen set claims", () => {
       verified: true,
     });
     b.findings[axe.fingerprint] = axe;
-    expect(claimsByShot(b).size).toBe(0);
+    expect(claimsByShot(b, anyScope).size).toBe(0);
     // A by-design measurement stays out too: the person ruled on the check's
     // output, not on the judge's visual net, and the judge never filed it, so
     // there is nothing an amendment could "bring back".
@@ -178,7 +215,7 @@ describe("what the frozen set claims", () => {
       verified: true,
     });
     b2.findings[overflow.fingerprint] = overflow;
-    expect(claimsByShot(b2).size).toBe(0);
+    expect(claimsByShot(b2, anyScope).size).toBe(0);
   });
 
   test("an unverified finding settles nothing, and neither does a verified low", () => {
@@ -189,11 +226,41 @@ describe("what the frozen set claims", () => {
     const b = emptyBacklog("demo", "t");
     const unverified = finding({ status: "open", reason: null, verified: false, severity: "low" });
     b.findings[unverified.fingerprint] = unverified;
-    expect(claimsByShot(b).size).toBe(0);
+    expect(claimsByShot(b, anyScope).size).toBe(0);
     const b2 = emptyBacklog("demo", "t");
     const low = finding({ status: "open", reason: null, verified: true, severity: "low" });
     b2.findings[low.fingerprint] = low;
-    expect(claimsByShot(b2).size).toBe(0);
+    expect(claimsByShot(b2, anyScope).size).toBe(0);
+  });
+
+  test("a settled finding for a route the config dropped settles nothing, pixels or not", async () => {
+    // The cap is on screenshots, so a claim about a screen the app no longer
+    // serves does not just sit there harmlessly: it spends one of twenty slots
+    // that a live screen could have had, and it can never be retired, because
+    // `check` no longer looks at that route and so never re-adjudicates it.
+    // The only thing that used to keep these out was the PNG happening to be
+    // gone, and prune leaves the PNG behind on purpose.
+    const r = project([finding(), staleFinding()]);
+    const evDir = evidenceDir(r);
+    mkdirSync(join(evDir, "web", "app", "gone"), { recursive: true });
+    writeFileSync(join(evDir, "web", "app", "gone", "rest--desktop-dark.png"), "png");
+
+    expect(await run(r, "freeze")).toBe(0);
+
+    const set = JSON.parse(
+      readFileSync(join(r.projectDir, ".lookout", "regression", "manifest.json"), "utf8"),
+    ) as RegressionSet;
+    expect(set.cases.map((c) => c.route)).toEqual(["/"]);
+    // And the evidence is still there: the fix is the scope check, not deleting
+    // files the backlog still references.
+    expect(existsSync(join(evDir, "web", "app", "gone", "rest--desktop-dark.png"))).toBe(true);
+
+    // Dropped out loud. An empty-or-thinner set has two very different causes,
+    // and "nothing settled yet" is the wrong thing to say about verdicts that
+    // were settled on screens the config stopped naming.
+    const again = await freezeRegressionSet(r, await loadBacklog(r), "t");
+    expect(again.outOfScope).toBe(1);
+    expect(again.set.cases).toHaveLength(1);
   });
 });
 

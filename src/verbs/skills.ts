@@ -77,13 +77,22 @@ export async function skills(parsed: Parsed): Promise<number> {
 
   if (sub === "freeze") {
     const backlog = await loadBacklog(resolved);
-    const set = await freezeRegressionSet(resolved, backlog, nowIso());
+    const { set, outOfScope } = await freezeRegressionSet(resolved, backlog, nowIso());
     const claims = set.cases.reduce((n, c) => n + c.mustFile.length + c.mustNotFile.length, 0);
     console.log(
       `froze ${set.cases.length} screenshot(s) carrying ${claims} settled claim(s) ` +
         `into ${regressionDir(resolved)}`,
     );
-    if (set.cases.length === 0) {
+    if (outOfScope > 0) {
+      // Said out loud rather than silently dropped: these verdicts were real,
+      // and the reason they no longer count is a config change the operator
+      // made, not a defect.
+      console.log(
+        `  ${outOfScope} settled screenshot(s) left out: their routes or states are no longer ` +
+          "configured, so no run can re-adjudicate them.",
+      );
+    }
+    if (set.cases.length === 0 && outOfScope === 0) {
       console.log("  nothing settled yet: adjudicate findings (by-design, or verified) first.");
     }
     return 0;

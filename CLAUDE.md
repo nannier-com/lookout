@@ -40,6 +40,7 @@ every gate is green:
 | you are changing | it lives in |
 | --- | --- |
 | where a project's config lives, or who writes it | `src/config-locate.ts` (found), `src/config-write.ts` (created, migrated), `src/config.ts` (loaded) |
+| whether a stored shot or a settled finding is still in the config's reach | `src/config-scope.ts` (the predicate), `src/targets.ts` (`shotInConfig`, the decision) |
 | how a screen is captured | `src/capture/` (web, native, checks, contact sheet, store) |
 | what an AI capability is asked | `skills/<name>/SKILL.md`, never a string literal in code |
 | how lookout talks to the CLI at all | `src/judge/claude.ts` |
