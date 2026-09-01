@@ -99,23 +99,48 @@ export async function gatherSignals(resolved: ResolvedConfig): Promise<Signal[]>
   }
 
   for (const finding of Object.values(backlog.findings)) {
-    if (finding.status === "by-design" && finding.reason) {
-      // A verified finding ruled intentional is a human overruling the
-      // adversarial verifier's explicit confirmation: the refuter's whole
-      // mandate was to kill it, so the lesson is the refuter's. An
-      // unverified one is the judge's error alone.
-      const overruledVerifier = finding.verified === true;
+    if (finding.status !== "by-design" || !finding.reason) continue;
+    // A ruling only teaches the skill that made the claim. A deterministic
+    // finding is a measurement, born `verified: true` because the check is its
+    // own evidence; the refuter never sees that channel, so reading the flag
+    // as the refuter's confirmation misattributes the lesson (the same fact
+    // keeps non-AI channels out of the frozen regression claims). A person
+    // ruling a measurement intentional is setting the project's tolerance for
+    // a deterministic check, which no amendable skill controls, so it emits
+    // nothing. Code findings split by author: a skill-found hand-roll is the
+    // conformance skill's own claim, so overruling it is that skill's lesson;
+    // a scanner-found one is a measurement too. Absent provenance predates
+    // the skill and stays out, the opposite of the fix ruling's reading of
+    // absence: keeping a defect open errs safe, amending a skill off another
+    // oracle's claim does not.
+    if (finding.channel === "code") {
+      if (finding.source?.foundBy !== "skill") continue;
       signals.push({
-        skill: overruledVerifier ? "refute-finding" : "visual-judge",
+        skill: "kit-conformance",
         kind: "by-design",
         summary: `adjudicated intentional: ${finding.title}`,
-        detail: overruledVerifier
-          ? `${finding.reason} (the adversarial verifier had confirmed this finding; a person then ruled it intentional)`
-          : finding.reason,
+        detail: finding.reason,
         source: finding.fingerprint,
         key: keyOf("by-design", finding.fingerprint),
       });
+      continue;
     }
+    if (finding.channel !== "ai") continue;
+    // A verified finding ruled intentional is a human overruling the
+    // adversarial verifier's explicit confirmation: the refuter's whole
+    // mandate was to kill it, so the lesson is the refuter's. An
+    // unverified one is the judge's error alone.
+    const overruledVerifier = finding.verified === true;
+    signals.push({
+      skill: overruledVerifier ? "refute-finding" : "visual-judge",
+      kind: "by-design",
+      summary: `adjudicated intentional: ${finding.title}`,
+      detail: overruledVerifier
+        ? `${finding.reason} (the adversarial verifier had confirmed this finding; a person then ruled it intentional)`
+        : finding.reason,
+      source: finding.fingerprint,
+      key: keyOf("by-design", finding.fingerprint),
+    });
   }
 
   for (const issue of issuesOf(backlog)) {

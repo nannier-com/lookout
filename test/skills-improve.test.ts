@@ -249,6 +249,48 @@ describe("signals", () => {
     expect(byDesign[0]!.skill).toBe("refute-finding");
     expect(byDesign[0]!.detail).toContain("deliberately");
   });
+
+  test("a by-design on a measurement teaches nothing; a skill-found hand-roll teaches the conformance skill", async () => {
+    // Deterministic findings are born verified: true because the measurement
+    // is its own evidence. The refuter never saw this finding, so ruling it
+    // intentional must not become the refuter's lesson (or, via the pair
+    // rule, license amending the judge either).
+    const measurement = finding({
+      fingerprint: "det.fp",
+      channel: "deterministic",
+      verified: true,
+      category: "a11y",
+      attribute: "axe-color-contrast",
+      reason: "Brand colours fail the ratio on purpose; the a11y toggle is the way in.",
+    });
+    const scanFound = finding({
+      fingerprint: "code.scan.fp",
+      channel: "code",
+      verified: false,
+      category: "consistency",
+      attribute: "hand-rolled",
+      reason: "Allowed bespoke.",
+      source: { path: "/x/App.tsx", relPath: "App.tsx", symbol: "App", line: 1, foundBy: "scan" },
+    });
+    const skillFound = finding({
+      fingerprint: "code.skill.fp",
+      channel: "code",
+      verified: false,
+      category: "consistency",
+      attribute: "hand-rolled",
+      reason: "The root frame is app scaffolding with no kit equivalent.",
+      source: { path: "/x/Frame.tsx", relPath: "Frame.tsx", symbol: "Frame", line: 1, foundBy: "skill" },
+    });
+    const r = project([measurement, scanFound, skillFound]);
+    const byDesign = (await gatherSignals(r)).filter((s) => s.kind === "by-design");
+    // Only the skill-found hand-roll emits: the person overruled the
+    // conformance skill's own claim. The measurement and the scanner's claim
+    // are the project's tolerance for checks no amendable skill controls.
+    expect(byDesign).toHaveLength(1);
+    expect(byDesign[0]!.skill).toBe("kit-conformance");
+    expect(byDesign[0]!.source).toBe("code.skill.fp");
+    expect(byDesign[0]!.detail).not.toContain("verifier");
+  });
 });
 
 describe("improving a skill, automatically", () => {
