@@ -21,6 +21,8 @@ import { handle } from "../src/ui/routes.js";
 import { setCurrentProject } from "../src/ui/session.js";
 import { startWatching, stopWatching, watching } from "../src/ui/watch.js";
 import { tmpProject } from "./tmp-project.js";
+import { narrationPath } from "../src/report/narration.js";
+import type { NarrationFrame } from "../src/ui/narration.js";
 import type { StatusPayload } from "../src/ui/payload.js";
 
 const project = tmpProject("lookout-live-");
@@ -52,13 +54,27 @@ async function until(ok: () => boolean, ms = 4000): Promise<boolean> {
   return ok();
 }
 
+/** Every frame the server has written down one socket, sorted by kind. */
+type Frame =
+  | { kind: "status"; body: StatusPayload }
+  | { kind: "narration"; body: NarrationFrame };
+
 /** A page: one socket, and everything the server has said down it. */
-async function openPage(): Promise<{ sent: StatusPayload[]; close: () => void }> {
+async function openPage(): Promise<{
+  sent: StatusPayload[];
+  said: NarrationFrame[];
+  close: () => void;
+}> {
   const sent: StatusPayload[] = [];
+  const said: NarrationFrame[] = [];
   const ws = new WebSocket(`ws://${origin}/api/live`);
-  ws.onmessage = (e: MessageEvent<string>) => sent.push(JSON.parse(e.data) as StatusPayload);
+  ws.onmessage = (e: MessageEvent<string>) => {
+    const frame = JSON.parse(e.data) as Frame;
+    if (frame.kind === "status") sent.push(frame.body);
+    else said.push(frame.body);
+  };
   await until(() => ws.readyState === WebSocket.OPEN);
-  return { sent, close: () => ws.close() };
+  return { sent, said, close: () => ws.close() };
 }
 
 describe("the live channel", () => {
@@ -105,6 +121,36 @@ describe("the live channel", () => {
     expect(second.sent[0]!.projectDir).toBe(project.projectDir);
     first.close();
     second.close();
+  });
+
+  test("a judge speaking reaches the page without the board being rebuilt", async () => {
+    const page = await openPage();
+    await until(() => page.sent.length >= 1);
+    const boards = page.sent.length;
+    appendFileSync(
+      narrationPath(project),
+      JSON.stringify({
+        at: new Date().toISOString(),
+        runId: "r1",
+        panel: "judge-geometry",
+        kind: "text",
+        text: "the second card sits lower than its row",
+      }) + "\n",
+    );
+    expect(await until(() => page.said.length >= 1)).toBe(true);
+    expect(page.said[page.said.length - 1]!.lines[0]!.text).toContain("sits lower");
+    // The board said nothing, which is the point: narration moves many times a
+    // second and rebuilding the board for each one is what this avoids.
+    expect(page.sent.length).toBe(boards);
+    page.close();
+  });
+
+  test("a second page is handed the transcript so far, not just what comes next", async () => {
+    const page = await openPage();
+    expect(await until(() => page.said.length >= 1)).toBe(true);
+    expect(page.said[0]!.reset).toBe(true);
+    expect(page.said[0]!.lines.length).toBeGreaterThan(0);
+    page.close();
   });
 
   test("refuses a plain request to the socket's own route", async () => {

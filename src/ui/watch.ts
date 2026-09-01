@@ -22,7 +22,7 @@
  */
 import { existsSync, watch, type FSWatcher } from "node:fs";
 import { evidenceDir, lookoutDir } from "../config.js";
-import { liveCount, pushNow } from "./live.js";
+import { liveCount, pushNarration, pushNow } from "./live.js";
 import { currentProjectOrNull, onProjectChange } from "./session.js";
 
 /**
@@ -52,6 +52,10 @@ function nudge(): void {
   coalesce = setTimeout(() => {
     coalesce = null;
     void pushNow();
+    // Cheap beside it rather than folded into it: what a judge is saying moves
+    // many times a second while the board it will land on does not move at all,
+    // and the board's own push is a cache hit whenever only narration changed.
+    pushNarration();
   }, COALESCE_MS);
 }
 
@@ -99,6 +103,7 @@ export function startWatching(): void {
     if (liveCount() === 0) return;
     arm();
     void pushNow();
+    pushNarration();
   }, BACKSTOP_MS);
   // Do not hold the process open on the backstop alone.
   backstop.unref?.();

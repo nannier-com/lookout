@@ -32,6 +32,11 @@ const OPEN_ISSUE = "418203";
 const INTENTIONAL_ISSUE = "552140";
 const SETTLED_ISSUE = "731094";
 
+/** A frozen clock for the transcript, so two captures a minute apart match. */
+function stamp(i: number): string {
+  return `2026-08-28T14:0${Math.floor(i / 10)}:${String(i % 10).padStart(2, "0")}.000Z`;
+}
+
 /**
  * The age of the evidence, frozen.
  *
@@ -328,6 +333,35 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
         "it and decided to. Nothing about how you fix it is prescribed.\n",
     );
   }
+
+  // A judge mid-sentence, so the transcript rail has something in it. The rail
+  // is a region of the page like any other, and a fixture that left it empty
+  // would gate everything except the part that changes most often.
+  writeFileSync(
+    join(ev, "narration.jsonl"),
+    [
+      { panel: "judge-integrity", kind: "open", text: "judging 6 shot(s)" },
+      { panel: "judge-integrity", kind: "tool", text: "Read web/app/root/rest/desktop/dark" },
+      { panel: "judge-integrity", kind: "tool", text: "Read web/app/root/rest/phone/light" },
+      {
+        panel: "judge-integrity",
+        kind: "text",
+        text: '```json\n{"findings":[],"cleanShotIds":["web/app/root/rest/desktop/dark"]}\n```',
+      },
+      { panel: "judge-integrity", kind: "close", text: "" },
+      { panel: "judge-geometry", kind: "open", text: "judging 6 shot(s)" },
+      { panel: "judge-geometry", kind: "tool", text: "Read web/app/root/rest/desktop/light" },
+      {
+        panel: "judge-geometry",
+        kind: "text",
+        text:
+          "The second card in the top row sits visibly lower than the three beside it, " +
+          "so the row reads as three items plus a stray rather than one group. ",
+      },
+    ]
+      .map((l, i) => JSON.stringify({ at: stamp(i), runId: "check-fixture", ...l }))
+      .join("\n") + "\n",
+  );
 
   // What lookout has done to its own instructions here.
   const skills = join(lk, "skills");

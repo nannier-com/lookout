@@ -21,6 +21,7 @@ import { serveClient } from "./assets.js";
 import { serveIssueDoc } from "./document.js";
 import { serveEvidence, serveThumb } from "./evidence.js";
 import { openLive } from "./live.js";
+import { readNarration } from "../report/narration.js";
 import { learningNow, statusBody } from "./payload.js";
 import { pickFolder, settingsView, useProject } from "./project.js";
 import { startCheck } from "./run.js";
@@ -97,6 +98,13 @@ export async function handle(req: Request, server: Server<undefined>): Promise<R
       // A malformed backlog must not take the page down; say so instead.
       return json(500, { error: String(err) });
     }
+  }
+
+  // The same body the live channel pushes down a narration frame, for the same
+  // reason the status route exists: a page needs one before its socket is open,
+  // and a browser that never opens one still has to show a run working.
+  if (url.pathname === "/api/narration") {
+    return json(200, { reset: true, lines: readNarration(resolved) });
   }
 
   // Opening an issue in a coding tool. A POST, because it writes a file and

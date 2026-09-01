@@ -6,6 +6,7 @@
 <link rel="stylesheet" href="/ui/board.css"/>
 <link rel="stylesheet" href="/ui/learning.css"/>
 <link rel="stylesheet" href="/ui/shot-view.css"/>
+<link rel="stylesheet" href="/ui/stream.css"/>
 </head><body>
 <nav class="rail" aria-label="Areas">
   <button type="button" class="railb" data-view="issues" aria-current="page"
@@ -93,6 +94,14 @@
 </section>
 
 </main>
+<aside class="stream" id="stream" aria-label="What the judge is saying">
+  <div class="streamtop">
+    <i class="sdot" aria-hidden="true"></i>
+    <h2>Judge</h2>
+    <span class="who" id="streamWho"></span>
+  </div>
+  <div class="streamlog" id="streamLog" role="log" aria-live="polite"></div>
+</aside>
 <div class="shotview" id="shotview" role="dialog" aria-modal="true" aria-labelledby="svTitle" hidden>
   <div class="svtop">
     <span id="svTitle"></span>

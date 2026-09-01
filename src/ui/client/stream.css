@@ -1,0 +1,49 @@
+/* The transcript rail: what the judge is saying, down the right of the page.
+ *
+ * A fixed column rather than a drawer, because the question it answers ("is
+ * this thing still working?") is one somebody has while looking at something
+ * else. It costs the board width it takes, which is the trade for never having
+ * to go and open it.
+ */
+.stream{position:fixed;right:0;top:0;bottom:0;width:var(--stream);z-index:9;
+background:var(--panel);border-left:1px solid var(--line);
+display:flex;flex-direction:column;min-width:0}
+
+/* Who is speaking. Empty between calls, which is why the dot carries the
+   liveness rather than the text: a judge that has not started yet and one that
+   has finished both have nothing to say, and only one of them is a run. */
+.streamtop{display:flex;align-items:center;gap:7px;padding:10px 12px;
+border-bottom:1px solid var(--line);min-height:38px}
+.streamtop h2{margin:0;font-size:11px;font-weight:650;letter-spacing:.06em;
+text-transform:uppercase;color:var(--faint)}
+.streamtop .who{font-size:11px;color:var(--ver);font-variant-numeric:tabular-nums;
+overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sdot{width:6px;height:6px;border-radius:50%;background:var(--line);flex:0 0 auto}
+.stream.talking .sdot{background:var(--ver);animation:pulse2 1.4s infinite}
+
+/* The transcript itself. Monospace because most of what a judge emits is the
+   JSON it was asked for, and proportional text makes that unreadable. */
+.streamlog{flex:1;overflow-y:auto;overflow-x:hidden;padding:10px 12px 24px;
+font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+color:var(--dim);overflow-wrap:anywhere}
+.streamlog:empty::after{content:"Nothing is being judged right now.";
+display:block;font:12px/1.5 ui-sans-serif,system-ui,sans-serif;color:var(--faint)}
+
+.sl{margin:0 0 6px;white-space:pre-wrap}
+/* A call beginning is the only landmark in a stream of prose, so it is the one
+   thing that gets a rule and the page's ink. */
+.sl.open{margin-top:12px;padding-top:8px;border-top:1px solid var(--line);
+color:var(--ink);font-family:ui-sans-serif,system-ui,sans-serif;font-size:11px}
+.sl.open:first-child{margin-top:0;padding-top:0;border-top:0}
+.sl.open b{color:var(--ver);font-weight:650}
+.sl.tool{color:var(--faint);padding-left:14px;text-indent:-14px}
+.sl.tool::before{content:"\2192";color:var(--accent);margin-right:6px}
+
+/* Narrow: the rail is the first thing to go. A phone showing a board has no
+   room for a second column, and the run's phase line in the header still says
+   which judge is working. */
+@media(max-width:900px){
+  .stream{display:none}
+  /* The width it reserved goes back to the board with it. */
+  body{padding-right:0}
+}

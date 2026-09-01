@@ -13,12 +13,18 @@
  * arrives on a different channel than the request is harder to reason about
  * than one that simply returns it.
  *
- * What is sent is the whole status payload, the same body `/api/status`
- * answers with, and not a delta. The page already redraws only the regions
- * whose signature moved, so a delta would buy bytes on a loopback socket and
- * cost a second implementation of the fold that `summarise` already is.
+ * Frames carry a kind, because there are two things to say. A `status` frame is
+ * the whole payload `/api/status` answers with rather than a delta: the page
+ * already redraws only the regions whose signature moved, so a delta would buy
+ * bytes on a loopback socket and cost a second implementation of the fold that
+ * `summarise` already is. A `narration` frame IS a delta, for the opposite
+ * reason: a judge writing a verdict says something several times a second, and
+ * re-sending its whole transcript each time would put the same thousand lines
+ * on the wire over and over.
  */
 import type { Server, ServerWebSocket } from "bun";
+import { newNarration } from "./narration.js";
+import { readNarration } from "../report/narration.js";
 import { statusBody } from "./payload.js";
 import { currentProjectOrNull } from "./session.js";
 
@@ -76,15 +82,9 @@ export async function pushNow(force = false): Promise<void> {
     const body = await snapshot();
     if (body !== null && (force || body !== lastSent)) {
       lastSent = body;
-      for (const ws of [...sockets]) {
-        try {
-          ws.send(body);
-        } catch {
-          // A socket that cannot be written to is one the browser has already
-          // dropped; the close handler will not always have run yet.
-          sockets.delete(ws);
-        }
-      }
+      // Wrapped at the last moment so the comparison above, and the cache the
+      // body came from, both stay about the board itself.
+      broadcast(`{"kind":"status","body":${body}}`);
     }
   } finally {
     pushing = false;
@@ -111,6 +111,66 @@ async function snapshot(): Promise<string | null> {
 }
 
 /**
+ * Write one frame to every page.
+ *
+ * Frames carry a kind because there is more than one thing to say now: the
+ * board, and what the judge is saying while it decides what goes on it. They
+ * travel on the same socket because they describe the same run, and separating
+ * them would make a page hold two connections to say so.
+ */
+function broadcast(frame: string): void {
+  for (const ws of [...sockets]) {
+    try {
+      ws.send(frame);
+    } catch {
+      // A socket that cannot be written to is one the browser has already
+      // dropped; the close handler will not always have run yet.
+      sockets.delete(ws);
+    }
+  }
+}
+
+/**
+ * Push whatever the judges have said since the last time.
+ *
+ * Separate from the board's push, and not folded into it, because the two move
+ * at completely different rates: a verdict being written says something several
+ * times a second while the board it will land on does not change at all. A push
+ * that carried both would either rebuild the board per token or hold the
+ * narration back until a finding landed.
+ */
+export function pushNarration(): void {
+  if (sockets.size === 0) return;
+  const project = currentProjectOrNull();
+  if (!project) return;
+  const frame = newNarration(project);
+  if (!frame) return;
+  broadcast(`{"kind":"narration","body":${JSON.stringify(frame)}}`);
+}
+
+/**
+ * Hand one page the run's narration as it stands.
+ *
+ * Sent to that socket alone, and without touching the shared cursor: a second
+ * tab opening must not make the first one throw away what it is showing and
+ * receive it all again.
+ */
+function greetNarration(ws: ServerWebSocket<undefined>): void {
+  const project = currentProjectOrNull();
+  if (!project) return;
+  const lines = readNarration(project, GREETING_LINES);
+  if (lines.length === 0) return;
+  try {
+    ws.send(`{"kind":"narration","body":${JSON.stringify({ reset: true, lines })}}`);
+  } catch {
+    sockets.delete(ws);
+  }
+}
+
+/** How much of a run in progress a page that arrives late is shown. */
+const GREETING_LINES = 400;
+
+/**
  * Keep the connection from being closed for being quiet.
  *
  * Bun drops an idle socket after a couple of minutes, and a board with no run
@@ -129,6 +189,15 @@ export const live = {
     // get a frame they already had, which is cheaper than the ordering bug the
     // alternative buys.
     void pushNow(true);
+    // Anything said but not yet broadcast goes out first, so the cursor is at
+    // the end of the file before this tab is greeted. Without that ordering the
+    // greeting and the next incremental push both carry the same lines, and the
+    // new tab renders the transcript twice.
+    pushNarration();
+    // Then the run's narration as it stands: a tab that has just connected has
+    // nothing on it, so it is given the tail rather than only what happens to
+    // be said next. Its reset replaces whatever the push above put there.
+    greetNarration(ws);
     heartbeat ??= setInterval(() => {
       for (const s of sockets) s.ping();
     }, HEARTBEAT_MS);

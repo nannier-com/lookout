@@ -11,6 +11,7 @@
 import { loadConfig } from "../config.js";
 import { preflight, resolveTargets } from "../targets.js";
 import { currentProject, currentProjectOrNull, session, setCurrentProject } from "./session.js";
+import { forgetNarration } from "./narration.js";
 import { forgetBoard } from "./payload.js";
 import { execFileAsync } from "../util.js";
 
@@ -67,6 +68,9 @@ export async function useProject(dir: string): Promise<ProjectView> {
     return { projectDir: dir, configured: false, error: "no lookout.config.ts found there" };
   }
   forgetBoard();
+  // A different project's judges are a different transcript, and the cursor
+  // into the old one means nothing in the new file.
+  forgetNarration();
   return {
     project: currentProject().project,
     projectDir: currentProject().projectDir,

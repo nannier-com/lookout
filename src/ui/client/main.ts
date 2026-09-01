@@ -19,10 +19,12 @@ import { toggleSettings, loadConfigState, saveConfigState } from "./settings.js"
 import { say, setView } from "./shell.js";
 import { render } from "./status.js";
 import { connected, listen } from "./stream.js";
+import { addNarration } from "./transcript.js";
 import { archive, chooseTool, launch, loadTools } from "./tools.js";
 import { onRefresh, page, type Filter } from "./state.js";
 import { closeShot, openShot, shotOpen } from "./shot-view.js";
 import type { ProjectView } from "../project.js";
+import type { NarrationFrame } from "../narration.js";
 import type { StatusPayload } from "../payload.js";
 
 /**
@@ -34,6 +36,22 @@ import type { StatusPayload } from "../payload.js";
 async function tick(): Promise<void> {
   try {
     render((await (await fetch("/api/status")).json()) as StatusPayload);
+  } catch {
+    // One missed request is not news. The page keeps what it last drew.
+  }
+}
+
+/**
+ * Ask for the judge's transcript rather than wait to be told.
+ *
+ * Only the fallback calls this. While the socket is open the transcript is
+ * appended to as the judge speaks, which no poll could keep up with; without
+ * one, a page still has to show a run working, and a whole replacement every
+ * five seconds is the honest version of that.
+ */
+async function tickNarration(): Promise<void> {
+  try {
+    addNarration((await (await fetch("/api/narration")).json()) as NarrationFrame);
   } catch {
     // One missed request is not news. The page keeps what it last drew.
   }
@@ -145,7 +163,10 @@ document.addEventListener("keydown", (e) => {
 // change the state and nothing would repaint.
 onRefresh(tick);
 
-void loadConfigState().then(loadTools).then(tick).then(() => listen(render));
+void loadConfigState()
+  .then(loadTools)
+  .then(tick)
+  .then(() => listen({ status: render, narration: addNarration }));
 // Enter in the URL box saves, which is what anyone typing a URL expects.
 document.addEventListener("keydown", (e) => {
   const target = e.target;
@@ -157,6 +178,8 @@ document.addEventListener("keydown", (e) => {
 // The only fallback left. While the socket is open this does nothing at all;
 // while it is not, the page is still a page and should still be right.
 setInterval(() => {
-  if (!connected()) void tick();
+  if (connected()) return;
+  void tick();
+  void tickNarration();
 }, 5000);
 setInterval(ticks, 1000);
