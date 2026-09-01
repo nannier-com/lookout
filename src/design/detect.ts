@@ -146,7 +146,7 @@ export async function detect(
         if (spec.startsWith(".")) continue;
         totalImports++;
         // Count both the full specifier and its package root, so a deep import
-        // of `@nannier/canvas/atoms` still counts toward the kit.
+        // of `@mui/material/Button` still counts toward the kit.
         const scoped = spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : spec.split("/")[0]!;
         appImports.set(scoped, (appImports.get(scoped) ?? 0) + 1);
       }
@@ -185,9 +185,9 @@ export async function detect(
   }
 
   // The repository's own package, when it is itself a design system. It goes
-  // FIRST: a kit built on top of another kit (Canvas over Radix, a house kit
-  // over MUI) still owns its own components, so the editable in-repo kit is
-  // what a fix is aimed at and the upstream one is context.
+  // FIRST: a kit built on top of another kit (a house kit over MUI or Radix)
+  // still owns its own components, so the editable in-repo kit is what a fix
+  // is aimed at and the upstream one is context.
   const own = await selfKit(projectDir, pkg);
   if (own && !kits.some((k) => k.id === own.id)) kits.unshift(own);
 

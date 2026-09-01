@@ -49,17 +49,11 @@ export interface KnownKit {
 
 /**
  * Ordered by specificity, not popularity: the first match wins, so a kit built
- * on top of another (shadcn on Radix, Canvas on nothing) must be listed before
+ * on top of another (shadcn on Radix) must be listed before
  * the primitive it is built from, or every shadcn app would be reported as a
  * Radix app and fixes would be aimed at a dependency nobody edits.
  */
 export const KNOWN_KITS: KnownKit[] = [
-  {
-    id: "canvas",
-    name: "Canvas",
-    packages: ["@nannier-com/canvas", "@nannier/canvas"],
-    importPrefixes: ["@nannier-com/canvas", "@nannier/canvas"],
-  },
   {
     id: "shadcn",
     name: "shadcn/ui",
