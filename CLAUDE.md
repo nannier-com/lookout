@@ -25,12 +25,15 @@ every gate is green:
 - **lookout's own requirements never live inside a judged project.** Whatever
   lookout needs in order to run ships with the package (code, skills, the
   base rubric, the reply contracts) or lives in `LOOKOUT_HOME`, default
-  `~/.lookout` (incidents, heals, self-heal runs, ui settings). What lookout
-  writes into a project's `.lookout/` is data about that project and belongs
-  to it: evidence, the backlog, the ledger, issues, its amendments. If
-  lookout would fail against a fresh checkout of a brand-new project because
-  a file it needs exists only inside some other project, that file is in the
-  wrong place; move it into the package or `LOOKOUT_HOME`.
+  `~/.lookout` (incidents, heals, self-heal runs, ui settings, and one
+  capture workspace per project: shots, the capture report, the run log, all
+  of it rebuildable by a single capture). What lookout writes into a
+  project's `.lookout/` is the durable record of that project and belongs to
+  it: the backlog, the ledger, the issue folders (each carrying its own
+  frozen before/after pixels), its amendments. If lookout would fail against
+  a fresh checkout of a brand-new project because a file it needs exists only
+  inside some other project, that file is in the wrong place; move it into
+  the package or `LOOKOUT_HOME`.
 
 ## Where a change goes
 

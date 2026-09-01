@@ -4,9 +4,9 @@
  * A `check` run takes minutes, and until it exits, both the user and the
  * agent that started it are blind: a subprocess's stdout arrives all at once at
  * the end. So lookout narrates to disk as it goes. Everything that happens
- * appends one JSON line to `.lookout/evidence/events.jsonl`, which `lookout
- * status` reads for a session and `lookout ui` renders for a person, both while
- * the run is still going.
+ * appends one JSON line to events.jsonl in the capture workspace, which
+ * `lookout status` reads for a session and `lookout ui` renders for a person,
+ * both while the run is still going.
  *
  * One log spans several processes. `check` and `capture` define the board:
  * they truncate whatever the previous run left behind. A `verify-fix` ruling

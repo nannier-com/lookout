@@ -1,7 +1,8 @@
 /**
  * Evidence store: where shots and the capture report live for a project.
  *
- * Layout under <project>/.lookout/evidence/:
+ * Layout under the project's capture workspace (evidenceDir: a per-project
+ * directory in the operator's lookout home, not inside the judged project):
  *   capture-report.json
  *   web/<target>/<route-slug>/<state>--<formFactor>-<scheme>.png
  *   ios|android/<target>/<route-slug>/<state>--<scheme>.png

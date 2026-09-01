@@ -40,7 +40,7 @@ export function checkBacklog(
     latestReport: CaptureReport | null;
     /**
      * Pre-fix frames frozen per issue id. Omitted by a caller that cannot read
-     * the evidence store, and then the frames are not checked at all rather
+     * the issue folders, and then the frames are not checked at all rather
      * than reported missing on no evidence.
      */
     framesByIssue?: Record<string, number>;

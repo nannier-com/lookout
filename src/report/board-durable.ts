@@ -3,7 +3,7 @@
  *
  * Everything here is read from disk: the backlog says whether a finding is
  * open, blocked, fixed or waived, `issues/<id>/state.json` holds the attempts
- * and what each fixer claimed, and the evidence store dates it. That is the
+ * and what each fixer claimed, and the capture workspace dates it. That is the
  * whole point of the split this module belongs to. The board used to be a fold
  * over the event log, which every `check` truncates, so a project with
  * thirty-seven open findings showed "nothing dispatched yet" the moment

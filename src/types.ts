@@ -251,7 +251,7 @@ export interface ResolvedConfig {
   config: LookoutConfig;
   /** Absolute path of the config file, or null for zero-config runs. */
   configPath: string | null;
-  /** Directory findings/evidence are rooted in (.lookout/ lives here). */
+  /** The project's root: `.lookout/` lives here, and the capture workspace is keyed off it. */
   projectDir: string;
   project: string;
 }

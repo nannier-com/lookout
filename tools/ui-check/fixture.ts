@@ -16,6 +16,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import sharp from "sharp";
+import { workspaceKey } from "../../src/home.js";
 
 const AT = "2026-08-28T14:02:11.000Z";
 
@@ -88,13 +89,15 @@ function finding(over: Record<string, unknown>): Record<string, unknown> {
 }
 
 /**
- * One issue's frozen frames: the images, and the manifest the page reads.
+ * One issue's frozen frames: the images in its own folder, and the manifest
+ * the page reads.
  *
- * Written by hand because the fixture has no run behind it. What the card draws
- * is this manifest, so this is the shape a real freeze leaves on disk.
+ * Written by hand because the fixture has no run behind it. What the card
+ * draws is this manifest, so this is the shape a real freeze leaves on disk:
+ * the pixels under `img/pre|post/`, `frames.json` beside the record.
  */
 async function freeze(
-  ev: string,
+  lk: string,
   id: string,
   sides: readonly {
     side: "before" | "after";
@@ -104,15 +107,16 @@ async function freeze(
     overflow: boolean;
   }[],
 ): Promise<void> {
-  const manifest: { schema: 1; before: unknown[]; after: unknown[] } = { schema: 1, before: [], after: [] };
+  const manifest: { schema: 2; before: unknown[]; after: unknown[] } = { schema: 2, before: [], after: [] };
   for (const f of sides) {
-    const dir = join(ev, "fix-frames", id, f.side);
+    const sideDir = f.side === "before" ? "pre" : "post";
+    const dir = join(lk, "issues", id, "img", sideDir);
     mkdirSync(dir, { recursive: true });
     const path = join(dir, f.file);
     await shot(path, "#101318", "#181c24", f.overflow);
     utimesSync(path, EVIDENCE_MTIME, EVIDENCE_MTIME);
     manifest[f.side].push({
-      path: `fix-frames/${id}/${f.side}/${f.file}`,
+      path: `img/${sideDir}/${f.file}`,
       route: f.route,
       formFactor: f.formFactor,
       scheme: "dark",
@@ -120,7 +124,7 @@ async function freeze(
       at: AT,
     });
   }
-  writeFileSync(join(ev, "fix-frames", id, "frames.json"), JSON.stringify(manifest, null, 2) + "\n");
+  writeFileSync(join(lk, "issues", id, "frames.json"), JSON.stringify(manifest, null, 2) + "\n");
 }
 
 export async function buildFixture(root: string): Promise<{ project: string; home: string; checkout: string }> {
@@ -129,8 +133,11 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
   const home = join(root, "home");
   const checkout = join(root, "checkout");
   const lk = join(project, ".lookout");
-  const ev = join(lk, "evidence");
-  for (const d of [project, home, lk, ev, join(ev, "web", "app", "root", "rest")]) {
+  mkdirSync(project, { recursive: true });
+  // The capture workspace, exactly where the served ui will look for it:
+  // keyed under the home that `serve` exports as LOOKOUT_HOME.
+  const ev = join(home, "evidence", workspaceKey(project));
+  for (const d of [home, lk, ev, join(ev, "web", "app", "root", "rest")]) {
     mkdirSync(d, { recursive: true });
   }
 
@@ -157,10 +164,10 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
     await shot(path, "#101318", "#181c24");
     utimesSync(path, EVIDENCE_MTIME, EVIDENCE_MTIME);
   }
-  await freeze(ev, OPEN_ISSUE, [
+  await freeze(lk, OPEN_ISSUE, [
     { side: "before", file: "web-app-root-rest--desktop-dark.png", route: "/", formFactor: "desktop", overflow: false },
   ]);
-  await freeze(ev, SETTLED_ISSUE, [
+  await freeze(lk, SETTLED_ISSUE, [
     { side: "before", file: "web-app-settings-rest--desktop-dark.png", route: "/settings", formFactor: "desktop", overflow: true },
     { side: "before", file: "web-app-settings-rest--phone-dark.png", route: "/settings", formFactor: "phone", overflow: true },
     { side: "after", file: "web-app-settings-rest--desktop-dark.png", route: "/settings", formFactor: "desktop", overflow: false },
@@ -255,10 +262,11 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
   // absent state on every card and never once render the link.
   //
   // The intentional issue is left without one on purpose, the same way it is
-  // the one issue with no frozen frames. `.lookout/issues/` is a projection of
-  // the backlog and people delete it; a card whose folder is not on disk has to
-  // render without a link rather than offering one that answers 404, and a
-  // fixture where every issue has a document would never draw that.
+  // the one issue with no frozen frames. An issue's document is a projection
+  // of the backlog, and folders written by an older lookout can be missing; a
+  // card whose folder is not on disk has to render without a link rather than
+  // offering one that answers 404, and a fixture where every issue has a
+  // document would never draw that.
   //
   // Both folders sit beside each other rather than one under `archive/`,
   // because that is where lookout would put them: the folder follows the

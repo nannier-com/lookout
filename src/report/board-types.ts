@@ -107,9 +107,9 @@ export interface BoardEntry {
    * The frames frozen either side of a fix.
    *
    * Empty until a `verify-fix` has run, and `after` stays empty until one
-   * passed. They are not derivable from `shots`: the evidence store overwrites
-   * a view in place, so by the time an issue is done its shots ARE the fixed
-   * screen, and the defect only still exists in these.
+   * passed. They are not derivable from `shots`: the capture workspace
+   * overwrites a view in place, so by the time an issue is done its shots ARE
+   * the fixed screen, and the defect only still exists in these.
    */
   before: BoardShot[];
   after: BoardShot[];

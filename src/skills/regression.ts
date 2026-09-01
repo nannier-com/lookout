@@ -67,7 +67,7 @@ const NOTE =
   "lookout's frozen regression set. These screenshots and their settled verdicts gate every " +
   "automatic amendment to a skill: an amendment that re-files something adjudicated by-design, " +
   "or loses a confirmed defect, is rolled back. The manifest is committed; the shots are " +
-  "rebuilt from the evidence store by `lookout skills freeze`, and without them nothing is " +
+  "rebuilt from the capture workspace by `lookout skills freeze`, and without them nothing is " +
   "applied automatically.";
 
 export function regressionDir(resolved: ResolvedConfig): string {

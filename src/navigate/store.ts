@@ -2,7 +2,8 @@
  * Navigation discovery's two files, and the shapes both sides agree on.
  *
  * The harvest (what capture found rendered on a route) lives with the
- * evidence: `.lookout/evidence/navigation-harvest.json`. The plan (what the
+ * evidence, as navigation-harvest.json in the capture workspace. The plan
+ * (what the
  * plan-navigation skill decided to actuate) lives at
  * `.lookout/navigation.json`, because it is adjudicated project data the way
  * the backlog is, not a capture artifact.
