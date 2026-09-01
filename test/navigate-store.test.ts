@@ -18,6 +18,10 @@ import {
 } from "../src/navigate/store.js";
 import { tmpProject } from "./tmp-project.js";
 
+function ref(name: string) {
+  return { selector: `[data-x=${JSON.stringify(name)}]`, role: "button", name, href: null };
+}
+
 function plan(over: Partial<RoutePlan> = {}): RoutePlan {
   return {
     signature: "abc123def456",
@@ -53,7 +57,7 @@ describe("the two files", () => {
       routes: {
         [routeKey("app", "/")]: plan({
           states: [
-            { name: "menu-open", affordance: "a1", outcome: "overlay", risk: "safe", why: "w" },
+            { name: "menu-open", affordance: ref("Menu"), outcome: "overlay", risk: "safe", why: "w" },
           ],
         }),
       },
@@ -101,10 +105,10 @@ describe("plannedStateIndex", () => {
       routes: {
         [routeKey("app", "/")]: plan({
           states: [
-            { name: "menu-open", affordance: "a1", outcome: "overlay", risk: "safe", why: "w" },
-            { name: "filters-shown", affordance: "a2", outcome: "in-page-change", risk: "safe", why: "w" },
-            { name: "Bad Name", affordance: "a3", outcome: "overlay", risk: "safe", why: "w" },
-            { name: "rest", affordance: "a4", outcome: "overlay", risk: "safe", why: "w" },
+            { name: "menu-open", affordance: ref("Menu"), outcome: "overlay", risk: "safe", why: "w" },
+            { name: "filters-shown", affordance: ref("Filters"), outcome: "in-page-change", risk: "safe", why: "w" },
+            { name: "Bad Name", affordance: ref("Bad"), outcome: "overlay", risk: "safe", why: "w" },
+            { name: "rest", affordance: ref("Rest"), outcome: "overlay", risk: "safe", why: "w" },
           ],
         }),
         [routeKey("app", "/empty")]: plan(),

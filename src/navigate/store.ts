@@ -45,11 +45,23 @@ export interface RouteHarvest {
 export type NavOutcome = "overlay" | "in-page-change" | "navigation";
 export type NavRisk = "safe" | "destructive" | "session-destructive";
 
+/**
+ * How a plan remembers which control it meant. The skill replies with
+ * per-harvest ids ("a1"); the plan writer resolves them into this identity so
+ * a later capture, whose fresh harvest numbers everything differently, can
+ * still find the control (selector first, role+name as the fallback).
+ */
+export interface AffordanceRef {
+  selector: string;
+  role: string;
+  name: string;
+  href: string | null;
+}
+
 export interface PlannedState {
   /** Becomes the shot's state axis; validated by validStateName. */
   name: string;
-  /** Affordance.id the click lands on. */
-  affordance: string;
+  affordance: AffordanceRef;
   outcome: NavOutcome;
   /** Metadata: orders execution (risky last), never blocks it. */
   risk: NavRisk;
@@ -57,7 +69,7 @@ export interface PlannedState {
 }
 
 export interface PlannedCheck {
-  affordance: string;
+  affordance: AffordanceRef;
   /** Same-origin path the link claims to lead to, when the href states one. */
   expectedPath?: string;
 }

@@ -273,7 +273,8 @@ export interface DeterministicFinding {
     | "capture-error"
     | "scheme-mismatch"
     | "stale-frame"
-    | "off-origin";
+    | "off-origin"
+    | "dead-interaction";
   severity: "error" | "warning" | "info";
   message: string;
   meta?: Record<string, unknown>;

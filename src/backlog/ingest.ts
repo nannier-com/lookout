@@ -39,6 +39,7 @@ const DETERMINISTIC_MAP: Record<
   "scheme-mismatch": { category: "color-scheme", attribute: "scheme-mechanism" },
   "stale-frame": { category: "render-failure", attribute: "stale-frame" },
   "off-origin": { category: "render-failure", attribute: "off-origin" },
+  "dead-interaction": { category: "states", attribute: "dead-control" },
 };
 
 function severityFromDeterministic(f: DeterministicFinding): Severity {
