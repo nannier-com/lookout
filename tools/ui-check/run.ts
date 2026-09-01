@@ -82,6 +82,10 @@ async function shots(label: string): Promise<void> {
   // the comparison the page exists to show is never captured.
   await view(browser, out, "board-done", "dark", 1440, 950, (p) => p.click('button.stat[data-value="done"]'), problems);
   await view(browser, out, "settings-open", "dark", 1440, 950, (p) => p.click("#cog"), problems);
+  // The judge's column folded away. A state the page can be left in, so it is a
+  // state the gate has to have a picture of: the strip at the edge and the
+  // board's new width are both things only a capture shows.
+  await view(browser, out, "judge-shut", "dark", 1440, 950, (p) => p.click("#streamFold"), problems);
   await view(browser, out, "learning-dark", "dark", 1440, 950, (p) => p.click('[data-view="learning"]'), problems);
   await view(browser, out, "learning-light", "light", 1440, 950, (p) => p.click('[data-view="learning"]'), problems);
   await view(browser, out, "learning-narrow", "dark", 430, 900, (p) => p.click('[data-view="learning"]'), problems);
@@ -229,6 +233,30 @@ async function drive(): Promise<number> {
   check("settings names the project", ((await page.locator("#setProject").textContent()) ?? "").includes("project"));
   check("settings probes targets", (await page.locator("#setTargets .tgt").count()) > 0);
   await page.click("#cog");
+
+  // The fold. What it has to actually do is give the width back: a column that
+  // narrows while the board keeps its old padding is a stripe of empty page,
+  // and nothing but a measurement catches that.
+  const widthOf = async (sel: string): Promise<number> =>
+    (await page.locator(sel).boundingBox())?.width ?? -1;
+  const railWide = await widthOf(".rail");
+  const openWide = await widthOf(".stream");
+  check("the judge's column starts open", openWide > railWide * 2, `${openWide}px`);
+  await page.click("#streamFold");
+  await page.waitForTimeout(400);
+  check("folding narrows it to the rail's width", (await widthOf(".stream")) === railWide,
+    `${await widthOf(".stream")}px vs rail ${railWide}px`);
+  check("the transcript goes with it", !(await page.locator("#streamLog").isVisible()));
+  check("the board takes the width back",
+    (await page.evaluate(() => getComputedStyle(document.body).paddingRight)) === `${railWide}px`);
+  check("the way back out is still there", await page.locator("#streamFold").isVisible());
+  await page.reload({ waitUntil: "networkidle" });
+  await page.waitForTimeout(900);
+  check("the fold is remembered", (await widthOf(".stream")) === railWide);
+  await page.click("#streamFold");
+  await page.waitForTimeout(400);
+  check("unfolding puts the transcript back", await page.locator("#streamLog").isVisible());
+  check("and the column with it", (await widthOf(".stream")) === openWide);
 
   await page.click('[data-view="learning"]');
   await page.waitForTimeout(1200);

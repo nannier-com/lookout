@@ -16,7 +16,7 @@
 import { el, hit, repaint, ticks } from "./dom.js";
 import { setFilter } from "./filters.js";
 import { toggleSettings, loadConfigState, saveConfigState } from "./settings.js";
-import { say, setView } from "./shell.js";
+import { paintJudge, say, setView, toggleJudge } from "./shell.js";
 import { render } from "./status.js";
 import { connected, listen } from "./stream.js";
 import { addNarration } from "./transcript.js";
@@ -122,6 +122,7 @@ document.addEventListener("click", (e) => {
   }
   if (hit(e, "#findfix")) { void findAndFix(); return; }
   if (hit(e, "#cog")) { toggleSettings(); return; }
+  if (hit(e, "#streamFold")) { toggleJudge(); return; }
   if (hit(e, "#pickProject")) {
     void (async () => {
       const picked = (await (await fetch("/api/pick", { method: "POST" })).json()) as
@@ -157,6 +158,11 @@ document.addEventListener("keydown", (e) => {
   if (shotOpen()) { closeShot(); return; }
   if (page.filter) setFilter(page.filter.kind, page.filter.value, page.filter.label);
 });
+// The fold is drawn before anything is fetched: whether the judge's column is
+// open was decided on a previous visit, and the page should come back the shape
+// it was left in rather than widen a moment later.
+paintJudge();
+
 // Tools first: the launch buttons are labelled with the chosen one, and a board
 // painted before the list arrives says "open in your editor".
 // Settings first: the saved project decides whether Play is even live, so

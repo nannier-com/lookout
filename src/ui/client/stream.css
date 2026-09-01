@@ -4,15 +4,28 @@
  * this thing still working?") is one somebody has while looking at something
  * else. It costs the board width it takes, which is the trade for never having
  * to go and open it.
+ *
+ * That trade is not one everybody wants all the time, so the column folds. Shut,
+ * it is a strip the width of the rail on the other side of the page: the same
+ * furniture at both edges, still carrying the live dot, and 340px of board
+ * handed back to the cards.
  */
 .stream{position:fixed;right:0;top:0;bottom:0;width:var(--stream);z-index:9;
 background:var(--panel);border-left:1px solid var(--line);
 display:flex;flex-direction:column;min-width:0}
+/* One declaration folds the column, because the width and the space the body
+   reserves for it are the same token. */
+body.judgeshut{--stream:var(--rail)}
 
 /* Who is speaking. Empty between calls, which is why the dot carries the
    liveness rather than the text: a judge that has not started yet and one that
    has finished both have nothing to say, and only one of them is a run. */
-.streamtop{display:flex;align-items:center;gap:7px;padding:10px 12px;
+/* The padding is 5px rather than 10 because the fold button is now the tallest
+   thing in the row at 26px, and 26 plus 10 plus the border still fits inside
+   the 38 this header has always been. Adding a control that pushed the whole
+   transcript down a pixel would be a change to something that was already
+   right, and the pixel gate would have to be told to accept it forever. */
+.streamtop{display:flex;align-items:center;gap:7px;padding:5px 12px;
 border-bottom:1px solid var(--line);min-height:38px}
 .streamtop h2{margin:0;font-size:11px;font-weight:650;letter-spacing:.06em;
 text-transform:uppercase;color:var(--faint)}
@@ -20,6 +33,27 @@ text-transform:uppercase;color:var(--faint)}
 overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sdot{width:6px;height:6px;border-radius:50%;background:var(--line);flex:0 0 auto}
 .stream.talking .sdot{background:var(--ver);animation:pulse2 1.4s infinite}
+
+/* The fold, against the board rather than against the window edge: the control
+   sits on the side the column would move towards, and the chevron points that
+   way. Quiet, because folding is a thing you do once and then forget. */
+.sfold{width:26px;height:26px;padding:0;border-radius:8px;border:1px solid transparent;
+background:none;color:var(--faint);cursor:pointer;flex:0 0 auto;
+display:flex;align-items:center;justify-content:center}
+.sfold svg{display:block}
+.sfold:hover{color:var(--ink);background:var(--sunk)}
+.sfold:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* Shut. The header stops being a row of labels and becomes the strip's one
+   column: the way back out, and under it the dot that says whether there is
+   anything to come back to. */
+.stream.shut .streamtop{flex-direction:column;gap:9px;padding:12px 0;
+border-bottom:0;min-height:0}
+.stream.shut h2,.stream.shut .who,.stream.shut .streamlog{display:none}
+/* Alone in the strip it is the only thing to aim at, so it takes the size of
+   the buttons in the rail at the other edge. */
+.stream.shut .sfold{width:38px;height:38px;border-radius:10px}
+.stream.shut .sfold svg{transform:rotate(180deg)}
 
 /* The transcript itself. Monospace because most of what a judge emits is the
    JSON it was asked for, and proportional text makes that unreadable. */
