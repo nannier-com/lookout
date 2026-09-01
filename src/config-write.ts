@@ -88,7 +88,14 @@ export async function createConfig(projectDir: string, seed: ConfigSeed = {}): P
     throw new LookoutError(`${existing} already exists`, "edit it in place; lookout never overwrites a config");
   }
   const path = join(projectDir, CONFIG_FILENAME);
-  await writeFile(path, configTemplate(seed));
+  try {
+    await writeFile(path, configTemplate(seed));
+  } catch (e) {
+    throw new LookoutError(
+      `could not write ${path}: ${(e as Error).message}`,
+      "write it by hand, or run from a directory lookout can write to",
+    );
+  }
   return path;
 }
 
@@ -239,7 +246,16 @@ export async function ensureProjectConfig(opts: EnsureOptions): Promise<"go" | "
   }
 
   if (found?.legacy) {
-    const moved = await migrateLegacyConfig(found.path);
+    let moved: Migration;
+    try {
+      moved = await migrateLegacyConfig(found.path);
+    } catch (e) {
+      // Another run in the same checkout may have moved it between the look
+      // and the move. A config at the root is the outcome either way, so only
+      // a failure that left none is worth stopping for.
+      if (locateConfig(found.projectDir)?.legacy === false) return "go";
+      throw e;
+    }
     console.error(`lookout: moved ${moved.from} to ${moved.to} (the config lives at the project root now,`);
     console.error("  outside the gitignored .lookout/ directory, so the team can share it).");
     for (const r of moved.rewritten) console.error(`  repointed ${r}`);

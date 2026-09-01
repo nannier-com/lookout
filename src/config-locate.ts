@@ -12,6 +12,7 @@
  * repository's config from beating the one you are standing in.
  */
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 
 /** Root-level candidates, in precedence order within one directory. */
@@ -80,12 +81,20 @@ export function projectDirFor(path: string): string {
  * a directory that is neither is somewhere they happened to be standing, and
  * writing a config file into it would be litter. Returning null is how the
  * caller learns to stay zero-config.
+ *
+ * The home directory is never a project root, whatever it has in it. Plenty of
+ * people keep their dotfiles in a git repository, and a run made from some
+ * unrelated folder underneath it must not be answered by writing a config file
+ * into their home.
  */
 export function nearestProjectRoot(start: string): string | null {
+  const home = homedir();
   let dir = resolve(start);
   for (;;) {
-    for (const marker of [".git", "package.json", LOOKOUT_DIR]) {
-      if (existsSync(join(dir, marker))) return dir;
+    if (dir !== home) {
+      for (const marker of [".git", "package.json", LOOKOUT_DIR]) {
+        if (existsSync(join(dir, marker))) return dir;
+      }
     }
     const parent = dirname(dir);
     if (parent === dir) return null;

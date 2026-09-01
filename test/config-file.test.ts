@@ -4,7 +4,7 @@
 // is asserted rather than assumed.
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../src/config.js";
 import { locateConfig, nearestProjectRoot, projectDirFor } from "../src/config-locate.js";
@@ -70,6 +70,12 @@ describe("locating the config", () => {
     const dir = realpathSync(mkdtempSync(join(tmpdir(), "lookout-bare-")));
     expect(nearestProjectRoot(dir)).toBe(null);
     expect(nearestProjectRoot(project())).not.toBe(null);
+  });
+
+  test("the home directory is never the project root, dotfiles repo or not", () => {
+    // Plenty of people keep ~ in git; a run from an unrelated folder under it
+    // must not answer by writing a config into their home.
+    expect(nearestProjectRoot(homedir())).not.toBe(homedir());
   });
 });
 
@@ -143,6 +149,19 @@ describe("ensureProjectConfig", () => {
     expect(await ensureProjectConfig({ cwd: dir })).toBe("go");
     expect(existsSync(config)).toBe(false);
     expect(existsSync(join(dir, "lookout.config.ts"))).toBe(true);
+  });
+
+  test("a second run over the same project is a no-op, not a second move", async () => {
+    const { dir } = legacyProject();
+    expect(await ensureProjectConfig({ cwd: dir })).toBe("go");
+    expect(await ensureProjectConfig({ cwd: dir })).toBe("go");
+    expect(readFileSync(join(dir, "lookout.config.ts"), "utf8")).toBe(ONE_TARGET);
+  });
+
+  test("refuses to move onto a root config that is already there", async () => {
+    const { dir, config } = legacyProject();
+    writeFileSync(join(dir, "lookout.config.ts"), ONE_TARGET);
+    expect(migrateLegacyConfig(config)).rejects.toThrow(/already exists/);
   });
 
   test("writes a config seeded from --url and lets the run go on", async () => {
