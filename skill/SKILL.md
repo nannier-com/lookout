@@ -94,3 +94,8 @@ practical notes that are easier to hit than to work out.
   demo account rather than typing credentials. If a run comes back full of
   findings about a login screen, read the `off-origin` finding before believing
   any of them: the shots are of a different application.
+- A config with `navigation.enabled` makes `check` click the app's own
+  buttons, links, and CTAs, destructive controls included, and judge the
+  resulting states. Never enable it for a project whose target URL points at
+  data anyone cares about; `navigation.exclude` blocks specific controls, and
+  `--no-navigation` skips it for one run.

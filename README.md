@@ -356,6 +356,16 @@ const config: LookoutConfig = {
     },
   },
 
+  // Navigation discovery: hand-written states cover what you thought of;
+  // this covers the rest. See "Navigation discovery" below before enabling:
+  // lookout will click destructive controls too.
+  navigation: {
+    enabled: true,
+    maxStatesPerRoute: 5,     // judged interaction states per route
+    maxChecksPerRoute: 8,     // link-verification clicks (no judging cost)
+    exclude: ["Sign out"],    // CSS selectors or accessible-name substrings
+  },
+
   // Project judging rules, layered into the visual-judge skill in every judge
   // prompt. Editing this file re-judges whatever it could have changed: the
   // ledger is keyed on the composed prompt itself, so nothing has to be bumped
@@ -381,6 +391,33 @@ const config: LookoutConfig = {
 export default config;
 ```
 
+### Navigation discovery
+
+Hand-written state recipes photograph the interactions you thought to write
+down. Navigation discovery covers the rest of a route: with
+`navigation.enabled`, every capture harvests the route's visible buttons,
+links, and CTAs, and `check` asks the `plan-navigation` skill to curate them
+into an interaction plan. The plan is cached in `.lookout/navigation.json`
+and keyed by a signature of the route's affordances, so the model is spent
+only when a route's controls actually change (at most ten routes per run;
+`--navigate` forces a re-plan, `--no-navigation` skips discovery for a run).
+Capture then executes the plan deterministically: overlays and in-page
+changes become states judged like any other, a click that leaves the route
+photographs the destination page as a state of this route, and links to
+routes already in the config are merely clicked and verified, filing
+`dead-interaction` or error findings when they do not work. Each state is a
+view group of its own, so every planned state costs one more judge batch per
+run when its pixels change.
+
+**lookout clicks everything it plans, destructive controls included.** Risk
+classification orders the clicks (risky last, session-enders last of all,
+with the target's `signIn` re-run afterward); it does not prevent them.
+Point targets at a disposable environment, and put anything untouchable in
+`navigation.exclude`. A failed synthesized interaction never kills the
+route: it files a `capture-error` finding on the rest shot and the capture
+moves on. Discovered same-origin pages that are not in the config are
+reported as coverage suggestions; lookout never edits the config itself.
+
 ### Skills: where lookout's AI behaviour lives
 
 Every AI capability is an instruction file, not a string in the binary. They
@@ -402,6 +439,8 @@ skills/
   fact-check/           SKILL.md: answering one question from screenshots
   design-placement/     SKILL.md: where a defect belongs, in a project with a kit
   kit-conformance/      SKILL.md: whether the application is built out of that kit
+  plan-navigation/      SKILL.md: which of a route's affordances to actuate, what
+                        to name each state, and what only needs verifying
 ```
 
 A skill carries the whole prompt shape, placeholders and all. lookout supplies

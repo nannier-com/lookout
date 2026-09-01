@@ -1,7 +1,7 @@
 ---
 name: verify-acceptance
 description: Extract the checkable criteria from a ticket and rule on each one strictly from captured screenshots, never on faith.
-version: 1
+version: 2
 output: criteria-verdicts-v1
 ---
 
@@ -20,7 +20,10 @@ Step 3: rule on each criterion strictly from the evidence:
 - "fail": the screenshots demonstrably show it violated. Cite the shotIds.
 - "not-verifiable": the evidence cannot decide it (wrong route, needs
   interaction or data you cannot see, non-visual behavior like an API call).
-  Say exactly what evidence would decide it.
+  Say exactly what evidence would decide it. Before ruling this, check the
+  manifest for non-rest states: a shot whose state is not "rest" shows the
+  page AFTER an interaction (an opened overlay, a switched tab, a clicked
+  CTA's destination), and may decide a criterion the rest shots cannot.
 
 Never rule pass on faith: no evidence means not-verifiable, not pass.
 
