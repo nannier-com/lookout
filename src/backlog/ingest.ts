@@ -21,7 +21,7 @@ import type {
   Severity,
   ShotRecord,
 } from "../types.js";
-import type { BacklogFinding, Channel, SourceRef } from "./lib.js";
+import type { BacklogFinding, Channel, RenderedBy, SourceRef } from "./lib.js";
 
 // Ingestion mappers
 
@@ -119,6 +119,11 @@ export function deterministicToFindings(
         channel: "deterministic",
         confidence: "high",
         verified: true,
+        // The capture-time join, first element only: one finding, one place
+        // to start reading.
+        ...(Array.isArray(df.meta?.provenance) && df.meta.provenance[0]
+          ? { renderedBy: df.meta.provenance[0] as RenderedBy }
+          : {}),
         evidence: [{ shotId: shot.id, path: shot.path, hash: shot.hash, runId: shot.runId }],
       });
     }

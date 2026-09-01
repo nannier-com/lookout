@@ -92,6 +92,7 @@ export async function checkHorizontalOverflow(
     const res = await element.evaluate((root) => {
       let worst = 0;
       let offender = "";
+      let offenderEl: Element | null = null;
       const walk = (el: Element) => {
         const delta = el.scrollWidth - el.clientWidth;
         // Ignore intentional horizontal scrollers.
@@ -99,11 +100,36 @@ export async function checkHorizontalOverflow(
         if (delta > worst && overflowX !== "auto" && overflowX !== "scroll") {
           worst = delta;
           offender = `${el.tagName.toLowerCase()}${el.className && typeof el.className === "string" ? "." + el.className.split(/\s+/)[0] : ""}`;
+          offenderEl = el;
         }
         for (const child of el.children) walk(child);
       };
       walk(root);
-      return { worst, offender };
+      // The offender's real selector, so provenance can name the element the
+      // label only describes. The nth-of-type builder is deliberately
+      // duplicated from navigate/harvest.ts collectInPage: in-page functions
+      // are self-contained by rule and cannot share an import.
+      const segs: string[] = [];
+      // The cast defeats a false narrowing: the only assignment sits inside
+      // the walk closure, which control-flow analysis does not follow.
+      let cur = offenderEl as Element | null;
+      while (cur && cur !== document.body && segs.length < 8) {
+        if (cur.id) {
+          segs.unshift(`#${cur.id}`);
+          break;
+        }
+        const parent: Element | null = cur.parentElement;
+        let nth = 1;
+        if (parent) {
+          for (const sib of Array.from(parent.children)) {
+            if (sib === cur) break;
+            if (sib.tagName === cur.tagName) nth += 1;
+          }
+        }
+        segs.unshift(`${cur.tagName.toLowerCase()}:nth-of-type(${nth})`);
+        cur = parent;
+      }
+      return { worst, offender, offenderPath: segs.join(" > ") };
     });
     if (res.worst > 2) {
       return [
@@ -121,7 +147,40 @@ export async function checkHorizontalOverflow(
   const res = await page.evaluate(() => {
     const doc = document.documentElement;
     const delta = doc.scrollWidth - doc.clientWidth;
-    return { delta, viewport: doc.clientWidth };
+    // The widest protruder: the element whose right edge reaches furthest
+    // past the viewport, intentional scrollers excluded. The full-page branch
+    // named no offender at all, which left the provenance join nothing to
+    // bite on for the common overflow case.
+    let worstRight = doc.clientWidth;
+    let offenderEl: Element | null = null;
+    for (const el of Array.from(document.querySelectorAll("*"))) {
+      const overflowX = getComputedStyle(el).overflowX;
+      if (overflowX === "auto" || overflowX === "scroll") continue;
+      const right = el.getBoundingClientRect().right + window.scrollX;
+      if (right > worstRight) {
+        worstRight = right;
+        offenderEl = el;
+      }
+    }
+    const segs: string[] = [];
+    let cur: Element | null = offenderEl;
+    while (cur && cur !== document.body && segs.length < 8) {
+      if (cur.id) {
+        segs.unshift(`#${cur.id}`);
+        break;
+      }
+      const parent: Element | null = cur.parentElement;
+      let nth = 1;
+      if (parent) {
+        for (const sib of Array.from(parent.children)) {
+          if (sib === cur) break;
+          if (sib.tagName === cur.tagName) nth += 1;
+        }
+      }
+      segs.unshift(`${cur.tagName.toLowerCase()}:nth-of-type(${nth})`);
+      cur = parent;
+    }
+    return { delta, viewport: doc.clientWidth, offenderPath: segs.join(" > ") };
   });
   if (res.delta > 2) {
     return [

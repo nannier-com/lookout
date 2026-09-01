@@ -23,7 +23,7 @@ import {
   runAxe,
 } from "./checks.js";
 import { shotId, writeShotFile, writeShotSidecar, type ShotAxes } from "./store.js";
-import { buildSidecar, collectProvenanceInPage } from "./provenance.js";
+import { attachProvenance, buildSidecar, collectProvenanceInPage, selectorsOf } from "./provenance.js";
 import { resolveElement, schemeUrl, setScheme, settle } from "./web-page.js";
 import { harvestRoute } from "../navigate/harvest.js";
 import { NavSkip, runNavChecks, synthStates, type SynthesizedStates } from "../navigate/execute.js";
@@ -179,7 +179,9 @@ export async function captureRoute(
             const raw = await page.evaluate(collectProvenanceInPage, {
               rootSelector: element ? elementSel ?? null : null,
               maxElements: 800,
-              resolve: [],
+              // The deterministic findings' own selectors, joined against the
+              // live DOM while it still shows what the PNG shows.
+              resolve: findings.flatMap(selectorsOf),
             });
             const sidecar = buildSidecar(raw, {
               id: shotId(axes),
@@ -189,6 +191,7 @@ export async function captureRoute(
               origin: element ? "element" : "document",
               image: { width: meta.width ?? 0, height: meta.height ?? 0 },
             });
+            attachProvenance(findings, sidecar);
             provenanceRel = (await writeShotSidecar(resolved, axes, sidecar)).rel;
           } catch (e) {
             ctx.progress(

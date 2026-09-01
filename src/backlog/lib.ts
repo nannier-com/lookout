@@ -15,6 +15,18 @@ import type { AcceptanceCriterion } from "../issues/acceptance.js";
 export type FindingStatus = "open" | "fixed" | "by-design" | "blocked";
 export type Channel = "ai" | "deterministic" | "code";
 
+/** The rendering element a finding was joined to at capture time. */
+export interface RenderedBy {
+  component: string | null;
+  /** Source file per the page's own dev tooling; verified before printing. */
+  file: string | null;
+  line: number | null;
+  /** The check's own selector, as it fired. */
+  selector: string;
+  /** The provenance walk's stable path to the joined element. */
+  cssPath: string;
+}
+
 export interface EvidenceRef {
   shotId: string;
   path: string;
@@ -108,6 +120,13 @@ export interface BacklogFinding {
    * Never part of the fingerprint.
    */
   judge?: string;
+  /**
+   * The element that was rendering this defect, joined exactly at capture
+   * time (deterministic channel: the check's own selector re-queried against
+   * the live page and matched to the provenance walk). Never part of the
+   * fingerprint; refreshed on re-sighting.
+   */
+  renderedBy?: RenderedBy;
   /**
    * What the judge said would prove this defect gone. Deterministic findings
    * derive theirs instead, so this is empty for them.

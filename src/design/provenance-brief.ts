@@ -71,6 +71,13 @@ export function provenanceBrief(evDir: string, cluster: FixCluster): string {
       sc.shotHash !== ev.hash ? "  (re-captured since this evidence; layout may have moved)" : "";
     if (out.length > 0) out.push("");
     out.push(`shot ${sc.shotId}: route ${m.route}, ${m.formFactor}, ${m.scheme}${drift}`);
+    // The finding's own capture-time join outranks the area ranking: this IS
+    // the element the check fired on.
+    if (m.renderedBy) {
+      const r = m.renderedBy;
+      const at = r.file ? `  ${r.file}${r.line ? `:${r.line}` : ""}` : "";
+      out.push(`- THIS FINDING'S ELEMENT: ${r.component ?? r.selector}${at}  (${r.cssPath})`);
+    }
     out.push(...sourced.map(line), ...chains.map(line));
   }
   return out.join("\n");

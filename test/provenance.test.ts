@@ -5,13 +5,16 @@
 // smoke, the harvest.ts split.
 import { describe, expect, test } from "bun:test";
 import {
+  attachProvenance,
   buildSidecar,
   parseSidecar,
   pngBoxOf,
   PROVENANCE_VERSION,
+  selectorsOf,
   type ProvenanceElement,
   type RawProvenance,
 } from "../src/capture/provenance.js";
+import type { DeterministicFinding } from "../src/types.js";
 import { sidecarRelPath } from "../src/capture/store.js";
 import { loadSidecarBeside, provenanceBrief } from "../src/design/provenance-brief.js";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
@@ -128,6 +131,42 @@ describe("pngBoxOf", () => {
       w: 720,
       h: 150,
     });
+  });
+});
+
+describe("the deterministic join", () => {
+  test("resolved selectors attach, unresolved stay silent, other checks are ignored", () => {
+    const wide = el({ id: "wide", cssPath: "#wide", components: [] });
+    const img = el({
+      tag: "img",
+      cssPath: "nav > img:nth-of-type(1)",
+      components: ["Logo"],
+      source: { file: "src/Logo.tsx", line: 3 },
+    });
+    const sidecar = buildSidecar(
+      raw([wide, img], { resolved: { "#wide": 0, "nav > img": 1 } }),
+      shot,
+    );
+    const axe: DeterministicFinding = {
+      type: "axe-violation", severity: "error", message: "m",
+      meta: { ruleId: "image-alt", nodeCount: 2, targets: ["nav > img", "html"] },
+    };
+    const overflow: DeterministicFinding = {
+      type: "horizontal-overflow", severity: "error", message: "m",
+      meta: { delta: 720, viewport: 1280, offenderPath: "#wide" },
+    };
+    const blank: DeterministicFinding = { type: "blank-shot", severity: "error", message: "m" };
+    attachProvenance([axe, overflow, blank], sidecar);
+
+    expect(axe.meta?.provenance).toEqual([
+      { selector: "nav > img", cssPath: "nav > img:nth-of-type(1)",
+        component: "Logo", file: "src/Logo.tsx", line: 3 },
+    ]);
+    expect(overflow.meta?.provenance).toEqual([
+      { selector: "#wide", cssPath: "#wide", component: null, file: null, line: null },
+    ]);
+    expect(blank.meta).toBeUndefined();
+    expect(selectorsOf(blank)).toEqual([]);
   });
 });
 

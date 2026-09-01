@@ -84,6 +84,8 @@ export function mergeFindings(
     // The stamp follows the newest sighting: if a category ever moves between
     // panels, the ticket names the specialist an amendment would now target.
     if (f.judge) existing.judge = f.judge;
+    // So does the rendering join: the newest capture knows the current DOM.
+    if (f.renderedBy) existing.renderedBy = f.renderedBy;
     for (const ev of f.evidence) {
       if (!existing.evidence.some((e) => e.hash === ev.hash)) {
         existing.evidence.push(ev);
