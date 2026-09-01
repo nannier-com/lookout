@@ -1,5 +1,16 @@
 # @nannier-com/lookout
 
+## 0.36.8
+
+### Patch Changes
+
+- 4fe186c: Issue tickets state which judge filed them: every AI finding carries the
+  owning panel's stamp from ingestion through merge (newest sighting wins, so
+  a re-partitioned category follows its current owner), the cluster exposes
+  it, the ticket header reads "found by: judge-<name>" (pre-panel backlogs
+  still say "visual judge"), and self-improvement signals prefer the stamp
+  over deriving from the category.
+
 ## 0.36.7
 
 ### Patch Changes
