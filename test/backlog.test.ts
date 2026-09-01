@@ -126,6 +126,26 @@ describe("merge state machine", () => {
     expect(b.findings[fp]!.status).toBe("by-design");
   });
 
+  test("a refresh adopts a region where none was recorded, and never overwrites one", () => {
+    const b = emptyBacklog("test", NOW);
+    const base = deterministicToFindings(report([overflowShot()]));
+    mergeFindings(b, base, "run-1", NOW);
+    const fp = Object.keys(b.findings)[0]!;
+    expect(b.findings[fp]!.region).toBeUndefined();
+
+    // The question gets asked for the first time: the answer is adopted.
+    const regioned = structuredClone(base);
+    regioned[0]!.region = "shell-nav";
+    mergeFindings(b, regioned, "run-2", NOW);
+    expect(b.findings[fp]!.region).toBe("shell-nav");
+
+    // A later, different claim does not move a recorded answer.
+    const disagreeing = structuredClone(base);
+    disagreeing[0]!.region = "content";
+    mergeFindings(b, disagreeing, "run-3", NOW);
+    expect(b.findings[fp]!.region).toBe("shell-nav");
+  });
+
   test("new evidence hashes append, capped at 6", () => {
     const b = emptyBacklog("test", NOW);
     const base = deterministicToFindings(report([overflowShot()]));

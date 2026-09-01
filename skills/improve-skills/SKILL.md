@@ -32,9 +32,12 @@ project has actually taught it.
 - **Narrow.** Amend for the pattern you can see repeatedly, not for one
   incident. Two refutations of the same kind is a pattern; one is an anecdote.
 - **Additive.** Say what to file and what not to file. Never restate the base
-  rubric, and never contradict the closed category vocabulary: findings outside
-  it are rejected at ingestion, so a rule inventing one is a rule that silently
-  discards work.
+  rubric, and never contradict the closed category vocabulary or the closed
+  region vocabulary: findings outside the categories are rejected at ingestion,
+  and a region outside the set degrades to `content`, so a rule inventing a
+  value in either is a rule that silently discards or mislabels work. Both
+  vocabularies are part of every finding's identity, and only lookout's own
+  code may change their shape.
 - **Written to be read by the model doing the work**, in the same voice as the
   skill it joins: direct, specific, and about what to do rather than about why
   the amendment exists. Put the why in `summary`, not in the amendment body.

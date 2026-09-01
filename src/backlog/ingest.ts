@@ -115,6 +115,10 @@ export function aiToFindings(
     const shot = shotsById.get(f.shotId);
     if (!shot) continue;
     out.push({
+      // The region is stored but deliberately kept out of the fingerprint for
+      // now: identity is the one thing here that must never quietly change
+      // shape, so records accumulate regions for a release before the shell
+      // collapse starts deriving identity from them.
       fingerprint: fingerprintOf({ ...shot, category: f.category, attribute: f.attribute }),
       target: shot.target,
       route: shot.route,
@@ -122,6 +126,7 @@ export function aiToFindings(
       platform: shot.platform,
       formFactor: shot.formFactor,
       scheme: shot.scheme,
+      region: f.region,
       category: f.category,
       attribute: f.attribute,
       severity: f.severity,

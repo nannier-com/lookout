@@ -1,8 +1,8 @@
 ---
 name: visual-judge
 description: Judge screenshots of a running application against lookout's rubric and file one finding per distinct defect, with a strict JSON reply.
-version: 4
-output: judge-findings-v1
+version: 5
+output: judge-findings-v2
 ---
 
 # Visual judge

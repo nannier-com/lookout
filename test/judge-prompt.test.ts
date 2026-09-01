@@ -57,4 +57,39 @@ describe("buildJudgePrompt", () => {
   test("names the project it is judging", () => {
     expect(prompt).toContain('the project "proj"');
   });
+
+  test("carries the region vocabulary the contract now demands", () => {
+    expect(prompt).toContain("## Region vocabulary");
+    expect(prompt).toContain('"region"');
+  });
+});
+
+describe("the ALREADY FILED aid travels", () => {
+  const shots: ShotRecord[] = [
+    { ...base, id: "here", route: "/b", routeName: "/b", path: "b.png" },
+  ];
+
+  test("a local prior needs its shot in the batch", () => {
+    const prompt = buildJudgePrompt(rubric.text, "proj", shots, "/ev", {
+      prior: [{ shotId: "elsewhere", category: "contrast", attribute: "body-text", title: "t" }],
+    });
+    expect(prompt).not.toContain("ALREADY FILED");
+  });
+
+  test("a shell prior reaches every batch, shot or no shot", () => {
+    const prompt = buildJudgePrompt(rubric.text, "proj", shots, "/ev", {
+      prior: [
+        {
+          shotId: "*",
+          category: "layout-overflow",
+          attribute: "header-avatar-clipped",
+          title: "Avatar clipped in the top bar",
+          region: "shell-header",
+        },
+      ],
+    });
+    expect(prompt).toContain("ALREADY FILED");
+    expect(prompt).toContain("Also open elsewhere in this application");
+    expect(prompt).toContain("shell-header  [layout-overflow/header-avatar-clipped]");
+  });
 });

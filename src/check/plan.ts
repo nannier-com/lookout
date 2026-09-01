@@ -113,10 +113,13 @@ export async function planJudging(
   const prior: PriorFinding[] = [];
   if (resolved.configPath) {
     const { loadBacklog } = await import("../verbs/backlog.js");
+    const { isShellRegion } = await import("../backlog/region.js");
     const b = await loadBacklog(resolved);
     const seen = new Set<string>();
-    for (const f of Object.values(b.findings)) {
-      if (f.status !== "open" || f.channel !== "ai") continue;
+    const open = Object.values(b.findings).filter(
+      (f) => f.status === "open" && f.channel === "ai",
+    );
+    for (const f of open) {
       for (const ev of f.evidence) {
         const key = `${ev.shotId}|${f.category}|${f.attribute}`;
         if (seen.has(key)) continue;
@@ -128,6 +131,30 @@ export async function planJudging(
           title: f.title,
         });
       }
+    }
+    // A shell finding is open everywhere at once, so its name travels to every
+    // batch as a "*" entry. Until a project has any shell finding, every open
+    // finding travels instead: the first regioned run is exactly when thirteen
+    // independent calls would otherwise each invent a fresh attribute for one
+    // chrome defect, and the aid exists to stop that. Capped worst-first so a
+    // large backlog stays a naming aid rather than a second manifest.
+    const RANK: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+    const shell = open.filter((f) => isShellRegion(f.region));
+    const travelling = (shell.length > 0 ? shell : open)
+      .slice()
+      .sort((a, b) => (RANK[a.severity] ?? 4) - (RANK[b.severity] ?? 4))
+      .slice(0, 40);
+    for (const f of travelling) {
+      const key = `*|${f.category}|${f.attribute}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      prior.push({
+        shotId: "*",
+        category: f.category,
+        attribute: f.attribute,
+        title: f.title,
+        region: f.region,
+      });
     }
   }
 

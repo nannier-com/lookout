@@ -181,6 +181,7 @@ if (mode === "placement") {
               shotId: first,
               category: process.env.MOCK_JUDGE_CATEGORY ?? "contrast",
               attribute: "body-text",
+              region: process.env.MOCK_JUDGE_REGION ?? "content",
               severity: "high",
               title: "Mock finding for plumbing tests",
               problem: "mock",

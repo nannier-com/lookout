@@ -48,6 +48,11 @@ export function mergeFindings(
     }
     // Fresh evidence and prose refresh the record either way.
     existing.lastSeen = runId;
+    // A region is adopted where none was ever recorded and never overwritten:
+    // absent means the question was never asked, so a fresh answer is strictly
+    // more information; a recorded answer standing against a new claim is a
+    // disagreement, and identity must not wobble with it.
+    if (existing.region === undefined && f.region !== undefined) existing.region = f.region;
     existing.severity = f.severity;
     existing.title = f.title;
     existing.problem = f.problem;

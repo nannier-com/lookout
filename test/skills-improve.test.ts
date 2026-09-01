@@ -203,6 +203,7 @@ describe("replaying a candidate", () => {
     shotId: "s1",
     category: category as AiFinding["category"],
     attribute: "whatever",
+    region: "content",
     severity: "high",
     title: "t",
     problem: "p",

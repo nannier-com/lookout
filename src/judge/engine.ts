@@ -10,6 +10,7 @@
 import { LookoutError, type Severity, type ShotRecord } from "../types.js";
 import { renderSkill } from "../skills/load.js";
 import { recordIncident } from "../skills/incidents.js";
+import { parseRegion, type Region } from "../backlog/region.js";
 import { CATEGORIES, SEVERITIES, type Category } from "./rubric.js";
 
 import { extractJson, invokeClaude } from "./claude.js";
@@ -19,6 +20,12 @@ export interface AiFinding {
   shotId: string;
   category: Category;
   attribute: string;
+  /**
+   * Which part of the frame the defect lives in. Never trusted blindly: an
+   * unknown or missing value degrades to "content", the route-scoped default,
+   * because a mangled region must cost precision, not the finding.
+   */
+  region: Region;
   severity: Severity;
   title: string;
   problem: string;
@@ -49,10 +56,17 @@ export interface JudgeBatchResult {
 }
 
 export interface PriorFinding {
+  /**
+   * The shot the defect is open on, or "*" for one that is open everywhere:
+   * a shell finding belongs to the application's frame rather than to any
+   * view, so its name has to travel to every batch or each route's call would
+   * re-mint it under a fresh attribute and split the issue.
+   */
   shotId: string;
   category: string;
   attribute: string;
   title: string;
+  region?: Region;
 }
 
 export interface JudgeContext {
@@ -112,9 +126,13 @@ export function buildJudgePrompt(
   // makes the first one look drift-resolved. Showing the judge the name a defect
   // already has costs a few lines and keeps one defect one issue.
   const known = new Set(shots.map((s) => s.id));
-  const prior = (ctx.prior ?? []).filter((p) => known.has(p.shotId));
+  const local = (ctx.prior ?? []).filter((p) => known.has(p.shotId));
+  // Shell defects are open everywhere at once, so their names reach every
+  // batch. Without this, a route that also shows the defect re-mints it under
+  // a fresh attribute, and the one-identity collapse never fuses.
+  const cross = (ctx.prior ?? []).filter((p) => p.shotId === "*");
   const priorFindings =
-    prior.length === 0
+    local.length === 0 && cross.length === 0
       ? ""
       : [
           "=== ALREADY FILED ON THESE VIEWS ===",
@@ -122,9 +140,19 @@ export function buildJudgePrompt(
           "the SAME category and attribute so it is recognised as the same defect and",
           "not a new one. If it is gone, just leave it out; absence is how a fix is",
           "reported. This list is not a claim that these are still there.",
-          ...prior.map(
+          ...local.map(
             (p) => `- ${p.shotId}  [${p.category}/${p.attribute}] ${p.title.slice(0, 120)}`,
           ),
+          ...(cross.length > 0
+            ? [
+                "Also open elsewhere in this application. If the same defect is visible",
+                "in these views, file it with the SAME category, attribute and region:",
+                ...cross.map(
+                  (p) =>
+                    `- ${p.region ?? "content"}  [${p.category}/${p.attribute}] ${p.title.slice(0, 120)}`,
+                ),
+              ]
+            : []),
           "=== END ALREADY FILED ===",
         ].join("\n");
 
@@ -186,6 +214,10 @@ export async function judgeBatch(
   const known = new Set(shots.map((s) => s.id));
   const findings: AiFinding[] = [];
   const rejected: { reason: string; raw: unknown }[] = [];
+  // Counted rather than rejected: a region outside the closed set degrades to
+  // "content" so the finding survives, but a judge that keeps mangling the
+  // field is a contract failure worth one incident per batch, not silence.
+  let badRegions = 0;
   const obj = parsed as { findings?: unknown; cleanShotIds?: unknown };
   const rawFindings = Array.isArray(obj.findings) ? obj.findings : [];
   for (const f of rawFindings) {
@@ -193,6 +225,8 @@ export async function judgeBatch(
     const category = String(r.category ?? "");
     const severity = String(r.severity ?? "");
     const shotId = String(r.shotId ?? "");
+    const region = parseRegion(r.region);
+    if (region === undefined) badRegions++;
     if (!(CATEGORIES as readonly string[]).includes(category)) {
       rejected.push({ reason: `unknown category "${category}"`, raw: f });
       continue;
@@ -209,6 +243,7 @@ export async function judgeBatch(
       shotId,
       category: category as Category,
       attribute: kebab(String(r.attribute ?? "general")),
+      region: region ?? "content",
       severity: severity as Severity,
       title: String(r.title ?? "").slice(0, 200),
       problem: String(r.problem ?? "").slice(0, 1500),
@@ -244,6 +279,16 @@ export async function judgeBatch(
       message:
         `${unaccounted.length} shot(s) appeared in neither findings nor cleanShotIds: ` +
         unaccounted.join(", ").slice(0, 300),
+      project,
+    });
+  }
+
+  if (badRegions > 0) {
+    recordIncident({
+      at: new Date().toISOString(),
+      kind: "judge-rejected",
+      verb: "check",
+      message: `${badRegions} finding(s) arrived with a missing or unknown region; defaulted to content`,
       project,
     });
   }

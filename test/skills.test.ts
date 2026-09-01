@@ -117,10 +117,13 @@ describe("loadRubric composes the judge prompt", () => {
 
   test("a learned amendment and a hand-written rule both land, the hand-written one last", async () => {
     const resolved = project();
-    amend(resolved, "visual-judge", "---\nname: visual-judge\nversion: 4\n---\n\nLearned: ignore the loader.\n");
+    // A higher amendment version wins over the shipped base; the fixture rides
+    // above whatever the base currently is, so a base bump does not silently
+    // turn this into a test of the base.
+    amend(resolved, "visual-judge", "---\nname: visual-judge\nversion: 9\n---\n\nLearned: ignore the loader.\n");
     resolved.config.neverFile = ["Hand-written: ignore the footer."];
     const rubric = await loadRubric(resolved);
-    expect(rubric.version).toBe(4);
+    expect(rubric.version).toBe(9);
     expect(rubric.text.indexOf("Learned: ignore the loader.")).toBeLessThan(
       rubric.text.indexOf("Hand-written: ignore the footer."),
     );

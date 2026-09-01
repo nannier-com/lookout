@@ -57,6 +57,7 @@ afterEach(() => {
   delete process.env.MOCK_MODE;
   delete process.env.MOCK_SKIP_LAST;
   delete process.env.MOCK_JUDGE_CATEGORY;
+  delete process.env.MOCK_JUDGE_REGION;
 });
 
 describe("extractJson", () => {
@@ -299,6 +300,42 @@ describe("judgeBatch through the mock binary", () => {
     );
     expect(res.findings.map((f) => f.category)).toEqual(["composition"]);
     delete process.env.MOCK_JUDGE_CATEGORY;
+    delete process.env.LOOKOUT_CLAUDE_BIN;
+  });
+
+  test("a shell region is carried; a missing one degrades to content", async () => {
+    // The mock's first finding names a region from the env; its second (the
+    // rejected-category one) carries none, so the default path runs in the
+    // same reply. A mangled region must cost precision, never the finding.
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    process.env.MOCK_MODE = "judge";
+    process.env.MOCK_JUDGE_REGION = "shell-nav";
+    const res = await judgeBatch(
+      rubric.text,
+      "proj",
+      [shot("web/app/x/rest/desktop/dark")],
+      "/tmp",
+      "sonnet",
+    );
+    expect(res.findings.map((f) => f.region)).toEqual(["shell-nav"]);
+    delete process.env.MOCK_JUDGE_REGION;
+    delete process.env.LOOKOUT_CLAUDE_BIN;
+  });
+
+  test("an unknown region keeps the finding and lands as content", async () => {
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    process.env.MOCK_MODE = "judge";
+    process.env.MOCK_JUDGE_REGION = "sidebar";
+    const res = await judgeBatch(
+      rubric.text,
+      "proj",
+      [shot("web/app/x/rest/desktop/dark")],
+      "/tmp",
+      "sonnet",
+    );
+    expect(res.findings.length).toBe(1);
+    expect(res.findings[0]!.region).toBe("content");
+    delete process.env.MOCK_JUDGE_REGION;
     delete process.env.LOOKOUT_CLAUDE_BIN;
   });
 

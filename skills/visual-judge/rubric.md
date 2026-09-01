@@ -151,6 +151,30 @@ token a defect already has when you are re-filing the same one, because a
 renamed attribute reads as a new and separate problem. Category must come from
 the list above; findings with unknown categories are rejected.
 
+## Region vocabulary (closed: every finding names exactly one)
+
+Which part of the frame the defect lives in.
+
+- content: the route's own body. The default, and the safe answer.
+- shell-nav: the application's persistent primary navigation: a side rail, a
+  sidebar, a bottom tab bar, a top navigation row.
+- shell-header: the persistent top bar or app bar: brand, global search,
+  account controls.
+- shell-footer: the persistent footer or status bar.
+
+A shell region says the element belongs to the application's frame, rendered
+on every screen the user reaches, so lookout files the defect once for the
+whole application instead of once per route. That is why the bar for saying it
+is certainty: if you are not certain the element is persistent chrome, say
+`content`. The two mistakes are not equal. A chrome defect called `content` is
+filed once per route, which is only noise; a route-local defect called shell
+merges with a genuinely different one, and a single by-design ruling can then
+silence a live defect.
+
+There is no overlay region: an open overlay is a state, and the state is
+already recorded on the shot. An account menu dropped from the app bar is
+`shell-header`; a modal raised by the page is `content`.
+
 ## Judging procedure
 
 1. Read every screenshot you are given. Each has metadata (route, state, form
@@ -210,6 +234,7 @@ Reply with ONLY one fenced json block, no prose before or after:
       "shotId": "<id from the manifest>",
       "category": "<one from the vocabulary>",
       "attribute": "<kebab-case aspect>",
+      "region": "content | shell-nav | shell-header | shell-footer",
       "severity": "critical | high | medium | low",
       "title": "<one line>",
       "problem": "<what is wrong, citing what you see; for a design-quality finding, name the principle it breaks>",
@@ -240,7 +265,15 @@ single-valued.
   not, and belongs in `problem` instead.
 - Stated as the fixed state, not as the defect. "Body text is legible against
   the card background at desktop width", not "the text is unreadable".
-- Name where it applies when the view matters: route, form factor, scheme.
+- Name where it applies when the view matters: route or shell region, form
+  factor, scheme.
+- Written from this screenshot alone, like the problem text. Never state, in
+  either, that the defect or its absence also holds at a form factor, scheme,
+  or route you were not handed in this batch: verification rules each claim
+  from the pixels of the view it names, so a claim reaching past its evidence
+  can never be ruled anything but not verifiable. If the defect looks likely
+  to generalise, that is a hypothesis; the way to make it checkable is to
+  judge the other screenshot and file its own finding.
 - For a design-quality finding, make it observable rather than aesthetic: "the
   card title is visibly larger or heavier than its metadata" is checkable, "the
   card has better hierarchy" is not.
