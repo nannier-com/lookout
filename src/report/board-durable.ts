@@ -93,7 +93,9 @@ export function asBoardShot(resolved: ResolvedConfig, id: string, f: Frame): Boa
     scheme: f.scheme,
     ...(f.state ? { state: f.state } : {}),
     ...(f.at ? { at: f.at } : {}),
-    ...sidecarOf(evidenceDir(resolved), path),
+    // No sidecar detection for frames: they are copies served from outside
+    // the evidence root, so a sidecar path derived here would never resolve
+    // through /evidence/*. The live tile is where the inspector lives.
   };
 }
 

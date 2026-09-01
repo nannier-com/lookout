@@ -154,6 +154,43 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
     utimesSync(path, EVIDENCE_MTIME, EVIDENCE_MTIME);
   }
 
+  // A provenance sidecar for the dark shot only, its boxes hugging the exact
+  // rectangles shot() draws, so the inspector's overlay can be judged by eye
+  // in the captured views: one element with a full chain and file:line, one
+  // with a component only, one with only a cssPath. The light shot stays
+  // sidecar-less on purpose: the no-provenance path must stay on the board.
+  const sidecar = {
+    version: 1,
+    shotId: "web/app/root/rest/desktop/dark",
+    shotHash: "h1",
+    origin: "document",
+    devicePixelRatio: 1,
+    viewport: { width: 1280, height: 900 },
+    scroll: { x: 0, y: 0 },
+    document: { width: 1280, height: 900 },
+    originBox: { x: 0, y: 0, w: 1280, h: 900 },
+    image: { width: 1280, height: 900 },
+    truncated: false,
+    resolved: {},
+    elements: [
+      { tag: "h1", id: "title", testid: null, role: null, classes: [], text: "Quarterly numbers",
+        cssPath: "#title", landmark: false, box: { x: 40, y: 140, w: 520, h: 34 },
+        components: ["Heading", "Page"], source: { file: "src/components/Heading.tsx", line: 12 } },
+      { tag: "p", id: null, testid: "intro", role: null, classes: [], text: "The first paragraph",
+        cssPath: "main > p:nth-of-type(1)", landmark: false, box: { x: 40, y: 200, w: 900, h: 18 },
+        components: ["Intro"] },
+      { tag: "p", id: null, testid: null, role: null, classes: [], text: null,
+        cssPath: "main > p:nth-of-type(2)", landmark: false, box: { x: 40, y: 232, w: 820, h: 18 },
+        components: [] },
+      { tag: "div", id: "card", testid: null, role: null, classes: ["panel"], text: null,
+        cssPath: "#card", landmark: false, box: { x: 40, y: 300, w: 300, h: 120 },
+        components: [] },
+    ],
+  };
+  const scPath = join(ev, "web", "app", "root", "rest--desktop-dark.png.provenance.json");
+  writeFileSync(scPath, JSON.stringify(sidecar, null, 2));
+  utimesSync(scPath, EVIDENCE_MTIME, EVIDENCE_MTIME);
+
   // The settled issue's own views, and the frames frozen either side of the fix
   // that closed it. The open issue has a pre-fix frame and no post-fix one,
   // which is what an issue nobody has fixed yet looks like; the intentional one

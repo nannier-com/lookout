@@ -85,9 +85,16 @@ async function shots(label: string): Promise<void> {
   await view(browser, out, "learning-dark", "dark", 1440, 950, (p) => p.click('[data-view="learning"]'), problems);
   await view(browser, out, "learning-light", "light", 1440, 950, (p) => p.click('[data-view="learning"]'), problems);
   await view(browser, out, "learning-narrow", "dark", 430, 900, (p) => p.click('[data-view="learning"]'), problems);
-  // The shot inspector, opened on the first tile. Deterministic because the
-  // hint is painted on open and hover is never involved.
-  const openTile = (p: Page): Promise<void> => p.click("a.tile[data-shot]");
+  // The shot inspector over the one fixture shot that carries a sidecar: the
+  // archived card's live tile (cards with frozen frames show the frames,
+  // which are copies and never advertise). Deterministic because the hint is
+  // painted on open and a box is clicked rather than hovered.
+  const openTile = async (p: Page): Promise<void> => {
+    await p.click('button.stat[data-value="archived"]');
+    await p.click("a.tile[data-prov]");
+    await p.waitForTimeout(400);
+    await p.click('.svbox[aria-label*="Heading.tsx"]');
+  };
   await view(browser, out, "shot-overlay-dark", "dark", 1440, 950, openTile, problems);
   await view(browser, out, "shot-overlay-light", "light", 1440, 950, openTile, problems);
   await view(browser, out, "shot-overlay-narrow", "dark", 430, 900, openTile, problems);
@@ -235,26 +242,60 @@ async function drive(): Promise<number> {
   check("issues area comes back", await page.locator("#viewIssues").isVisible());
 
   // The shot inspector: a plain click on any tile opens the lightbox instead
-  // of navigating; a modified click keeps the anchor's own behavior.
-  const firstTile = page.locator("a.tile[data-shot]").first();
+  // of navigating; a modified click keeps the anchor's own behavior. The
+  // sidecar-carrying tile is the archived card's live strip (frames are
+  // copies and never advertise), so the filter comes first.
   check("tiles carry the inspector's data", (await page.locator("a.tile[data-shot]").count()) > 0);
-  check("tiles keep their evidence href", ((await firstTile.getAttribute("href")) ?? "").startsWith("/evidence/"));
-  await firstTile.click();
-  await page.waitForTimeout(600);
+  await page.click('button.stat[data-value="archived"]');
+  await page.waitForTimeout(1200);
+  const provTile = page.locator("a.tile[data-prov]").first();
+  check("the fixture advertises one sidecar", (await page.locator("a.tile[data-prov]").count()) > 0);
+  check("tiles keep their evidence href", ((await provTile.getAttribute("href")) ?? "").startsWith("/evidence/"));
+  await provTile.click();
+  await page.waitForTimeout(800);
   check("clicking a tile opens the inspector", await page.locator("#shotview").isVisible());
   check(
     "the inspector loads the full image",
     await page.locator("#svImg").evaluate((n) => (n as HTMLImageElement).naturalWidth > 0),
   );
+  check("every projectable element gets a box", (await page.locator(".svbox").count()) === 4);
+  await page.click('.svbox[aria-label*="Heading.tsx"]');
   check(
-    "a shot without provenance says so",
-    ((await page.locator("#svHint").textContent()) ?? "").includes("no provenance recorded"),
+    "pinning a box names its component and source",
+    ((await page.locator("#svHint").textContent()) ?? "").includes(
+      "Heading < Page  src/components/Heading.tsx:12  h1#title",
+    ),
+  );
+  await page.click('.svbox[aria-label^="main > p:nth-of-type(2)"]');
+  check(
+    "a box with neither component nor source falls back to its cssPath",
+    ((await page.locator("#svHint").textContent()) ?? "").includes("main > p:nth-of-type(2)"),
   );
   await page.keyboard.press("Escape");
   await page.waitForTimeout(400);
   check("escape closes the inspector", !(await page.locator("#shotview").isVisible()));
-  check("closing it does not disturb the board", (await shown()).join() === before.join());
-  check("and does not set a filter", !(await page.locator("#filterbar").isVisible()));
+  check("closing it leaves the filter alone", await page.locator("#filterbar").isVisible());
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(1200);
+  check("a second escape clears the filter and restores the board", (await shown()).join() === before.join());
+
+  // The light shot deliberately has no sidecar: the inspector still opens as
+  // a plain lightbox and says so, without ever fetching (a 404 would land in
+  // this drive's own console-error net).
+  const bareTile = page.locator("a.tile[data-shot]:not([data-prov])").first();
+  if ((await bareTile.count()) > 0) {
+    await bareTile.click();
+    await page.waitForTimeout(600);
+    check(
+      "a shot without provenance says so",
+      ((await page.locator("#svHint").textContent()) ?? "").includes("no provenance recorded"),
+    );
+    check("and renders no boxes", (await page.locator(".svbox").count()) === 0);
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(300);
+  } else {
+    check("a sidecar-less tile exists to test the bare path", false);
+  }
 
   console.log(problems.length ? `\nPROBLEMS:\n${problems.join("\n")}` : "\nno page or console errors");
   await browser.close();
