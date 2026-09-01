@@ -133,6 +133,7 @@ describe("the live channel", () => {
         at: new Date().toISOString(),
         runId: "r1",
         panel: "judge-geometry",
+        call: "c1",
         kind: "text",
         text: "the second card sits lower than its row",
       }) + "\n",

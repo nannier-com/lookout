@@ -12,6 +12,14 @@
  * scroll position; here the update IS new content at the bottom, arriving
  * several times a second, and rebuilding the whole transcript for each one
  * would throw that scroll position away several times a second.
+ *
+ * Prose grows in the block belonging to the call that wrote it, not in the last
+ * block on the page. A check judges two view groups at once and both reach the
+ * same panel at the same time, so their lines arrive interleaved; appending to
+ * whatever came last would shred two verdicts into one another, and stacking a
+ * new node per fragment would make a hundred paragraphs of one reply. Two
+ * blocks that each grow in place is what the reader wants and what the data
+ * actually is.
  */
 import { el, esc } from "./dom.js";
 import type { NarrationFrame, NarrationLine } from "../narration.js";
@@ -30,18 +38,18 @@ function pinned(log: HTMLElement): boolean {
 }
 
 /**
- * A judge writes its verdict as one long delta stream, so consecutive prose
- * from the same judge is grown in place rather than stacked into a hundred
- * paragraphs. A tool call or a change of judge ends the run of it.
+ * The paragraph each call in flight is still writing into.
+ *
+ * Keyed by call rather than by judge, because two calls to one judge run at the
+ * same time. Entries are dropped when the call closes and are re-checked for
+ * being on the page at all, since the cap below removes nodes from the top.
  */
-let openProse: HTMLElement | null = null;
-let openPanel = "";
+const prose = new Map<string, HTMLElement>();
 
 /** Throw away what is shown: a new run, or a page that has lost its place. */
 export function clearTranscript(): void {
   el("streamLog").textContent = "";
-  openProse = null;
-  openPanel = "";
+  prose.clear();
   paintHead(null);
 }
 
@@ -58,22 +66,28 @@ export function addNarration(frame: NarrationFrame): void {
 }
 
 function append(log: HTMLElement, line: NarrationLine): void {
-  if (line.kind === "text" && openProse && line.panel === openPanel) {
-    openProse.textContent += line.text;
+  if (line.kind === "close") {
+    prose.delete(line.call);
     return;
   }
-  openProse = null;
-  if (line.kind === "close") return;
+  if (line.kind === "text") {
+    const growing = prose.get(line.call);
+    // `isConnected` because the cap removes nodes from the top of the log, and a
+    // long call's paragraph can be evicted while the call is still writing.
+    if (growing?.isConnected) {
+      growing.textContent += line.text;
+      return;
+    }
+  }
+  // A tool call is a landmark, so it ends the paragraph it interrupts.
+  if (line.kind === "tool") prose.delete(line.call);
   const node = document.createElement("div");
   node.className = `sl ${line.kind}`;
   if (line.kind === "open") {
     node.innerHTML = `<b>${esc(line.panel)}</b> ${esc(line.text)}`;
-  } else if (line.kind === "tool") {
-    node.textContent = line.text;
   } else {
     node.textContent = line.text;
-    openProse = node;
-    openPanel = line.panel;
+    if (line.kind === "text") prose.set(line.call, node);
   }
   log.append(node);
 }

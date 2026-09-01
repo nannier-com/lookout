@@ -334,24 +334,27 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
     );
   }
 
-  // A judge mid-sentence, so the transcript rail has something in it. The rail
-  // is a region of the page like any other, and a fixture that left it empty
-  // would gate everything except the part that changes most often.
+  // Two judges mid-sentence, interleaved, because that is what a real run looks
+  // like: two workers judge two view groups at once and reach the same panel at
+  // the same time. A fixture that showed one call at a time would gate the rail
+  // without gating the case the rail was hardest to get right.
   writeFileSync(
     join(ev, "narration.jsonl"),
     [
-      { panel: "judge-integrity", kind: "open", text: "judging 6 shot(s)" },
-      { panel: "judge-integrity", kind: "tool", text: "Read web/app/root/rest/desktop/dark" },
-      { panel: "judge-integrity", kind: "tool", text: "Read web/app/root/rest/phone/light" },
+      { call: "cA", panel: "judge-integrity", kind: "open", text: "app/ · 6 shot(s)" },
+      { call: "cB", panel: "judge-integrity", kind: "open", text: "app/settings · 6 shot(s)" },
+      { call: "cA", panel: "judge-integrity", kind: "tool", text: "Read web/app/root/rest/desktop/dark" },
+      { call: "cB", panel: "judge-integrity", kind: "tool", text: "Read web/app/settings/rest/desktop/dark" },
+      { call: "cA", panel: "judge-integrity", kind: "text", text: '```json\n{"findings":[],"cleanShotIds":' },
+      { call: "cB", panel: "judge-integrity", kind: "text", text: "Nothing here is broken; the page renders " },
+      { call: "cA", panel: "judge-integrity", kind: "text", text: '["web/app/root/rest/desktop/dark"]}\n```' },
+      { call: "cB", panel: "judge-integrity", kind: "text", text: "and every control is where it says it is." },
+      { call: "cA", panel: "judge-integrity", kind: "close", text: "" },
+      { call: "cB", panel: "judge-integrity", kind: "close", text: "" },
+      { call: "cC", panel: "judge-geometry", kind: "open", text: "app/ · 6 shot(s)" },
+      { call: "cC", panel: "judge-geometry", kind: "tool", text: "Read web/app/root/rest/desktop/light" },
       {
-        panel: "judge-integrity",
-        kind: "text",
-        text: '```json\n{"findings":[],"cleanShotIds":["web/app/root/rest/desktop/dark"]}\n```',
-      },
-      { panel: "judge-integrity", kind: "close", text: "" },
-      { panel: "judge-geometry", kind: "open", text: "judging 6 shot(s)" },
-      { panel: "judge-geometry", kind: "tool", text: "Read web/app/root/rest/desktop/light" },
-      {
+        call: "cC",
         panel: "judge-geometry",
         kind: "text",
         text:
