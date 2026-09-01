@@ -180,7 +180,11 @@ export async function renderIssueDocument(
   for (const d of cluster.defects) {
     l.push(`### ${d.title}`, "");
     l.push(`- **severity** ${d.severity}`, `- **rule** ${cluster.category}/${d.attribute}`, "");
-    if (d.problem) l.push(d.problem, "");
+    // A finding filed before lookout explained its own checks carries a problem
+    // that is its title again, and printing it made this section the same
+    // sentence three times over. The next capture replaces it with the real
+    // explanation; until then, saying it once is the honest rendering.
+    if (d.problem && d.problem.trim() !== d.title.trim()) l.push(d.problem, "");
   }
   if (cluster.expected) l.push("**Expected**", "", cluster.expected, "");
   if (cluster.observed) l.push("**Observed**", "", cluster.observed, "");
@@ -256,7 +260,12 @@ export async function renderIssueDocument(
         const abs = isAbsolute(r.file) ? r.file : join(resolved.projectDir, r.file);
         if (existsSync(abs)) at = `  (${abs}${r.line ? `:${r.line}` : ""})`;
       }
-      const line = `- ${r.component ?? r.cssPath}${at}`;
+      // The component name alone is often a provider or a wrapper, which tells
+      // somebody reading the ticket nothing about which element on screen the
+      // check actually fired on. The path through the page does, so it is
+      // printed underneath whenever it says something the name did not.
+      const head = `- ${r.component ?? r.cssPath}${at}`;
+      const line = r.component && r.cssPath ? `${head}\n  in the page at \`${r.cssPath}\`` : head;
       rendered.set(line, line);
     }
     if (rendered.size > 0) {
@@ -268,6 +277,9 @@ export async function renderIssueDocument(
         "the fix belongs.",
         "",
         ...rendered.values(),
+        // Without this the next heading is welded to the last list item and
+        // markdown renders the two as one paragraph.
+        "",
       );
     }
   }

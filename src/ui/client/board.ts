@@ -113,6 +113,22 @@ function paths(b: BoardEntry): string {
 
 // The judge's own words for every defect grouped under this root cause. A
 // summary of them would be lookout paraphrasing its own evidence.
+// The problem text is written in two parts, the half a person reads and the
+// half an agent acts on, separated by a blank line. HTML collapses that, so it
+// is split back into the paragraphs it was written as. A problem that is only
+// its own title again (a finding filed before lookout explained its own checks,
+// and not re-captured since) is dropped rather than printed directly under the
+// heading it repeats.
+function problemHtml(problem: string, title: string): string {
+  const text = (problem || "").trim();
+  if (!text || text === (title || "").trim()) return "";
+  return text.split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => '<p class="problem">' + esc(p) + '</p>')
+    .join("");
+}
+
 function defects(b: BoardEntry): string {
   const list = b.defects || [];
   if (!list.length) return "";
@@ -120,7 +136,7 @@ function defects(b: BoardEntry): string {
     '<div class="defect ' + esc(d.severity) + '">'
     + '<div class="dtitle">' + esc(d.title) + '</div>'
     + (list.length > 1 ? '<div class="dattr">' + esc(d.attribute) + '</div>' : '')
-    + (d.problem ? '<p class="problem">' + esc(d.problem) + '</p>' : '')
+    + problemHtml(d.problem, d.title)
     + '</div>').join("");
   return '<div class="evi"><h4>What is wrong'
     + (list.length > 1 ? ' <span class="n">' + list.length + ' defects</span>' : '')

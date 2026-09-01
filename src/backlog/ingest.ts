@@ -7,6 +7,7 @@
  * mapped here, and nowhere else, so the backlog only ever sees one shape and
  * the fingerprint means the same thing whichever channel produced it.
  */
+import { explainDeterministic } from "./explain.js";
 import { fingerprintOf, sourceFingerprintOf } from "./fingerprint.js";
 import { regionFromSelectors } from "./region.js";
 import type { AiFinding } from "../judge/engine.js";
@@ -113,9 +114,10 @@ export function deterministicToFindings(
         attribute,
         severity: severityFromDeterministic(df),
         title: df.message.slice(0, 160),
-        problem: df.message,
-        expected: "",
-        observed: "",
+        // The title is the check's message; the prose is the explanation of it.
+        // These were once the same string, which is how a ticket came to print
+        // its own heading as the whole of what was wrong.
+        ...explainDeterministic(df),
         channel: "deterministic",
         confidence: "high",
         verified: true,

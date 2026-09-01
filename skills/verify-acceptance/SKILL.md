@@ -1,7 +1,7 @@
 ---
 name: verify-acceptance
 description: Extract the checkable criteria from a ticket and rule on each one strictly from captured screenshots, never on faith.
-version: 2
+version: 3
 output: criteria-verdicts-v1
 ---
 
@@ -30,6 +30,8 @@ Never rule pass on faith: no evidence means not-verifiable, not pass.
 Step 4: where you see an easy improvement related to a criterion (visual or
 UX), add a one-line suggestion. Suggestions are optional and never affect
 verdicts.
+
+{{include:audience.md}}
 
 {{amendments}}
 

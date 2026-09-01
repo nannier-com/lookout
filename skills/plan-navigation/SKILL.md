@@ -1,7 +1,7 @@
 ---
 name: plan-navigation
 description: Curate which of a route's interactive affordances lookout should actuate and photograph, naming each captured state, classifying its risk, and routing already-covered link clicks to verification.
-version: 1
+version: 2
 output: navigation-plan-v1
 ---
 
@@ -16,6 +16,8 @@ and expanded panels a rest screenshot never shows, and the pages the route's
 calls to action lead to. Everything you plan will be clicked; your judgement
 decides what is worth photographing, what only needs verifying, and in what
 order the risky clicks come.
+
+{{include:audience.md}}
 
 {{amendments}}
 

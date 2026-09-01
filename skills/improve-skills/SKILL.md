@@ -1,7 +1,7 @@
 ---
 name: improve-skills
 description: Read what lookout got wrong in its own runs and write the amendment to the skill that would have prevented it.
-version: 2
+version: 3
 output: skill-amendment-v1
 ---
 
@@ -23,6 +23,8 @@ project has actually taught it.
 
 {{amendments}}
 
+{{include:audience.md}}
+
 ## What makes a good amendment
 
 - **Grounded.** Every rule you write must trace to specific signals below, and
@@ -38,9 +40,21 @@ project has actually taught it.
   value in either is a rule that silently discards or mislabels work. Both
   vocabularies are part of every finding's identity, and only lookout's own
   code may change their shape.
-- **Written to be read by the model doing the work**, in the same voice as the
-  skill it joins: direct, specific, and about what to do rather than about why
-  the amendment exists. Put the why in `summary`, not in the amendment body.
+- **Written to be read by the model doing the work AND by the person auditing
+  it**, in the same voice as the skill it joins: direct, specific, and about
+  what to do rather than about why the amendment exists. Put the why in
+  `summary`, not in the amendment body. Somebody will read this rule months
+  from now while trying to understand why lookout judged their screen the way
+  it did, so it has to make sense to a reader who was not here when the
+  signals came in: name the thing rather than a label for it, and say what a
+  person would see on screen, not only what to file.
+- **Never weakens the two-audience rule.** Every skill is governed by the
+  audience section above: the prose lookout produces is read by an agent that
+  will act on it and by a person deciding whether to believe it. An amendment
+  that tells a skill to be terser, to lean on rule ids or category names
+  instead of plain description, or to write only what an agent needs, is a
+  regression however well the signals support the judgement underneath it.
+  Amend what gets filed, not whether it stays understandable.
 - **Small.** A handful of rules. If the signals do not support one, say so with
   an empty amendment rather than inventing something to say.
 

@@ -222,6 +222,17 @@ export async function runAxe(
       nodeCount: v.nodes.length,
       targets: v.nodes.slice(0, 3).map((n) => n.target.join(" ")),
       helpUrl: v.helpUrl,
+      // axe says the same thing at three lengths and lookout used to keep only
+      // the shortest, which is why an accessibility ticket could read as its
+      // own title repeated. `description` is the sentence a person can follow,
+      // and `failureSummary` is axe's own account of what to change on this
+      // element. Both are needed to write a ticket somebody can act on without
+      // already knowing the rule.
+      description: v.description,
+      failureSummary: v.nodes
+        .slice(0, 3)
+        .map((n) => n.failureSummary?.trim())
+        .filter((s): s is string => Boolean(s)),
     },
   }));
 }

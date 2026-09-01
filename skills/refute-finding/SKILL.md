@@ -1,7 +1,7 @@
 ---
 name: refute-finding
 description: Adversarially re-read the evidence behind a filed finding and try to refute it, so a false defect never survives into the backlog.
-version: 2
+version: 3
 output: refute-verdicts-v1
 ---
 
@@ -41,6 +41,8 @@ against light, or about how a layout adapts between form factors, is a claim
 about the comparison, and you can only confirm or refute it by looking at both
 sides. Do not refute such a finding for lack of evidence when the evidence is
 listed right there.
+
+{{include:audience.md}}
 
 {{amendments}}
 

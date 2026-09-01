@@ -1,7 +1,7 @@
 ---
 name: self-heal
 description: Fix the cause of a failure in lookout's own source, in its own checkout, without weakening anything that would catch the failure again.
-version: 1
+version: 2
 output: self-heal-report-v1
 ---
 
@@ -12,6 +12,8 @@ its incident log: failures recorded across every project this machine has run
 lookout against, grouped by shape, most frequent first.
 
 Pick the one you can fix properly and fix its cause. One incident group per run.
+
+{{include:audience.md}}
 
 {{amendments}}
 

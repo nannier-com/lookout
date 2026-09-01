@@ -1,7 +1,7 @@
 ---
 name: judge-craft
 description: The craft panel of lookout's visual judge, ruling on hierarchy, composition, and consistency: the principles only a whole view can break.
-version: 1
+version: 2
 output: judge-findings-v2
 ---
 
@@ -19,5 +19,9 @@ output: judge-findings-v2
 - consistency: the same element rendered differently in the same view with no
   reason: two button treatments in one toolbar, mixed corner treatments in one
   card row, icons that plainly come from two families.
+
+Whatever you file from this list, write its `problem` for both readers: the
+sentence a person who has never seen this screen would recognise, then the
+precise statement an agent can act on. The audience section above is the rule.
 
 {{amendments}}

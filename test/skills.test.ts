@@ -14,7 +14,8 @@ import {
   writeLayer,
 } from "../src/skills/load.js";
 import { SKILL_NAMES } from "../src/verbs/skills.js";
-import { loadRubric } from "../src/judge/rubric.js";
+import { loadJudges, loadRubric } from "../src/judge/rubric.js";
+import { PANELS } from "../src/judge/panels.js";
 import { tmpProject } from "./tmp-project.js";
 import { LookoutError, type ResolvedConfig } from "../src/types.js";
 
@@ -50,6 +51,48 @@ describe("shipped skills", () => {
 
   test("an unknown skill names the path it looked for", async () => {
     await expect(loadSkill(null, "no-such-skill")).rejects.toThrow(LookoutError);
+  });
+
+  // Every prose lookout produces is read twice, by the agent that acts on it and
+  // by the person deciding whether to believe it. The rule saying so is one
+  // shared file, and this is what stops a skill quietly leaving it out: a new
+  // capability added to SKILL_NAMES fails here until it includes the rule.
+  test("every skill carries the two-audience rule", async () => {
+    // A judge panel is a category vocabulary composed into judge-core's
+    // {{panel}} slot, never a prompt of its own, so it carries the one-line
+    // pointer and inherits the rule itself from the core. Everything else is a
+    // whole prompt and includes the shared file. The partition is read from the
+    // panel registry rather than copied, so a panel added there is covered.
+    const panels = new Set<string>(PANELS.map((p) => p.name));
+    for (const name of SKILL_NAMES) {
+      const skill = await loadSkill(null, name);
+      expect(skill.text).not.toContain("{{include:");
+      const marker = panels.has(name) ? "for both readers" : "## Who reads what you write";
+      expect({ name, carries: skill.text.includes(marker) }).toEqual({ name, carries: true });
+    }
+  });
+
+  // The six judge panels are category vocabularies composed into judge-core's
+  // {{panel}} slot rather than prompts of their own, so the rule reaches them
+  // through the core. Pasting it into each would put the same page of text into
+  // one prompt seven times; this asserts the composition delivers it instead.
+  test("every composed judge panel carries it too", async () => {
+    const resolved = project();
+    const judges = await loadJudges(resolved);
+    expect(judges.length).toBeGreaterThan(0);
+    for (const j of judges) {
+      expect({ panel: j.def.name, carries: j.text.includes("## Who reads what you write") })
+        .toEqual({ panel: j.def.name, carries: true });
+    }
+  });
+
+  // The shared directory is a fallback, not an override: a skill that ships its
+  // own copy of an included file gets its own copy.
+  test("a skill's own include wins over the shared one", async () => {
+    const skill = await loadSkill(null, "judge-core");
+    // rubric.md lives in judge-core's own directory, audience.md only in _shared.
+    expect(skill.text).toContain("## Category vocabulary");
+    expect(skill.text).toContain("## Who reads what you write");
   });
 });
 

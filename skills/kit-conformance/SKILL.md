@@ -1,7 +1,7 @@
 ---
 name: kit-conformance
 description: Decide whether an application's UI is actually built out of its component kit, or out of look-alikes assembled from raw elements beside it.
-version: 1
+version: 2
 output: kit-conformance-v1
 ---
 
@@ -36,6 +36,8 @@ often. An application is supposed to contain application code. Layout, page
 structure, routing scaffolding, data plumbing and one-off compositions of kit
 components are what an app IS. Flagging those as hand-rolled controls buries
 the real findings under noise nobody will read twice.
+
+{{include:audience.md}}
 
 {{amendments}}
 

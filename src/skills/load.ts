@@ -53,6 +53,18 @@ export function shippedSkillDir(name: string): string {
 }
 
 /**
+ * Where material every skill includes lives.
+ *
+ * Not a skill: nothing invokes it, it has no frontmatter, and it is
+ * deliberately absent from SKILL_NAMES. It exists so a rule that governs every
+ * reply lookout asks for is written once rather than pasted into fifteen
+ * files, where it would drift the first time one of them was edited alone.
+ */
+export function sharedSkillDir(): string {
+  return fileURLToPath(new URL("../../skills/_shared/", import.meta.url));
+}
+
+/**
  * Skills that have been renamed, retired name -> current name.
  *
  * A skill's name is not only a filename here: it is the directory a project's
@@ -191,18 +203,29 @@ function parseVersionField(value: string | undefined, source: string, required: 
 }
 
 /**
- * Resolve `{{include:file.md}}` against the skill's own directory. Long shared
- * material (the rubric) stays its own file so a person can read and amend it
- * without wading through the invocation wrapper around it.
+ * Resolve `{{include:file.md}}`, against the skill's own directory first and
+ * the shared directory second. Long material (the rubric) stays its own file
+ * so a person can read and amend it without wading through the invocation
+ * wrapper around it; the shared fallback is what lets a rule that governs
+ * every skill be one file rather than fifteen copies.
+ *
+ * Own-directory-first is the precedence on purpose: a skill that needs its own
+ * version of a shared file can have one by putting it next to its SKILL.md,
+ * and nothing shared can quietly override what a skill ships itself.
  */
 async function resolveIncludes(body: string, dir: string, source: string): Promise<string> {
   const includes = [...body.matchAll(/\{\{include:([A-Za-z0-9._-]+)\}\}/g)];
+  const shared = sharedSkillDir();
   let out = body;
   for (const m of includes) {
     const file = m[1]!;
-    const path = join(dir, file);
+    const own = join(dir, file);
+    const path = existsSync(own) ? own : join(shared, file);
     if (!existsSync(path)) {
-      throw new LookoutError(`${source} includes ${file}, which does not exist`, `looked in ${dir}`);
+      throw new LookoutError(
+        `${source} includes ${file}, which does not exist`,
+        `looked in ${dir} and ${shared}`,
+      );
     }
     out = out.replace(m[0], (await readFile(path, "utf8")).trimEnd());
   }

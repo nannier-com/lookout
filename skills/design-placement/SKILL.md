@@ -1,7 +1,7 @@
 ---
 name: design-placement
 description: Work out where a visual defect should be fixed in a project that has a design system: in the kit's component, in the application's use of it, or in the tokens.
-version: 2
+version: 3
 output: placement-verdict-v1
 ---
 
@@ -37,6 +37,8 @@ layout that squeezes it is the application's problem, and "fixing" it in the
 kit changes it for everybody to suit one caller.
 
 Getting this right is the entire value of your answer.
+
+{{include:audience.md}}
 
 {{amendments}}
 

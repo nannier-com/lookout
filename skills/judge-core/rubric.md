@@ -188,8 +188,8 @@ Reply with ONLY one fenced json block, no prose before or after:
       "attribute": "<kebab-case aspect>",
       "region": "content | shell-nav | shell-header | shell-footer",
       "severity": "critical | high | medium | low",
-      "title": "<one line>",
-      "problem": "<what is wrong, citing what you see; for a design-quality finding, name the principle it breaks>",
+      "title": "<one line naming the defect>",
+      "problem": "<two parts in one field, plain sentence first then the precise statement; see below>",
       "expected": "<what correct looks like, per this rubric or visual comparison>",
       "observed": "<what the shot shows>",
       "confidence": "high | medium | low",
@@ -203,6 +203,35 @@ Reply with ONLY one fenced json block, no prose before or after:
 Every shot you were given must appear either in a finding or in cleanShotIds.
 A shot in neither is read as one you did not rule on, and it will be judged
 again rather than trusted. An empty findings array is a valid and common result.
+
+## The problem field carries both readers
+
+`problem` is the field somebody opens the ticket to read. It has two parts and
+they go in this order:
+
+1. **What a person would notice.** One or two sentences a reader who has never
+   seen this screen can follow: what looks wrong, who runs into it, and why it
+   matters to them. No rule ids, no category names, no attribute tokens, no
+   vocabulary from this rubric. If a label is genuinely the clearest way to say
+   it, say what the label means in the same breath.
+2. **The precise statement.** What you actually see, where exactly you see it,
+   and for a design-quality finding the principle it breaks. This is the part
+   an agent acts on, and it is where measurements, element names, and rubric
+   vocabulary belong.
+
+Worked example, for a heading that has been given a smaller step than the text
+beneath it:
+
+> Nothing on this screen reads as its title. "Recent activity" sits above the
+> table in the same size and weight as the rows underneath it, so the eye lands
+> nowhere in particular and a reader skimming has no way to tell where one
+> section ends and the next begins. The heading and the body text are at the
+> same step of the type ramp with no weight difference between them, so rank is
+> never established: hierarchy, typography.
+
+The first half is what makes the ticket usable by a person. The second half is
+what makes it actionable. A `problem` that is the title again, or that names
+the rule and stops, has done neither and will be sent back.
 
 ## Acceptance criteria
 
