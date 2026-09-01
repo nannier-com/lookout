@@ -1,5 +1,55 @@
 # @nannier-com/lookout
 
+## 0.36.2
+
+### Patch Changes
+
+- 91f5e1c: Two readers the evidence move left behind. `backlog merge` read the judge
+  report from the project's old `.lookout/evidence`, where `check` no longer
+  writes it, so a merge from disk silently dropped every AI finding; it now reads
+  the capture workspace under the operator's home, and still adopts a report an
+  older lookout left in the project. `lookout ui` printed that same old path in
+  its "watching" banner, pointing anyone debugging at a directory nothing uses.
+
+## 0.36.1
+
+### Patch Changes
+
+- df57c44: The design-placement judge starts from observed facts: its prompt now carries
+  a "What was rendering there" block built from the defect's provenance
+  sidecars (component chains and source files seen on the running page, hash
+  drift annotated), with instructions to open every named file before trusting
+  it and to fall back to searching when the block is empty. Skill version 2; no
+  ledger or replay consequences, since design-placement sits outside every
+  panel identity and is deliberately ungated.
+
+## 0.36.0
+
+### Minor Changes
+
+- b6968fb: Web capture now records rendering provenance: beside every shot lands a
+  `<shot>.png.provenance.json` sidecar mapping the rendered elements (geometry
+  in document CSS px, ids, test ids, classes, text, CSS paths) to the
+  components and, where the page's dev tooling exposes it, the source files
+  that produced them (React dev fibers, Vue, Svelte, and data-source style
+  attributes; production builds honestly degrade to element identity). The
+  sidecar carries an exact pixel-mapping envelope (origin, scroll, viewport,
+  actual PNG size) that stays correct for element crops and Chromium-clamped
+  tall pages. On by default: the walk is passive, read-only, spends no model
+  money, and a failure never costs the shot; disable with `provenance: false`,
+  a per-route `provenance: false`, or `--no-provenance`. Provenance is not a
+  judge input: it enters no cache identity and no fingerprint.
+
+## 0.35.2
+
+### Patch Changes
+
+- ded2424: ui: header notices render in the notice style again. paintWhere() toggled a
+  class literally named "page.notice", which no stylesheet rule matches, so every
+  notice (a failed run's stderr, a missing config, a pick error) rendered as a
+  quiet rtl-ellipsized path in the path colour. The toggled class is now
+  "notice", matching .where.notice in shell.css: red, ltr, wrapped in full.
+
 ## 0.35.1
 
 ### Patch Changes
