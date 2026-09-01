@@ -22,10 +22,10 @@
  * shipped skills: an upgrade would erase them. Everything lookout learns lands
  * in the project's layer, which is the project's to commit.
  */
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { lookoutDir } from "../config.js";
 import { LookoutError, type ResolvedConfig } from "../types.js";
 
@@ -52,9 +52,98 @@ export function shippedSkillDir(name: string): string {
   return fileURLToPath(new URL(`../../skills/${name}/`, import.meta.url));
 }
 
+/**
+ * Skills that have been renamed, retired name -> current name.
+ *
+ * A skill's name is not only a filename here: it is the directory a project's
+ * own amendments live in, and those are the lessons lookout has learned about
+ * that project and committed to it. Renaming a shipped skill without this map
+ * would leave every one of them in a directory nothing reads again, and the
+ * project would quietly go back to judging by the base rubric.
+ */
+const RENAMED_SKILLS: Record<string, string> = { "visual-judge": "judge-core" };
+
+/**
+ * The directory holding a project's layer for a skill: the one named for it, or
+ * the one named for whatever it used to be called, when only that exists.
+ *
+ * Read-only on purpose. Moving the directory would be a write, and the callers
+ * here include the page, which is a viewer over what is on disk and must not
+ * rewrite the project to render it.
+ */
+export function projectSkillDir(resolved: ResolvedConfig, name: string): string {
+  const root = join(lookoutDir(resolved), "skills");
+  const current = join(root, name);
+  if (existsSync(current)) return current;
+  for (const [retired, renamedTo] of Object.entries(RENAMED_SKILLS)) {
+    if (renamedTo !== name) continue;
+    const legacy = join(root, retired);
+    if (existsSync(legacy)) return legacy;
+  }
+  return current;
+}
+
 /** Where a project's own amendments to a skill live. */
 export function projectSkillPath(resolved: ResolvedConfig, name: string): string {
-  return join(lookoutDir(resolved), "skills", name, "SKILL.md");
+  return join(projectSkillDir(resolved, name), "SKILL.md");
+}
+
+/** Where an amendment nothing could grade waits for a person to read it. */
+export function projectProposalPath(resolved: ResolvedConfig, name: string): string {
+  return join(projectSkillDir(resolved, name), "PROPOSED.md");
+}
+
+/**
+ * Move a project's layer into the directory the skill is called now.
+ *
+ * Private to the writer below, which is the only caller and holds the improve
+ * lock while it runs, so the rename has a single author. It carries the
+ * proposal along with the layer because the whole directory moves, and it is a
+ * no-op for a skill that was never renamed or a project already converged.
+ */
+async function adoptRenamedLayer(resolved: ResolvedConfig, name: string): Promise<void> {
+  const inUse = projectSkillDir(resolved, name);
+  const current = join(lookoutDir(resolved), "skills", name);
+  if (inUse === current) return;
+  await rename(inUse, current);
+}
+
+/**
+ * Write the project's layer for a skill, returning what was there before.
+ *
+ * Beside the paths rather than beside the amendment logic, because reading the
+ * previous layer, adopting a renamed one and writing the new one are all the
+ * same question of where this project's copy of a skill lives.
+ */
+export async function writeLayer(
+  resolved: ResolvedConfig,
+  name: string,
+  body: string,
+  version: number,
+  description: string,
+): Promise<string | null> {
+  const before = existsSync(projectSkillPath(resolved, name))
+    ? await readFile(projectSkillPath(resolved, name), "utf8")
+    : null;
+  await adoptRenamedLayer(resolved, name);
+  const p = projectSkillPath(resolved, name);
+  await mkdir(dirname(p), { recursive: true });
+  const front = ["---", `name: ${name}`, `description: ${description}`, `version: ${version}`, "---", ""].join(
+    "\n",
+  );
+  await writeFile(p, `${front}${body.trimEnd()}\n`);
+  return before;
+}
+
+/** Put back whatever `writeLayer` found, when the gate rejects the candidate. */
+export async function restoreLayer(
+  resolved: ResolvedConfig,
+  name: string,
+  before: string | null,
+): Promise<void> {
+  const p = projectSkillPath(resolved, name);
+  if (before === null) await rm(p, { force: true });
+  else await writeFile(p, before);
 }
 
 interface Parsed {

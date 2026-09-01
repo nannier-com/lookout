@@ -30,7 +30,7 @@ import { lookoutHome } from "../home.js";
 import { activeGroups, healsPath, readHeals } from "../skills/heal-select.js";
 import { loadWatermark, newSignals, seenPath } from "../skills/watermark.js";
 import { DEFAULT_THRESHOLD } from "../skills/auto-improve.js";
-import { loadSkill } from "../skills/load.js";
+import { loadSkill, projectProposalPath } from "../skills/load.js";
 import { loadRegressionSet, regressionManifestPath } from "../skills/regression.js";
 import { bySkill, gatherSignals } from "../skills/signals.js";
 import { historyPath, improveLockPath, SKILL_NAMES } from "../verbs/skills.js";
@@ -181,7 +181,7 @@ async function readSkills(resolved: ResolvedConfig): Promise<SkillState[]> {
   for (const name of SKILL_NAMES) {
     try {
       const skill = await loadSkill(resolved, name);
-      const proposal = join(lookoutDir(resolved), "skills", name, "PROPOSED.md");
+      const proposal = projectProposalPath(resolved, name);
       out.push({
         name: skill.name,
         description: skill.description,

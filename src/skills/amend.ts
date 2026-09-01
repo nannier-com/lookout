@@ -13,13 +13,20 @@
  * the gate exists to prevent.
  */
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { lookoutDir } from "../config.js";
 import { loadBacklog } from "../verbs/backlog.js";
 import { extractJson, invokeClaude } from "../judge/engine.js";
 import { licensedSkills, PANELS } from "../judge/panels.js";
-import { loadSkill, projectSkillPath, renderSkill, type Skill } from "./load.js";
+import {
+  loadSkill,
+  projectProposalPath,
+  projectSkillPath,
+  renderSkill,
+  restoreLayer,
+  writeLayer,
+  type Skill,
+} from "./load.js";
 import { bySkill, gatherSignals, type Signal } from "./signals.js";
 import { loadWatermark, newSignals, stampSeen } from "./watermark.js";
 import { recordIncident } from "./incidents.js";
@@ -77,35 +84,6 @@ async function askForAmendment(
     },
     costUsd: res.costUsd ?? 0,
   };
-}
-
-/** Write the project's layer for a skill, returning what was there before. */
-async function writeLayer(
-  resolved: ResolvedConfig,
-  name: string,
-  body: string,
-  version: number,
-  description: string,
-): Promise<string | null> {
-  const p = projectSkillPath(resolved, name);
-  const before = existsSync(p) ? await readFile(p, "utf8") : null;
-  await mkdir(dirname(p), { recursive: true });
-  const front = [
-    "---",
-    `name: ${name}`,
-    `description: ${description}`,
-    `version: ${version}`,
-    "---",
-    "",
-  ].join("\n");
-  await writeFile(p, `${front}${body.trimEnd()}\n`);
-  return before;
-}
-
-async function restoreLayer(resolved: ResolvedConfig, name: string, before: string | null): Promise<void> {
-  const p = projectSkillPath(resolved, name);
-  if (before === null) await rm(p, { force: true });
-  else await writeFile(p, before);
 }
 
 /**
@@ -208,7 +186,7 @@ async function improve(resolved: ResolvedConfig, model: string, opts: ImproveOpt
     // the gate exists to prevent auto-applying, so it lands as a proposal,
     // never a live layer. (It used to be the one write that skipped the
     // gate entirely.)
-    const proposalPath = join(lookoutDir(resolved), "skills", name, "PROPOSED.md");
+    const proposalPath = projectProposalPath(resolved, name);
     await mkdir(dirname(proposalPath), { recursive: true });
     await writeFile(proposalPath, `# ${name}\n\n${description}\n\n${body.trimEnd()}\n`);
     await record(resolved, {
@@ -262,7 +240,7 @@ async function improve(resolved: ResolvedConfig, model: string, opts: ImproveOpt
         : !panelGradeable
           ? `the frozen set holds no claims in ${amendment.skill}'s categories`
           : `the frozen set cannot exercise ${amendment.skill}`;
-    const p = join(lookoutDir(resolved), "skills", amendment.skill, "PROPOSED.md");
+    const p = projectProposalPath(resolved, amendment.skill);
     await mkdir(dirname(p), { recursive: true });
     await writeFile(p, merged);
     await record(resolved, {

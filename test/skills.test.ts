@@ -4,9 +4,15 @@
 // is the higher of the two (it keys the judge ledger), and a placeholder the
 // caller forgot to fill never reaches the model.
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { fillPlaceholders, loadSkill, renderSkill } from "../src/skills/load.js";
+import {
+  fillPlaceholders,
+  loadSkill,
+  projectSkillDir,
+  renderSkill,
+  writeLayer,
+} from "../src/skills/load.js";
 import { SKILL_NAMES } from "../src/verbs/skills.js";
 import { loadRubric } from "../src/judge/rubric.js";
 import { tmpProject } from "./tmp-project.js";
@@ -78,6 +84,68 @@ describe("project amendments", () => {
   test("a skill with no amendment reports none", async () => {
     const layered = await loadSkill(project(), "fact-check");
     expect(layered.amendmentPath).toBeNull();
+  });
+});
+
+describe("a renamed skill keeps the lessons a project learned under the old name", () => {
+  test("the layer still loads from the retired directory", async () => {
+    const resolved = project();
+    amend(
+      resolved,
+      "visual-judge",
+      "---\nname: visual-judge\nversion: 9\n---\n\nThe marketing site is light-only on purpose.\n",
+    );
+    const layered = await loadSkill(resolved, "judge-core");
+    expect(layered.version).toBe(9);
+    expect(layered.text).toContain("The marketing site is light-only on purpose.");
+    expect(layered.amendmentPath).toContain(".lookout/skills/visual-judge/SKILL.md");
+  });
+
+  test("a proposal waiting under the old name is still found", () => {
+    const resolved = project();
+    amend(resolved, "visual-judge", "---\nname: visual-judge\n---\n\nold\n");
+    writeFileSync(
+      join(resolved.projectDir, ".lookout", "skills", "visual-judge", "PROPOSED.md"),
+      "## a proposal nobody has read yet\n",
+    );
+    expect(projectSkillDir(resolved, "judge-core")).toContain(
+      join(".lookout", "skills", "visual-judge"),
+    );
+  });
+
+  test("the current directory wins when a project has both", async () => {
+    const resolved = project();
+    amend(resolved, "visual-judge", "---\nname: visual-judge\nversion: 9\n---\n\nthe old one\n");
+    amend(resolved, "judge-core", "---\nname: judge-core\nversion: 4\n---\n\nthe current one\n");
+    const layered = await loadSkill(resolved, "judge-core");
+    expect(layered.text).toContain("the current one");
+    expect(layered.text).not.toContain("the old one");
+    // The retired layer is not consulted at all, so its version cannot raise
+    // the composed one: this is max(base, current layer), never the old 9.
+    expect(layered.version).not.toBe(9);
+  });
+
+  test("a skill that was never renamed has no legacy directory", () => {
+    const resolved = project();
+    expect(projectSkillDir(resolved, "fact-check")).toContain(
+      join(".lookout", "skills", "fact-check"),
+    );
+  });
+
+  test("writing the layer moves it, proposal and all, to the current name", async () => {
+    const resolved = project();
+    const skills = join(resolved.projectDir, ".lookout", "skills");
+    amend(resolved, "visual-judge", "---\nname: visual-judge\nversion: 9\n---\n\nthe old lesson\n");
+    writeFileSync(join(skills, "visual-judge", "PROPOSED.md"), "## unread\n");
+
+    const before = await writeLayer(resolved, "judge-core", "the new lesson", 10, "d");
+
+    // What was there is handed back for a rollback to restore.
+    expect(before).toContain("the old lesson");
+    expect(existsSync(join(skills, "visual-judge"))).toBe(false);
+    expect(readFileSync(join(skills, "judge-core", "SKILL.md"), "utf8")).toContain("the new lesson");
+    // The proposal rode along with the directory rather than being stranded.
+    expect(readFileSync(join(skills, "judge-core", "PROPOSED.md"), "utf8")).toContain("unread");
   });
 });
 
