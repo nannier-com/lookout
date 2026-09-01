@@ -192,6 +192,33 @@ describe("check gate", () => {
     problems = checkBacklog(b, { mdOnDisk: renderMarkdown(b), latestReport: latest });
     expect(problems.some((p) => p.kind === "drift-resolved")).toBe(true);
   });
+
+  test("a panel-scoped run does not read as drift for the lanes it skipped", () => {
+    const b = emptyBacklog("test", NOW);
+    const s = shot("web/app/checkout/rest/phone/dark");
+    b.findings["ai.fp"] = {
+      fingerprint: "ai.fp", target: "app", route: "/checkout", state: "rest",
+      platform: "web", formFactor: "phone", scheme: "dark",
+      category: "contrast", attribute: "body-text", severity: "high",
+      status: "open", reason: null, title: "t", problem: "p", expected: "e",
+      observed: "o", channel: "ai", confidence: "high", verified: true,
+      evidence: [{ shotId: s.id, path: "x.png", hash: "h", runId: "run-1" }],
+      firstSeen: "run-1", lastSeen: "run-1", fixAttempts: 0, fixedIn: null,
+    } as never;
+    const latest = report([s], "run-9");
+    latest.shots[0]!.runId = "run-9";
+    const drift = (judgedPanels: readonly string[] | null): boolean =>
+      checkBacklog(b, { mdOnDisk: null, latestReport: latest, judgedPanels })
+        .some((p) => p.kind === "drift-resolved");
+
+    // judge-visibility owns contrast; when it sat the run out, silence about
+    // this finding proves nothing.
+    expect(drift(["judge-craft"])).toBe(false);
+    // Asked and still not re-found: that is drift.
+    expect(drift(["judge-visibility"])).toBe(true);
+    // A caller without a judge report flags exactly as before.
+    expect(drift(null)).toBe(true);
+  });
 });
 
 describe("markdown + stats", () => {

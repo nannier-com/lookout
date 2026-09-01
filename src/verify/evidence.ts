@@ -23,6 +23,7 @@ import type { SheetResult } from "../capture/sheet.js";
 import { aiToFindings, deterministicToFindings, type Backlog, type BacklogFinding } from "../backlog/lib.js";
 import { inheritedByDesign } from "../backlog/adjudicate.js";
 import { clusterKeyOf, clusterScope, type FixCluster } from "../fix/cluster.js";
+import { panelOf } from "../judge/panels.js";
 import type { CheckOutcome } from "../check/outcome.js";
 import type { ResolvedConfig, ShotRecord } from "../types.js";
 import type { Parsed } from "../util.js";
@@ -64,12 +65,21 @@ export async function gatherFreshEvidence(args: {
   // 1. Re-capture and re-judge only this cluster's own routes; a shell
   // cluster widens to at least two so a one-route fix cannot pass.
   const scope = clusterScope(cluster, args.configuredRoutes ?? []);
+  // An AI cluster has one category, so one judge panel owns it: pay for that
+  // panel alone. The sibling panels' standing findings still surface from
+  // their valid ledger entries, and moved pixels miss every panel's entry at
+  // once, so closure is always backed by a fresh judgment of the member's
+  // whole view group by the panel that owns its category. Deterministic and
+  // code clusters get no filter: their oracle is capture or source, not a
+  // panel.
+  const owning = cluster.channel === "ai" ? panelOf(cluster.category).name : undefined;
   const { outcome, resolved, shotsById } = await runCheck({
     positionals: [],
     flags: {
       ...parsed.flags,
       targets: scope.targets.join(","),
       routes: scope.routes.join(","),
+      ...(owning ? { panels: owning } : {}),
     },
   });
 

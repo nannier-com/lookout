@@ -336,6 +336,15 @@ export async function backlog(parsed: Parsed): Promise<number> {
     const mdPath = markdownPath(resolved);
     const md = existsSync(mdPath) ? await readFile(mdPath, "utf8") : null;
     const report = await loadReport(resolved);
+    // Which panels the last judge run asked, so a panel-scoped verify-fix
+    // does not read as drift for the lanes it deliberately skipped.
+    const jrPath = [
+      join(evidenceDir(resolved), "judge-report.json"),
+      join(lookoutDir(resolved), "evidence", "judge-report.json"),
+    ].find((p) => existsSync(p));
+    const judgedPanels = jrPath
+      ? ((JSON.parse(await readFile(jrPath, "utf8")) as CheckOutcome).panels ?? null)
+      : null;
     // What is frozen, per issue. Read here rather than inside the checker so
     // that stays a pure function of the backlog, which is what lets the tests
     // hand it one.
@@ -343,7 +352,7 @@ export async function backlog(parsed: Parsed): Promise<number> {
     for (const id of Object.keys(b.issues ?? {})) {
       framesByIssue[id] = (await loadFrames(resolved, id)).before.length;
     }
-    const problems = checkBacklog(b, { mdOnDisk: md, latestReport: report, framesByIssue });
+    const problems = checkBacklog(b, { mdOnDisk: md, latestReport: report, framesByIssue, judgedPanels });
     if (parsed.flags.json) {
       printJson({ ok: problems.length === 0, problems });
     } else if (problems.length === 0) {

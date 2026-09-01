@@ -8,6 +8,7 @@
  * later, which is the whole point of `lookout backlog check`.
  */
 import { CATEGORIES } from "../judge/rubric.js";
+import { panelOf } from "../judge/panels.js";
 import { clusterKeyOf } from "../fix/cluster.js";
 import { wasPhotographed } from "./ingest.js";
 import { isIssueId } from "../issues/id.js";
@@ -33,6 +34,15 @@ export interface CheckProblem {
   message: string;
 }
 
+/** The panel owning a category, or null for one outside the registry. */
+function ownerOrNull(category: string): string | null {
+  try {
+    return panelOf(category).name;
+  } catch {
+    return null;
+  }
+}
+
 export function checkBacklog(
   backlog: Backlog,
   opts: {
@@ -44,6 +54,12 @@ export function checkBacklog(
      * than reported missing on no evidence.
      */
     framesByIssue?: Record<string, number>;
+    /**
+     * Which judge panels the latest judge run actually asked, from
+     * judge-report.json. Omitted (or null) by a caller without a report, and
+     * then every covered-but-unrefreshed AI finding is flagged as before.
+     */
+    judgedPanels?: readonly string[] | null;
   },
 ): CheckProblem[] {
   const problems: CheckProblem[] = [];
@@ -157,6 +173,16 @@ export function checkBacklog(
       if (f.status !== "open") continue;
       const covered = f.evidence.some((e) => capturedShotIds.has(e.shotId));
       if (covered && f.lastSeen !== latest.id) {
+        // "Not asked" must never read as "not re-found": a panel-scoped run
+        // (verify-fix pays only the owning panel) re-captures the pixels
+        // without re-judging the other lanes, so an AI finding whose panel
+        // sat out the last judge run is not drift, it is out of scope. A
+        // category the registry does not know keeps flagging: conservatism
+        // belongs on the side that surfaces a finding for a person.
+        if (f.channel === "ai" && opts.judgedPanels) {
+          const owner = ownerOrNull(f.category);
+          if (owner && !opts.judgedPanels.includes(owner)) continue;
+        }
         problems.push({
           kind: "drift-resolved",
           fingerprint: fp,
