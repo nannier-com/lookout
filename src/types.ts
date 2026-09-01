@@ -44,6 +44,8 @@ export interface RouteDef {
   design?: string;
   /** Per-route opt-out of navigation discovery (config.navigation). */
   navigation?: boolean;
+  /** Per-route opt-out of rendering-provenance sidecars (config.provenance). */
+  provenance?: boolean;
 }
 
 /**
@@ -215,6 +217,15 @@ export interface LookoutConfig {
   };
   /** Navigation discovery; see NavigationConfig for the click-everything warning. */
   navigation?: NavigationConfig;
+  /**
+   * Per-shot rendering-provenance sidecars (which elements rendered where,
+   * and which components and source files produced them, where the page's
+   * dev tooling says). Default TRUE, a conscious departure from the
+   * earn-default-on precedent navigation follows: the walk is passive and
+   * read-only, spends no model money, costs milliseconds and a few tens of
+   * KB, and a failure is swallowed without costing the shot.
+   */
+  provenance?: boolean;
 }
 
 /**
@@ -309,6 +320,12 @@ export interface ShotRecord {
    * their existing hashes.
    */
   designHash?: string;
+  /**
+   * Evidence-relative path of the shot's rendering-provenance sidecar, when
+   * one was captured. NOT a judge input: it enters no ledger hash and no
+   * fingerprint, so its presence or absence never re-judges anything.
+   */
+  provenance?: string;
   capturedAt: string;
   runId: string;
   deterministicFindings: DeterministicFinding[];

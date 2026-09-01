@@ -22,7 +22,8 @@ import {
   detectAnimated,
   runAxe,
 } from "./checks.js";
-import { shotId, writeShotFile, type ShotAxes } from "./store.js";
+import { shotId, writeShotFile, writeShotSidecar, type ShotAxes } from "./store.js";
+import { buildSidecar, collectProvenanceInPage } from "./provenance.js";
 import { resolveElement, schemeUrl, setScheme, settle } from "./web-page.js";
 import { harvestRoute } from "../navigate/harvest.js";
 import { NavSkip, runNavChecks, synthStates, type SynthesizedStates } from "../navigate/execute.js";
@@ -167,6 +168,35 @@ export async function captureRoute(
         const { rel } = await writeShotFile(resolved, axes, png);
         const sharp = (await import("sharp")).default;
         const meta = await sharp(png).metadata();
+        const pngHash = sha256(png);
+        const capturedAt = nowIso();
+
+        // Rendering provenance, while the page still shows what the PNG shows.
+        // A failed walk costs the sidecar, never the shot.
+        let provenanceRel: string | undefined;
+        if (ctx.provenance && route.provenance !== false) {
+          try {
+            const raw = await page.evaluate(collectProvenanceInPage, {
+              rootSelector: element ? elementSel ?? null : null,
+              maxElements: 800,
+              resolve: [],
+            });
+            const sidecar = buildSidecar(raw, {
+              id: shotId(axes),
+              runId: ctx.runId,
+              capturedAt,
+              hash: pngHash,
+              origin: element ? "element" : "document",
+              image: { width: meta.width ?? 0, height: meta.height ?? 0 },
+            });
+            provenanceRel = (await writeShotSidecar(resolved, axes, sidecar)).rel;
+          } catch (e) {
+            ctx.progress(
+              `provenance failed on ${shotId(axes)}: ${(e as Error).message.slice(0, 120)}`,
+            );
+          }
+        }
+
         ctx.shots.push({
           id: shotId(axes),
           target: target.def.name,
@@ -177,17 +207,18 @@ export async function captureRoute(
           formFactor,
           scheme,
           path: rel,
-          hash: sha256(png),
+          hash: pngHash,
           bytes: png.byteLength,
           width: meta.width ?? 0,
           height: meta.height ?? 0,
           animated,
+          ...(provenanceRel ? { provenance: provenanceRel } : {}),
           // A navigation state's pixels show another page; the route's design
           // reference describes its rest render, so it must not ride along or
           // design-parity would judge the wrong screen against it.
           design: synth?.suppressDesign.has(stateName) ? undefined : route.design,
           ...(designHash && !synth?.suppressDesign.has(stateName) ? { designHash } : {}),
-          capturedAt: nowIso(),
+          capturedAt,
           runId: ctx.runId,
           deterministicFindings: findings,
         });

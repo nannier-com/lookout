@@ -94,6 +94,7 @@ export async function runCapture(parsed: Parsed): Promise<{
     settleMs: num(parsed.flags.settle) ?? 400,
     states: parsed.flags["no-states"] ? "off" : "all",
     headless: !parsed.flags.headed,
+    provenance: resolved.config.provenance !== false && !parsed.flags["no-provenance"],
     runId: runId("web"),
     onProgress: (line) => {
       if (!quiet) console.log(line);

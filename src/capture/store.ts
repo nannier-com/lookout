@@ -125,3 +125,27 @@ export async function writeShotFile(
   await writeFile(abs, png);
   return { rel, abs };
 }
+
+/**
+ * The provenance sidecar beside a shot: the PNG path plus a suffix, so the
+ * pairing is self-evident in a directory listing and the sidecar inherits the
+ * PNG's overwrite-in-place lifecycle. This is the one place the convention
+ * lives on the write side.
+ */
+export function sidecarRelPath(a: ShotAxes): string {
+  return `${shotRelPath(a)}.provenance.json`;
+}
+
+export async function writeShotSidecar(
+  resolved: ResolvedConfig,
+  axes: ShotAxes,
+  sidecar: unknown,
+): Promise<{ rel: string; abs: string }> {
+  const rel = sidecarRelPath(axes);
+  const abs = join(evidenceDir(resolved), rel);
+  await mkdir(dirname(abs), { recursive: true });
+  const tmp = `${abs}.tmp`;
+  await writeFile(tmp, JSON.stringify(sidecar, null, 2));
+  await rename(tmp, abs);
+  return { rel, abs };
+}

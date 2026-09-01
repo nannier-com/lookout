@@ -13,6 +13,31 @@ describe("validateConfig", () => {
     expect(() => validateConfig({ targets: t, shellScoping: "yes" }, "t")).toThrow(/shellScoping/);
   });
 
+  test("provenance is an optional boolean, at the top level and per route", () => {
+    const t = [{ name: "app", url: "http://localhost:1" }];
+    // The key must survive the validator's whitelist, or `provenance: false`
+    // would be silently dropped and the walk would run anyway.
+    expect(validateConfig({ targets: t, provenance: false }, "t").provenance).toBe(false);
+    expect(validateConfig({ targets: t }, "t").provenance).toBeUndefined();
+    expect(() => validateConfig({ targets: t, provenance: "yes" }, "t")).toThrow(/provenance/);
+    const routed = [{ name: "app", url: "http://localhost:1", routes: [{ path: "/", provenance: false }] }];
+    expect(validateConfig({ targets: routed }, "t").targets[0]!.routes![0]).toMatchObject({
+      provenance: false,
+    });
+    const bad = [{ name: "app", url: "http://localhost:1", routes: [{ path: "/", provenance: "no" }] }];
+    expect(() => validateConfig({ targets: bad }, "t")).toThrow(/provenance/);
+  });
+
+  test("a route's provenance opt-out survives resolution", () => {
+    const routes = resolveRoutes({
+      name: "app",
+      url: "http://localhost:1",
+      routes: [{ path: "/a", provenance: false }, "/b"],
+    });
+    expect(routes[0]!.provenance).toBe(false);
+    expect(routes[1]!.provenance).toBeUndefined();
+  });
+
   test("accepts a minimal config and normalizes the url", () => {
     const c = validateConfig({ targets: [{ name: "app", url: "http://localhost:3000/" }] }, "t");
     expect(c.targets[0]!.url).toBe("http://localhost:3000");

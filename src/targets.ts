@@ -24,6 +24,8 @@ export interface ResolvedRoute {
   design?: string;
   /** False when the route opted out of navigation discovery. */
   navigation?: boolean;
+  /** False when the route opted out of provenance sidecars. */
+  provenance?: boolean;
 }
 
 export interface ResolvedTarget {
@@ -69,6 +71,7 @@ export function resolveRoutes(
           : def.design
         : undefined,
       navigation: def.navigation,
+      provenance: def.provenance,
     };
   });
 }

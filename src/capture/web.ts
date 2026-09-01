@@ -39,6 +39,8 @@ export interface WebCaptureOptions {
   /** Capture state recipes named on routes ("all"), or none ("off"). */
   states: "all" | "off";
   headless: boolean;
+  /** Per-shot rendering-provenance sidecars; on unless config or flag opts out. */
+  provenance: boolean;
   runId: string;
   onProgress?: (line: string) => void;
   /**

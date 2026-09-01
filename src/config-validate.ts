@@ -74,6 +74,9 @@ export function validateConfig(raw: unknown, path: string): LookoutConfig {
         if (r.navigation !== undefined && typeof r.navigation !== "boolean") {
           fail(path, `targets[${i}].routes[${j}].navigation must be a boolean`);
         }
+        if (r.provenance !== undefined && typeof r.provenance !== "boolean") {
+          fail(path, `targets[${i}].routes[${j}].provenance must be a boolean`);
+        }
         return r as unknown as RouteDef;
       });
     }
@@ -224,6 +227,10 @@ export function validateConfig(raw: unknown, path: string): LookoutConfig {
     };
   }
 
+  if (raw.provenance !== undefined && typeof raw.provenance !== "boolean") {
+    fail(path, "provenance must be a boolean");
+  }
+
   return {
     project: typeof raw.project === "string" ? raw.project : undefined,
     targets: validTargets,
@@ -240,5 +247,6 @@ export function validateConfig(raw: unknown, path: string): LookoutConfig {
     native: raw.native as LookoutConfig["native"],
     learn,
     navigation,
+    provenance: raw.provenance as boolean | undefined,
   };
 }
