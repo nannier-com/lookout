@@ -11,7 +11,8 @@
  * wraps its JSON in prose or a fence is still answering; a model that answers
  * something else is not, and that must fail rather than be guessed at.
  */
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
+import { ReplyStream, type JudgeSay, type ResultLine } from "./stream.js";
 import { LookoutError } from "../types.js";
 
 export interface JudgeInvocation {
@@ -26,6 +27,13 @@ export interface JudgeInvocation {
    * lookout runs the gates itself rather than trusting the reply.
    */
   allowedTools?: string[];
+  /**
+   * Called as the model works, if the caller wants to watch.
+   *
+   * Supplying one also asks the CLI for its reply token by token rather than
+   * turn by turn, which is only worth the traffic when somebody is reading it.
+   */
+  onSay?: (say: JudgeSay) => void;
 }
 
 /**
@@ -37,62 +45,134 @@ export function claudeBin(): string {
   return process.env.LOOKOUT_CLAUDE_BIN ?? "claude";
 }
 
-/** One `claude -p` round-trip returning the reply text. */
+/** How long to wait for a stalled CLI, and how long to let stdout drain after it exits. */
+const TIMEOUT_MS = 10 * 60_000;
+const DRAIN_MS = 250;
+/** Enough stderr to carry the CLI's own complaint, and no more. */
+const MAX_STDERR = 4000;
+
+/**
+ * One `claude -p` round-trip returning the reply text.
+ *
+ * The call completes on the CLI's own result message, not on the subprocess's
+ * stdout reaching end-of-file. Those are different moments, and the difference
+ * was expensive: anything that outlives the CLI holding the pipe it inherited
+ * holds that end-of-file open too, and lookout waited behind it for the whole
+ * timeout with the verdict already read. Runs were measured losing ten minutes
+ * per judging phase to exactly that. Reading the stream means the end of the
+ * answer is something lookout sees rather than something it waits for.
+ */
 export function invokeClaude(inv: JudgeInvocation): Promise<{ text: string; costUsd?: number }> {
   const args = [
     "-p",
     inv.prompt,
     "--output-format",
-    "json",
+    "stream-json",
+    "--verbose",
+    // Only when somebody is reading: partials multiply the lines by an order of
+    // magnitude and buy nothing for a caller that just wants the verdict.
+    ...(inv.onSay ? ["--include-partial-messages"] : []),
     "--allowedTools",
     (inv.allowedTools ?? ["Read"]).join(","),
     "--model",
     inv.model,
   ];
   return new Promise((resolve, reject) => {
-    execFile(
-      claudeBin(),
-      args,
-      { cwd: inv.cwd, timeout: inv.timeoutMs ?? 10 * 60_000, maxBuffer: 64 * 1024 * 1024 },
-      (err, stdout, stderr) => {
-        if (err) {
-          reject(
-            new LookoutError(
-              `claude -p failed: ${err.message.slice(0, 300)}`,
-              stderr ? `stderr: ${stderr.slice(0, 300)}` : "is Claude Code logged in? run `claude` once interactively",
-            ),
-          );
-          return;
-        }
-        try {
-          const parsed = JSON.parse(stdout) as {
-            result?: string;
-            total_cost_usd?: number;
-            is_error?: boolean;
-            subtype?: string;
-          };
-          if (typeof parsed.result !== "string") {
-            reject(new LookoutError(`claude -p returned no result (subtype: ${parsed.subtype ?? "?"})`));
-            return;
-          }
-          if (parsed.is_error) {
-            reject(
-              new LookoutError(
-                `claude -p errored: ${parsed.result.slice(0, 200)}`,
-                /not logged in/i.test(parsed.result)
-                  ? "run `claude` in a terminal once and complete /login, then retry (verify with `lookout doctor --handshake`)"
-                  : undefined,
-              ),
-            );
-            return;
-          }
-          resolve({ text: parsed.result, costUsd: parsed.total_cost_usd });
-        } catch {
-          reject(new LookoutError(`claude -p produced unparseable output: ${stdout.slice(0, 300)}`));
-        }
-      },
-    );
+    const child = spawn(claudeBin(), args, { cwd: inv.cwd, stdio: ["ignore", "pipe", "pipe"] });
+    const reply = new ReplyStream(inv.onSay);
+    let stderr = "";
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let drain: ReturnType<typeof setTimeout> | null = null;
+
+    // Settling is one-way, and it does not wait for the pipes. A child that has
+    // said its last word is done whether or not something else still holds its
+    // stdout, so it is killed rather than waited on.
+    const done = (err: LookoutError | null, value?: { text: string; costUsd?: number }): void => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      if (drain) clearTimeout(drain);
+      if (child.exitCode === null && !child.killed) child.kill();
+      if (err) reject(err);
+      else resolve(value!);
+    };
+
+    const conclude = (code: number | null): void => {
+      reply.end();
+      if (reply.result) {
+        unwrap(reply.result, done);
+        return;
+      }
+      if (code !== 0) {
+        done(
+          new LookoutError(
+            `claude -p failed: exited ${code ?? "on a signal"}`,
+            stderr ? `stderr: ${stderr.slice(0, 300)}` : "is Claude Code logged in? run `claude` once interactively",
+          ),
+        );
+        return;
+      }
+      done(new LookoutError(`claude -p produced unparseable output: ${reply.raw().slice(0, 300)}`));
+    };
+
+    timer = setTimeout(() => {
+      done(
+        new LookoutError(
+          `claude -p failed: no reply after ${Math.round((inv.timeoutMs ?? TIMEOUT_MS) / 1000)}s`,
+          stderr ? `stderr: ${stderr.slice(0, 300)}` : "is Claude Code logged in? run `claude` once interactively",
+        ),
+      );
+    }, inv.timeoutMs ?? TIMEOUT_MS);
+
+    child.stdout?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk: string) => {
+      reply.push(chunk);
+      // The whole point: the result line IS the end of the answer.
+      if (reply.result) unwrap(reply.result, done);
+    });
+    child.stderr?.setEncoding("utf8");
+    child.stderr?.on("data", (chunk: string) => {
+      if (stderr.length < MAX_STDERR) stderr += chunk;
+    });
+    child.on("error", (err: Error) => {
+      done(
+        new LookoutError(
+          `claude -p failed: ${err.message.slice(0, 300)}`,
+          stderr ? `stderr: ${stderr.slice(0, 300)}` : "is Claude Code logged in? run `claude` once interactively",
+        ),
+      );
+    });
+    // Only the failure paths reach here, and only they pay the drain: a reply
+    // that arrived has already settled the call above.
+    child.on("exit", (code) => {
+      child.stdout?.once("end", () => conclude(code));
+      drain = setTimeout(() => conclude(code), DRAIN_MS);
+    });
   });
+}
+
+/** The result message, turned into an answer or into the reason there is none. */
+function unwrap(
+  r: ResultLine,
+  done: (err: LookoutError | null, value?: { text: string; costUsd?: number }) => void,
+): void {
+  if (typeof r.result !== "string") {
+    done(new LookoutError(`claude -p returned no result (subtype: ${r.subtype ?? "?"})`));
+    return;
+  }
+  if (r.is_error) {
+    done(
+      new LookoutError(
+        `claude -p errored: ${r.result.slice(0, 200)}`,
+        /not logged in/i.test(r.result)
+          ? "run `claude` in a terminal once and complete /login, then retry (verify with `lookout doctor --handshake`)"
+          : undefined,
+      ),
+    );
+    return;
+  }
+  done(null, { text: r.result, costUsd: r.total_cost_usd });
 }
 
 /** Extract the last fenced json block (or a bare object) from a reply. */

@@ -238,5 +238,6 @@ export async function judgeBatch(
 // are re-exported because this is the module every caller has always asked for
 // them from.
 export { claudeBin, extractJson, invokeClaude, type JudgeInvocation } from "./claude.js";
+export { type JudgeSay } from "./stream.js";
 export { batchShots, groupShots, viewGroupId } from "./grouping.js";
 export { ingestJudgeReply, type PanelLane } from "./reply.js";

@@ -310,4 +310,20 @@ if (mode === "placement") {
   result = "Yes. The mock says so.\nConfidence: high";
 }
 
+// The real CLI streams when asked to, so the double does too: a caller that
+// passed --include-partial-messages is one whose narration path is under test,
+// and a double that answered only at the end could not exercise it.
+if (argv.includes("--include-partial-messages")) {
+  const say = (o: unknown) => console.log(JSON.stringify(o));
+  say({ type: "system", subtype: "init", cwd: process.cwd() });
+  say({
+    type: "assistant",
+    message: { content: [{ type: "tool_use", name: "Read", input: { file_path: shotIds[0] ?? "shot.png" } }] },
+  });
+  // In thirds, so a consumer that has to reassemble deltas is actually made to.
+  const size = Math.max(1, Math.ceil(result.length / 3));
+  for (let i = 0; i < result.length; i += size) {
+    say({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: result.slice(i, i + size) } } });
+  }
+}
 console.log(JSON.stringify({ type: "result", subtype: "success", is_error: false, result, total_cost_usd: 0.0123 }));
