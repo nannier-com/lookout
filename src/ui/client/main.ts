@@ -58,14 +58,20 @@ async function tickNarration(): Promise<void> {
 }
 
 /**
- * Start a check of the project lookout is pointed at.
+ * Start a check of the project lookout is pointed at, or stop the one running.
  *
  * Here rather than beside the button, because it is the one action that spans
- * two panels: play only ever runs, and the case it cannot handle is the one
- * where there is nothing to run, which is the cog's business.
+ * two panels: the case play cannot handle is the one where there is nothing to
+ * run, which is the cog's business.
  */
 async function findAndFix(): Promise<void> {
   const btn = el("findfix") as HTMLButtonElement;
+  // A run in flight makes this the stop button. Checked before the configured
+  // question, because a run can outlive the settings that started it.
+  if (page.project.checkRunning) {
+    await stopRun(btn);
+    return;
+  }
   // Configuring is the cog's job. Play only ever runs, and says so plainly when
   // there is nothing to run.
   if (!page.project.configured) {
@@ -85,6 +91,32 @@ async function findAndFix(): Promise<void> {
     await tick();
   } finally {
     btn.disabled = false;
+  }
+}
+
+/**
+ * Stop the run, and the judge underneath it.
+ *
+ * The page says what it asked for rather than what happened, because what
+ * happens takes a moment: the server signals the run's whole process group and
+ * the browser it is driving closes on its way out. The button stays a stopping
+ * one until the server says the run is gone, which is a fact from the server
+ * rather than an assumption made here.
+ */
+async function stopRun(btn: HTMLButtonElement): Promise<void> {
+  btn.disabled = true;
+  try {
+    const r = (await (await fetch("/api/stop", { method: "POST" })).json()) as {
+      stopped: boolean;
+      reason?: string;
+    };
+    say(r.stopped ? null : r.reason || "nothing to stop");
+    await tick();
+  } finally {
+    // Whether it stays disabled is the payload's call, not this handler's: a
+    // run that is still closing keeps the button down, and one already gone
+    // hands it back as play.
+    btn.disabled = page.project.checkStopping;
   }
 }
 

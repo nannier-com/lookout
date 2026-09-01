@@ -65,8 +65,20 @@ export function setCurrentProject(next: ResolvedConfig): void {
 export const session: {
   /** Where the page has been pointed, and where the app actually is. */
   settings: UiSettings;
-  /** The check in flight, if the page started one. */
-  running: { child: ChildProcess; projectDir: string } | null;
+  /**
+   * The check in flight, if the page started one.
+   *
+   * It carries the project it was started against rather than only that
+   * project's directory, because a run can be stopped after the page has been
+   * pointed somewhere else, and what has to be written down then is the end of
+   * THIS run, in the log it was narrating to.
+   *
+   * `stopping` is set the moment somebody presses stop and stays set until the
+   * child is gone. It is what tells the exit handler that the run was ended on
+   * purpose rather than that it fell over, and what stops a second press from
+   * signalling a group that is already closing its browser.
+   */
+  running: { child: ChildProcess; project: ResolvedConfig; stopping: boolean } | null;
   /**
    * Why the last run this page started ended badly, if it did.
    *
@@ -86,4 +98,15 @@ export const session: {
 export function checkIsRunning(): boolean {
   const r = session.running;
   return r !== null && r.child.exitCode === null && !r.child.killed;
+}
+
+/**
+ * Whether the run in flight has been told to stop and has not gone yet.
+ *
+ * A separate question from whether one is running, because for the second or
+ * two between the signal and the last browser closing, both are true: the page
+ * has to say the press landed rather than offer the button again.
+ */
+export function checkIsStopping(): boolean {
+  return checkIsRunning() && session.running?.stopping === true;
 }

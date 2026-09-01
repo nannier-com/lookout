@@ -42,14 +42,14 @@ export const page: {
    */
   notice: string | null;
   /** Where lookout is pointed, and whether it can run there at all. */
-  project: { configured: boolean; projectDir: string; checkRunning: boolean };
+  project: { configured: boolean; projectDir: string; checkRunning: boolean; checkStopping: boolean };
   /** What the settings panel is showing, so play can refuse without a round trip. */
   config: SettingsView;
 } = {
   filter: null,
   view: "issues",
   notice: null,
-  project: { configured: false, projectDir: "", checkRunning: false },
+  project: { configured: false, projectDir: "", checkRunning: false, checkStopping: false },
   config: {
     configured: false,
     projectDir: null,

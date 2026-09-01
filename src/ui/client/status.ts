@@ -86,6 +86,7 @@ export function render(d: StatusPayload): void {
     configured: !!d.configured,
     projectDir: d.projectDir || "",
     checkRunning: !!s.checkRunning,
+    checkStopping: !!s.checkStopping,
   };
   paintPlay();
   // A run that died says why. The server keeps the child's stderr precisely so

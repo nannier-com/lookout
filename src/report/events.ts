@@ -290,7 +290,10 @@ export function summarise(events: LookoutEvent[]): RunStatus {
       case "run-end":
         s.endedAt = e.at;
         s.running = false;
-        if (isBoardRun) s.phase = "done";
+        // A run somebody stopped did not finish, and "done" would claim it had
+        // looked at everything it was going to look at. Only the ui writes this
+        // flag, because it is the only thing that ever ends a run early.
+        if (isBoardRun) s.phase = e.data?.stopped ? "stopped" : "done";
         break;
     }
   }

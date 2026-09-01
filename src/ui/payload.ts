@@ -17,7 +17,7 @@ import { evidenceDir, lookoutDir } from "../config.js";
 import { readEvents, summarise, type LookoutEvent, type RunStatus } from "../report/events.js";
 import { buildBoard, severityTally, tally, type BoardEntry } from "../report/board.js";
 import { buildLearning, learningBadge, learningKey, type Learning } from "../report/learning.js";
-import { checkIsRunning, session } from "./session.js";
+import { checkIsRunning, checkIsStopping, session } from "./session.js";
 import type { ResolvedConfig } from "../types.js";
 
 /**
@@ -89,6 +89,8 @@ export interface StatusPayload {
     board: BoardEntry[];
     issues: ReturnType<typeof tally>;
     checkRunning: boolean;
+    /** Whether that run has been told to stop and is still on its way down. */
+    checkStopping: boolean;
     findings: ReturnType<typeof severityTally>;
     /** One line about lookout working on lookout, for the rail. */
     learning: ReturnType<typeof learningBadge>;
@@ -120,6 +122,10 @@ export async function statusBody(resolved: ResolvedConfig): Promise<string> {
     "|" +
     checkIsRunning() +
     "|" +
+    // Pressing stop moves nothing on disk, so without this the cached body
+    // would keep telling the page the button had not been pressed.
+    checkIsStopping() +
+    "|" +
     (session.lastFailure ? `${session.lastFailure.code}:${session.lastFailure.message}` : "");
   if (boardCache?.key === key) return boardCache.body;
 
@@ -148,6 +154,7 @@ export async function statusBody(resolved: ResolvedConfig): Promise<string> {
       board,
       issues: tally(board),
       checkRunning: checkIsRunning(),
+      checkStopping: checkIsStopping(),
       findings: severityTally(outstanding),
       // One line about lookout working on lookout, so the rail can say so
       // from whichever area is open.

@@ -24,7 +24,7 @@ import { openLive } from "./live.js";
 import { readNarration } from "../report/narration.js";
 import { learningNow, statusBody } from "./payload.js";
 import { pickFolder, settingsView, useProject } from "./project.js";
-import { startCheck } from "./run.js";
+import { startCheck, stopCheck } from "./run.js";
 import { currentProject, session } from "./session.js";
 import { saveSettings, validBaseUrl } from "./stored-settings.js";
 import { servePage } from "./page.js";
@@ -97,6 +97,16 @@ export async function handle(req: Request, server: Server<undefined>): Promise<R
       project: resolved.project,
       projectDir: resolved.projectDir,
     });
+  }
+
+  // Taking the run back. A POST for the same reason starting one is: it is an
+  // act with consequences outside this process, and lookout only ever does it
+  // because somebody asked. 409 when there is nothing to stop, so a page that
+  // has fallen behind is told the run has already ended rather than shown a
+  // success for a signal that reached nothing.
+  if (req.method === "POST" && url.pathname === "/api/stop") {
+    const r = stopCheck();
+    return json(r.stopped ? 200 : 409, r);
   }
 
   // The same body the live channel pushes. Kept as a request because the page

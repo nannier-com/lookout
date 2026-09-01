@@ -137,7 +137,7 @@ max-width:60ch;color:var(--crit)}
    than a sentence. Its name lives in aria-label and the tooltip. */
 .findfix{width:32px;height:32px;padding:0;border-radius:50%;border:0;cursor:pointer;
 background:var(--go);color:#fff;display:flex;align-items:center;justify-content:center;
-flex:0 0 auto;transition:transform .12s ease,filter .12s ease}
+flex:0 0 auto;transition:transform .12s ease,filter .12s ease;position:relative}
 .findfix svg{display:block;margin-left:1px}
 .findfix:hover{filter:brightness(1.12);transform:scale(1.06)}
 .findfix:active{transform:scale(.96)}
@@ -196,12 +196,27 @@ background:var(--panel);color:var(--ink);font-size:11px;cursor:pointer;flex:0 0 
 .tgt b{font-weight:600;color:var(--ink)}
 .tgt .up{color:var(--ok)}
 .tgt .down{color:var(--crit)}
-/* Running: the triangle gives way to a ring turning around it. */
+/* Running: the triangle becomes a square, and a ring turns on the track around
+   it. Both at once on purpose. The ring alone said a run was happening and
+   offered nothing to do about it; the square inside it is the thing you press
+   to end the run, so the control has to show what it is as well as what it is
+   waiting on. The ring is positioned rather than laid out, so it rides the
+   track at the rim instead of taking the glyph's place in the flex row. */
 .findfix.busy{background:none;color:var(--go);box-shadow:inset 0 0 0 2px var(--line)}
-.findfix.busy svg{display:none}
-.findfix.busy::after{content:"";width:16px;height:16px;border-radius:50%;
+.findfix.busy svg{margin-left:0}
+.findfix.busy::after{content:"";position:absolute;inset:0;border-radius:50%;
 border:2px solid transparent;border-top-color:var(--go);border-right-color:var(--go);
 animation:spin .8s linear infinite}
+/* Hovering a stop button says what the click costs: the run ends here. */
+.findfix.busy:hover{color:var(--crit);filter:none}
+.findfix.busy:hover::after{border-top-color:var(--crit);border-right-color:var(--crit)}
+.findfix.busy:focus-visible{outline-color:var(--crit)}
+/* Pressed, and not gone yet: the run is closing its browser. The ring keeps
+   turning because something is still happening, and the square fades because
+   pressing it again would do nothing. */
+.findfix.stopping{opacity:.55}
+.findfix.stopping:hover{color:var(--go)}
+.findfix.stopping:hover::after{border-top-color:var(--go);border-right-color:var(--go)}
 @keyframes spin{to{transform:rotate(360deg)}}
 
 main{padding:18px 22px 60px;max-width:1600px;margin:0 auto}

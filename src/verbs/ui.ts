@@ -25,7 +25,7 @@
  *   ui/live.ts       the socket the page holds open, and what is written down it
  *   ui/watch.ts      noticing a run wrote something, so the socket can say so
  *   ui/evidence.ts   screenshots and thumbnails of them
- *   ui/run.ts        the check the play button starts
+ *   ui/run.ts        the check the play button starts, and stops
  *   ui/project.ts    where lookout is pointed, and whether its targets answer
  *   ui/session.ts    the state one server process carries between requests
  *   ui/page.ts       the page itself
@@ -33,6 +33,7 @@
 import { evidenceDir, loadConfig } from "../config.js";
 import { live } from "../ui/live.js";
 import { handle } from "../ui/routes.js";
+import { stopCheck } from "../ui/run.js";
 import { session, setCurrentProject } from "../ui/session.js";
 import { startWatching, stopWatching } from "../ui/watch.js";
 import { loadSettings } from "../ui/stored-settings.js";
@@ -128,6 +129,11 @@ export async function ui(parsed: Parsed): Promise<number> {
 
   await new Promise<void>((done) => {
     process.on("SIGINT", () => {
+      // A run started from the page has a process group of its own, so Ctrl-C
+      // reaches this server and nothing else. Stopping it here is what keeps a
+      // check, and the Claude CLI underneath it, from outliving the page that
+      // asked for it: the signal is delivered before this process leaves.
+      stopCheck();
       stopWatching();
       void server.stop();
       done();

@@ -34,34 +34,59 @@ export function paintWhere(): void {
   where.classList.toggle("notice", page.notice !== null);
 }
 
+/** The two glyphs this one control wears: a triangle to start, a square to stop. */
+const PLAY = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">'
+  + '<path fill="currentColor" d="M8 5.2 19 12 8 18.8Z"/></svg>';
+const STOP = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">'
+  + '<rect x="7.5" y="7.5" width="9" height="9" rx="1.4" fill="currentColor"/></svg>';
+
 /**
- * Play, in one of three states.
+ * Play, in one of four states.
  *
  * Grey until something is configured, because a green "go" that can only
  * produce an error is a lie told by a colour. Green when it would really run.
- * A turning ring while it is running.
+ * While a run is in flight the triangle becomes a square inside a turning ring:
+ * the ring says something is happening, the square says this button is what
+ * ends it. Dimmed once stop has been pressed and the run has not gone yet.
+ *
+ * One control rather than two, because starting and stopping are the same
+ * decision seen from either side of a run: there is never a moment when both
+ * are available, and a second button would spend the width to say so.
  */
 export function paintPlay(): void {
-  const btn = el("findfix");
+  const btn = el("findfix") as HTMLButtonElement;
   const ready = !!page.project.configured;
-  btn.classList.toggle("busy", page.project.checkRunning);
-  btn.classList.toggle("unset", !ready && !page.project.checkRunning);
-  if (!btn.querySelector("svg")) {
-    btn.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">'
-      + '<path fill="currentColor" d="M8 5.2 19 12 8 18.8Z"/></svg>';
+  const running = page.project.checkRunning;
+  const stopping = page.project.checkStopping;
+  btn.classList.toggle("busy", running);
+  btn.classList.toggle("stopping", stopping);
+  btn.classList.toggle("unset", !ready && !running);
+  // Swapped rather than rewritten every repaint: the board is repainted
+  // whenever a run says anything, and this is a run's whole duration.
+  const glyph = running ? "stop" : "play";
+  if (btn.dataset.glyph !== glyph) {
+    btn.dataset.glyph = glyph;
+    btn.innerHTML = running ? STOP : PLAY;
   }
   // The name lives in the accessible label and the tooltip: the control is a
-  // shape, because the whole of it means "go".
-  const name = page.project.checkRunning
-    ? "looking for an issue"
-    : ready ? "Find and fix" : "Nothing configured yet";
+  // shape, because the whole of it means one word.
+  const where = page.config.projectDir || page.project.projectDir;
+  const name = stopping
+    ? "Stopping the run"
+    : running
+      ? "Stop the run"
+      : ready ? "Find and fix" : "Nothing configured yet";
   btn.setAttribute("aria-label", name);
-  btn.title = page.project.checkRunning
-    ? "lookout is checking " + (page.config.projectDir || page.project.projectDir)
-    : ready
-      ? "Find and fix: one check of " + (page.config.projectDir || page.project.projectDir) +
-        ", stopping at the first issue"
-      : "Open settings (the cog) and choose a project first";
+  // Pressed once, it refuses the second press: the signal is already sent and
+  // the run is closing its browser.
+  btn.disabled = stopping;
+  btn.title = stopping
+    ? "Stopping: the run and the judge it started are being shut down"
+    : running
+      ? "Stop the run: it is checking " + where + ". This also stops the judge it started."
+      : ready
+        ? "Find and fix: one check of " + where + ", stopping at the first issue"
+        : "Open settings (the cog) and choose a project first";
   // The toggle is drawn with play because it changes what pressing play does,
   // and every repaint path that reaches one should reach the other.
   paintNav();
