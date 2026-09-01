@@ -10,7 +10,7 @@ import {
   judgeBatch,
   viewGroupId,
 } from "../src/judge/engine.js";
-import { groupHash, judgeIdentity, ledgerKey } from "../src/judge/ledger.js";
+import { groupHash, panelIdentity, ledgerKey } from "../src/judge/ledger.js";
 import { loadRubric } from "../src/judge/rubric.js";
 // Redirects the lookout home away from the operator's. The bunfig preload
 // does this for the whole suite, but it is only found when bun is run from the
@@ -360,12 +360,12 @@ describe("judgeBatch through the mock binary", () => {
 });
 
 describe("ledger", () => {
-  const identity = (over: Partial<Parameters<typeof judgeIdentity>[0]> = {}) =>
-    judgeIdentity({ version: 3, rubricText: "R", refuteText: "F", handoffText: "H", model: "sonnet", ...over });
+  const identity = (over: Partial<Parameters<typeof panelIdentity>[0]> = {}) =>
+    panelIdentity({ panel: "all", version: 3, panelText: "R", refuteText: "F", handoffText: "H", model: "sonnet", ...over });
 
-  test("key includes hash, judge skill version, prompt hash, and model", () => {
+  test("key includes hash, skill version, panel, prompt hash, and model", () => {
     const id = identity();
-    expect(ledgerKey("abc", id)).toBe(`abc@v3@${id.promptHash}@sonnet`);
+    expect(ledgerKey("abc", id)).toBe(`abc@v3@all@${id.promptHash}@sonnet`);
   });
 
   test("editing the rubric invalidates the verdicts it could have changed", () => {
@@ -373,7 +373,7 @@ describe("ledger", () => {
     // rubric edited without bumping past the shipped version, and every
     // neverFile change (which touches no version at all), left cached verdicts
     // standing that were formed under different rules.
-    expect(identity({ rubricText: "R2" }).promptHash).not.toBe(identity().promptHash);
+    expect(identity({ panelText: "R2" }).promptHash).not.toBe(identity().promptHash);
   });
 
   test("amending the refuting skill invalidates them too", () => {
@@ -383,8 +383,8 @@ describe("ledger", () => {
   });
 
   test("the two texts cannot be transposed into the same hash", () => {
-    expect(identity({ rubricText: "AB", refuteText: "C" }).promptHash).not.toBe(
-      identity({ rubricText: "A", refuteText: "BC" }).promptHash,
+    expect(identity({ panelText: "AB", refuteText: "C" }).promptHash).not.toBe(
+      identity({ panelText: "A", refuteText: "BC" }).promptHash,
     );
   });
 

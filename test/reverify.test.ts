@@ -6,7 +6,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { reverifyCached, MAX_REVERIFY_GROUPS } from "../src/check/reverify.js";
-import { groupHash, judgeIdentity, ledgerKey, type Ledger } from "../src/judge/ledger.js";
+import { groupHash, panelIdentity, ledgerKey, type Ledger } from "../src/judge/ledger.js";
 import { loadSkill } from "../src/skills/load.js";
 import { evidenceDir } from "../src/config.js";
 import { tmpProject } from "./tmp-project.js";
@@ -61,9 +61,10 @@ function planWith(groups: { shots: ShotRecord[]; findings: VerifiedFinding[] }[]
   shotsById: Map<string, ShotRecord>;
   keys: string[];
 } {
-  const identity = judgeIdentity({
+  const identity = panelIdentity({
+    panel: "all",
     version: 4,
-    rubricText: "R",
+    panelText: "R",
     refuteText: refute.text,
     handoffText: "",
     model: "sonnet",
@@ -78,6 +79,7 @@ function planWith(groups: { shots: ShotRecord[]; findings: VerifiedFinding[] }[]
     ledger.entries[key] = {
       verdict: g.findings.length === 0 ? "clean" : "findings",
       ...(g.findings.length > 0 ? { findings: g.findings } : {}),
+      panel: "all",
       shotIds: g.shots.map((s) => s.id).sort(),
       judgedAt: "2026-08-25T00:00:00Z",
       runId: "old",
@@ -256,9 +258,10 @@ describe("refuter failure caches the judged group", () => {
       refute,
       model: "sonnet",
       ledger: { note: "", entries: {} },
-      identity: judgeIdentity({
+      identity: panelIdentity({
+        panel: "all",
         version: 4,
-        rubricText: "judge",
+        panelText: "judge",
         refuteText: refute.text,
         handoffText: "",
         model: "sonnet",

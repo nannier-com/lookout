@@ -11,10 +11,11 @@
  * makes a scoped re-check trustworthy.
  *
  * A group is one target + platform + route + state, across every form factor
- * and scheme. Its key is `<groupHash>@v<version>@<promptHash>@<model>`, where
- * groupHash covers every member's pixel hash, so any member changing re-judges
- * the whole group, and promptHash covers the instructions, so amending them
- * re-judges everything they could have changed.
+ * and scheme. Its key is `<groupHash>@v<version>@<panel>@<promptHash>@<model>`,
+ * where groupHash covers every member's pixel hash, so any member changing
+ * re-judges the whole group for every panel, and promptHash covers one panel's
+ * composed instructions, so amending a panel re-judges exactly the verdicts it
+ * could have changed while the other panels' entries stand.
  *
  * Lives in .lookout/ledger.json (committed by projects that want cheap re-runs
  * across machines; harmless if ignored).
@@ -36,7 +37,9 @@ export interface LedgerEntry {
    * verified would report a check that did not happen.
    */
   findings?: VerifiedFinding[];
-  /** Member shot ids, so a stale entry is readable when debugging. */
+  /** Which panel's verdict this is, so a stale entry is readable when debugging. */
+  panel: string;
+  /** Member shot ids, same purpose. */
   shotIds: string[];
   judgedAt: string;
   runId: string;
@@ -48,13 +51,14 @@ export interface Ledger {
 }
 
 const NOTE =
-  "lookout judge cache. Key = <viewGroupHash>@v<judgeSkillVersion>@<promptHash>@<model>, where a view " +
-  "group is one target+platform+route+state across every form factor and scheme, so comparative " +
-  "findings never cache apart. groupHash covers each member's pixels plus its design hand-off image's " +
-  "bytes, and promptHash covers the judging, refuting and hand-off instructions as composed for that " +
-  "run. Editing a rubric, a neverFile line, handoff.md, either skill, or a design PNG re-judges " +
-  "whatever it could have changed; nothing has to be bumped by hand. The prior-findings block is " +
-  "excluded on purpose: it is a naming aid, and adjudications are enforced at merge.";
+  "lookout judge cache. Key = <viewGroupHash>@v<skillVersion>@<panel>@<promptHash>@<model>, where a " +
+  "view group is one target+platform+route+state across every form factor and scheme, so comparative " +
+  "findings never cache apart, and each judge panel holds its own entry per group. groupHash covers " +
+  "each member's pixels plus its design hand-off image's bytes, and promptHash covers that panel's " +
+  "judging, refuting and hand-off instructions as composed for the run. Editing a rubric, a neverFile " +
+  "line, handoff.md, any judging skill, or a design PNG re-judges whatever it could have changed; " +
+  "nothing has to be bumped by hand. The prior-findings block is excluded on purpose: it is a naming " +
+  "aid, and adjudications are enforced at merge.";
 
 export function ledgerPath(resolved: ResolvedConfig): string {
   return join(lookoutDir(resolved), "ledger.json");
@@ -92,16 +96,20 @@ export function groupHash(shots: ShotRecord[]): string {
  * itself. The version stays in the key because somebody reading ledger.json
  * should be able to see it without recomputing anything.
  */
-export interface JudgeIdentity {
+export interface PanelIdentity {
+  /** The judge panel whose verdicts this identity keys. */
+  panel: string;
   version: number;
   /** Short sha256 over every instruction text that can change a verdict. */
   promptHash: string;
   model: string;
 }
 
-export function judgeIdentity(opts: {
+export function panelIdentity(opts: {
+  panel: string;
   version: number;
-  rubricText: string;
+  /** The panel's composed rubric text, core and vocabulary and extensions. */
+  panelText: string;
   refuteText: string;
   /**
    * handoff.md as composed for this run. Injected into the prompt only for
@@ -111,7 +119,7 @@ export function judgeIdentity(opts: {
    */
   handoffText: string;
   model: string;
-}): JudgeIdentity {
+}): PanelIdentity {
   // NUL-separated: a prompt is markdown and never holds one, so no two texts
   // can slide across the boundary and hash the same as a different tuple.
   //
@@ -121,16 +129,17 @@ export function judgeIdentity(opts: {
   // enforced at merge, never in the prompt, so keying on it would thrash the
   // whole cache on every adjudication for a benefit the cache already
   // provides more strongly than the prompt does.
-  const joined = `${opts.rubricText}\u0000${opts.refuteText}\u0000${opts.handoffText}`;
+  const joined = `${opts.panelText}\u0000${opts.refuteText}\u0000${opts.handoffText}`;
   return {
+    panel: opts.panel,
     version: opts.version,
     promptHash: sha256(new TextEncoder().encode(joined)).slice(0, 12),
     model: opts.model,
   };
 }
 
-export function ledgerKey(hash: string, id: JudgeIdentity): string {
-  return `${hash}@v${id.version}@${id.promptHash}@${id.model}`;
+export function ledgerKey(hash: string, id: PanelIdentity): string {
+  return `${hash}@v${id.version}@${id.panel}@${id.promptHash}@${id.model}`;
 }
 
 export async function loadLedger(resolved: ResolvedConfig): Promise<Ledger> {
@@ -160,7 +169,7 @@ export async function saveLedger(resolved: ResolvedConfig, ledger: Ledger): Prom
 export function recordVerdicts(
   ledger: Ledger,
   runId: string,
-  id: JudgeIdentity,
+  id: PanelIdentity,
   judged: { shots: ShotRecord[]; findings: VerifiedFinding[] }[],
 ): void {
   for (const { shots, findings } of judged) {
@@ -168,6 +177,7 @@ export function recordVerdicts(
     ledger.entries[ledgerKey(groupHash(shots), id)] = {
       verdict: findings.length === 0 ? "clean" : "findings",
       ...(findings.length > 0 ? { findings } : {}),
+      panel: id.panel,
       shotIds: shots.map((s) => s.id).sort(),
       judgedAt: nowIso(),
       runId,
@@ -193,7 +203,10 @@ export function pruneLedger(ledger: Ledger, liveGroupHashes: ReadonlySet<string>
   let dropped = 0;
   for (const key of Object.keys(ledger.entries)) {
     const hash = key.slice(0, key.indexOf("@"));
-    if (!liveGroupHashes.has(hash)) {
+    // A pre-panel key has four segments and can never be hit again; without
+    // this, the committed ledger keeps dead entries for still-live hashes
+    // forever.
+    if (key.split("@").length !== 5 || !liveGroupHashes.has(hash)) {
       delete ledger.entries[key];
       dropped++;
     }

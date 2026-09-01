@@ -6,7 +6,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   groupHash,
-  judgeIdentity,
+  panelIdentity,
   ledgerKey,
   loadLedger,
   recordVerdicts,
@@ -69,19 +69,34 @@ describe("group hash", () => {
   });
 });
 
-describe("judge identity", () => {
-  const base = { version: 4, rubricText: "rubric", refuteText: "refute", handoffText: "handoff", model: "sonnet" };
+describe("panel identity", () => {
+  const base = {
+    panel: "all",
+    version: 4,
+    panelText: "rubric",
+    refuteText: "refute",
+    handoffText: "handoff",
+    model: "sonnet",
+  };
+
+  test("two panels of one group hold separate keys over the same hash", () => {
+    const a = panelIdentity(base);
+    const b = panelIdentity({ ...base, panel: "judge-craft" });
+    expect(ledgerKey("abc", a)).not.toBe(ledgerKey("abc", b));
+    expect(ledgerKey("abc", a).startsWith("abc@")).toBe(true);
+    expect(ledgerKey("abc", b).startsWith("abc@")).toBe(true);
+  });
 
   test("editing handoff.md re-judges what it could have changed", () => {
-    const a = judgeIdentity(base);
-    const b = judgeIdentity({ ...base, handoffText: "handoff, edited" });
+    const a = panelIdentity(base);
+    const b = panelIdentity({ ...base, handoffText: "handoff, edited" });
     expect(a.promptHash).not.toBe(b.promptHash);
-    expect(judgeIdentity({ ...base }).promptHash).toBe(a.promptHash);
+    expect(panelIdentity({ ...base }).promptHash).toBe(a.promptHash);
   });
 
   test("no two texts can slide across a boundary and hash the same", () => {
-    const a = judgeIdentity({ ...base, rubricText: "ab", refuteText: "c" });
-    const b = judgeIdentity({ ...base, rubricText: "a", refuteText: "bc" });
+    const a = panelIdentity({ ...base, panelText: "ab", refuteText: "c" });
+    const b = panelIdentity({ ...base, panelText: "a", refuteText: "bc" });
     expect(a.promptHash).not.toBe(b.promptHash);
   });
 });
@@ -89,9 +104,10 @@ describe("judge identity", () => {
 describe("the ledger round trip", () => {
   test("a recorded verdict is served back under the same key, and only that key", async () => {
     const r = tmpProject("lookout-ledger-");
-    const id = judgeIdentity({
+    const id = panelIdentity({
+      panel: "all",
       version: 4,
-      rubricText: "rubric",
+      panelText: "rubric",
       refuteText: "refute",
       handoffText: "",
       model: "sonnet",
@@ -107,9 +123,10 @@ describe("the ledger round trip", () => {
     const entry = back.entries[ledgerKey(groupHash(group), id)];
     expect(entry?.verdict).toBe("clean");
     // A different identity is a different key: nothing is served across it.
-    const other = judgeIdentity({
+    const other = panelIdentity({
+      panel: "all",
       version: 4,
-      rubricText: "rubric",
+      panelText: "rubric",
       refuteText: "refute",
       handoffText: "changed",
       model: "sonnet",
@@ -122,10 +139,10 @@ describe("pruning unreachable entries", () => {
   test("a dead hash is dropped; every identity of a live hash is kept", async () => {
     const { pruneLedger } = await import("../src/judge/ledger.js");
     const live = shot();
-    const id1 = judgeIdentity({ version: 4, rubricText: "R", refuteText: "F", handoffText: "", model: "sonnet" });
-    const id2 = judgeIdentity({ version: 4, rubricText: "R", refuteText: "F", handoffText: "", model: "opus" });
+    const id1 = panelIdentity({ panel: "all", version: 4, panelText: "R", refuteText: "F", handoffText: "", model: "sonnet" });
+    const id2 = panelIdentity({ panel: "all", version: 4, panelText: "R", refuteText: "F", handoffText: "", model: "opus" });
     const ledger = { note: "", entries: {} as Record<string, never> } as never as import("../src/judge/ledger.js").Ledger;
-    const entry = { verdict: "clean" as const, shotIds: [live.id], judgedAt: "t", runId: "r" };
+    const entry = { verdict: "clean" as const, panel: "all", shotIds: [live.id], judgedAt: "t", runId: "r" };
     ledger.entries[ledgerKey(groupHash([live]), id1)] = entry;
     ledger.entries[ledgerKey(groupHash([live]), id2)] = entry;
     ledger.entries[ledgerKey("deadbeef", id1)] = entry;
@@ -134,6 +151,22 @@ describe("pruning unreachable entries", () => {
     expect(dropped).toBe(1);
     expect(Object.keys(ledger.entries)).toHaveLength(2);
     expect(ledger.entries[ledgerKey("deadbeef", id1)]).toBeUndefined();
+  });
+
+  test("a pre-panel key is dropped even when its hash is still live", async () => {
+    const { pruneLedger, loadLedger } = await import("../src/judge/ledger.js");
+    const live = shot();
+    const id = panelIdentity({ panel: "all", version: 4, panelText: "R", refuteText: "F", handoffText: "", model: "sonnet" });
+    const ledger = await loadLedger(tmpProject("lookout-ledger-legacy-"));
+    const entry = { verdict: "clean" as const, panel: "all", shotIds: [live.id], judgedAt: "t", runId: "r" };
+    ledger.entries[ledgerKey(groupHash([live]), id)] = entry;
+    // The four-segment format the panel term replaced. Nothing computes this
+    // key any more, so keeping it would grow the committed file forever.
+    ledger.entries[`${groupHash([live])}@v4@${id.promptHash}@sonnet`] = entry;
+
+    const dropped = pruneLedger(ledger, new Set([groupHash([live])]));
+    expect(dropped).toBe(1);
+    expect(ledger.entries[ledgerKey(groupHash([live]), id)]).toBeDefined();
   });
 });
 
@@ -145,9 +178,10 @@ describe("the cache partition serves animated groups", () => {
     const r = tmpProject("lookout-plan-animated-");
     const rubric = await loadRubric(r);
     const refute = await loadSkill(r, "refute-finding");
-    const id = judgeIdentity({
+    const id = panelIdentity({
+      panel: "all",
       version: rubric.version,
-      rubricText: rubric.text,
+      panelText: rubric.text,
       refuteText: refute.text,
       handoffText: rubric.handoff,
       model: "sonnet",
@@ -156,6 +190,7 @@ describe("the cache partition serves animated groups", () => {
     const ledger = await loadLedger(r);
     ledger.entries[ledgerKey(groupHash([moving]), id)] = {
       verdict: "clean",
+      panel: "all",
       shotIds: [moving.id],
       judgedAt: "t",
       runId: "old",
@@ -176,9 +211,10 @@ describe("--no-cache", () => {
     const r = tmpProject("lookout-plan-nocache-");
     const rubric = await loadRubric(r);
     const refute = await loadSkill(r, "refute-finding");
-    const id = judgeIdentity({
+    const id = panelIdentity({
+      panel: "all",
       version: rubric.version,
-      rubricText: rubric.text,
+      panelText: rubric.text,
       refuteText: refute.text,
       handoffText: rubric.handoff,
       model: "sonnet",
@@ -186,10 +222,10 @@ describe("--no-cache", () => {
     const s = shot();
     const ledger = await loadLedger(r);
     ledger.entries[ledgerKey(groupHash([s]), id)] = {
-      verdict: "clean", shotIds: [s.id], judgedAt: "t", runId: "old",
+      verdict: "clean", panel: "all", shotIds: [s.id], judgedAt: "t", runId: "old",
     };
     ledger.entries[ledgerKey("otherhash", id)] = {
-      verdict: "clean", shotIds: ["x"], judgedAt: "t", runId: "old",
+      verdict: "clean", panel: "all", shotIds: ["x"], judgedAt: "t", runId: "old",
     };
     await saveLedger(r, ledger);
 

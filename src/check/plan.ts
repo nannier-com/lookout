@@ -17,11 +17,11 @@ import { loadRubric, type Rubric } from "../judge/rubric.js";
 import { loadSkill, type Skill } from "../skills/load.js";
 import {
   groupHash,
-  judgeIdentity,
   ledgerKey,
   loadLedger,
-  type JudgeIdentity,
+  panelIdentity,
   type Ledger,
+  type PanelIdentity,
 } from "../judge/ledger.js";
 import type { VerifiedFinding } from "../judge/verify.js";
 import type { ResolvedConfig, ShotRecord } from "../types.js";
@@ -32,8 +32,8 @@ export interface JudgePlan {
   refute: Skill;
   model: string;
   ledger: Ledger;
-  /** Keys the ledger: which rules, which model, which version produced a verdict. */
-  identity: JudgeIdentity;
+  /** Keys the ledger: which panel, which rules, which model, which version. */
+  identity: PanelIdentity;
   /** Shots with no usable verdict on record, which this run will judge. */
   toJudge: ShotRecord[];
   /**
@@ -66,9 +66,13 @@ export async function planJudging(
   // it compares against. Per-shot caching made a scoped re-check report a
   // dark/light or responsive finding as gone when only its partner had changed,
   // which is exactly the false "fixed" the auto loop must never see.
-  const identity = judgeIdentity({
+  // Until the pipeline judges one panel at a time, the whole composed rubric
+  // is a single transitional identity named "all": the six panels exist as
+  // skills, and the ledger key already carries a panel segment for them.
+  const identity = panelIdentity({
+    panel: "all",
     version: rubric.version,
-    rubricText: rubric.text,
+    panelText: rubric.text,
     refuteText: refute.text,
     handoffText: rubric.handoff,
     model,
