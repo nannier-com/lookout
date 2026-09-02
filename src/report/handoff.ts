@@ -15,6 +15,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { chmod, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { invocation } from "../issues/document.js";
 import { findIssue } from "../issues/registry.js";
 import { issueDir, issueDocPath } from "../issues/paths.js";
 import { materializeIssue } from "../issues/store.js";
@@ -142,7 +143,15 @@ export async function launchHandoff(
   const doc = issueDocPath(resolved, issueId);
   if (!existsSync(doc)) await materializeIssue(resolved, cluster, record, { backlog });
 
-  const prompt = `Read ${doc} and fix the issue it describes.`;
+  // Two sentences, because the second one is what the queue waits on. The
+  // command is in the document too, near the end of it, and an agent that
+  // fixed the defect and stopped there left the queue parked on this issue
+  // with nothing to say why. Asking in the first turn is the difference
+  // between a loop that advances and one that silently does not.
+  const verify = `${await invocation()} verify-fix --issue ${issueId}`;
+  const prompt =
+    `Read ${doc} and fix the issue it describes.`
+    + ` When you believe it is fixed, run \`${verify}\` so lookout can rule on it.`;
   const command = `${tool.bin} ${JSON.stringify(prompt)}`;
   const result: LaunchResult = {
     issue: issueId,

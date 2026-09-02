@@ -39,7 +39,7 @@ import type { ResolvedConfig } from "../types.js";
  * repository is run straight out of its build. Falling back to the absolute
  * path of the running CLI means the command in the document is one that works.
  */
-async function invocation(): Promise<string> {
+export async function invocation(): Promise<string> {
   if (await have("lookout")) return "lookout";
   // Relative to this module, which is dist/issues/ in a real install. Checked
   // rather than assumed: running straight from the TypeScript resolves to a

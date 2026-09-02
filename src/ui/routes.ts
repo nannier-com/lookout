@@ -15,16 +15,19 @@
 import type { Server } from "bun";
 import { evidenceDir } from "../config.js";
 import { issuesDir } from "../issues/paths.js";
-import { launchHandoff, toolsAvailable } from "../report/handoff.js";
+import { toolsAvailable } from "../report/handoff.js";
+import { DEFAULT_MAX_ATTEMPTS } from "../fix/rule.js";
 import { json, readJson, sameOrigin, text } from "./http.js";
 import { serveClient } from "./assets.js";
 import { serveIssueDoc } from "./document.js";
 import { serveEvidence, serveThumb } from "./evidence.js";
 import { openLive } from "./live.js";
 import { readNarration } from "../report/narration.js";
-import { learningNow, statusBody } from "./payload.js";
+import { boardNow, learningNow, statusBody } from "./payload.js";
+import { pumpQueue, queueableReason } from "./queue-pump.js";
+import { saveQueue } from "./queue.js";
 import { applyBaseUrl, settingsView } from "./project.js";
-import { startCheck, stopCheck } from "./run.js";
+import { startCheck, startRuling, stopCheck } from "./run.js";
 import { currentProject, session } from "./session.js";
 import { saveSettings, validBaseUrl } from "./stored-settings.js";
 import { servePage } from "./page.js";
@@ -117,20 +120,72 @@ export async function handle(req: Request, server: Server<undefined>): Promise<R
     return json(200, { reset: true, lines: readNarration(resolved) });
   }
 
-  // Opening an issue in a coding tool. A POST, because it writes a file and
-  // starts a process: lookout only ever does this because somebody clicked.
-  if (url.pathname === "/api/launch" && req.method === "POST") {
+  // Asking for an issue to be fixed. A POST, because it writes a file and puts
+  // something in a line that will start a process: lookout only ever does this
+  // because somebody clicked.
+  //
+  // It queues rather than launching. Pressing play on five cards used to open
+  // five Terminal windows into one working tree; what the press means is "this
+  // one next", and the pump is what turns a list of those into one handoff at
+  // a time.
+  if (url.pathname === "/api/queue" && req.method === "POST") {
     try {
       const { issue, tool } = (await readJson(req)) as { issue?: string; tool?: string };
       if (!issue) throw new Error("no issue given");
-      return json(200, await launchHandoff(resolved, issue, tool ?? "claude-code"));
+      const board = await boardNow(resolved);
+      const why = queueableReason(board.find((b) => b.id === issue), DEFAULT_MAX_ATTEMPTS);
+      // Refused at the door rather than queued and silently dropped by the
+      // pump on its next tick, which is what a press with no answer looks like.
+      if (why) return json(409, { error: why });
+      if (!session.queue.some((q) => q.issue === issue)) {
+        session.queue = [
+          ...session.queue,
+          { issue, tool: tool ?? "claude-code", queuedAt: new Date().toISOString() },
+        ];
+        session.queueRev++;
+        await saveQueue(resolved.projectDir, session.queue);
+      }
+      await pumpQueue(resolved);
+      return json(200, { issue, queue: session.queue });
+    } catch (err) {
+      return json(400, { error: (err as Error).message });
+    }
+  }
+
+  // Taking an issue back out of the line. Also the way out of a queue whose
+  // head was handed to an agent that never asked for a ruling, so it is not a
+  // convenience: it is the escape hatch the advance condition needs.
+  if (url.pathname === "/api/queue/remove" && req.method === "POST") {
+    try {
+      const { issue } = (await readJson(req)) as { issue?: string };
+      if (!issue) throw new Error("no issue given");
+      const next = session.queue.filter((q) => q.issue !== issue);
+      if (next.length !== session.queue.length) {
+        session.queue = next;
+        session.queueRev++;
+        await saveQueue(resolved.projectDir, next);
+      }
+      await pumpQueue(resolved);
+      return json(200, { issue, queue: session.queue });
+    } catch (err) {
+      return json(400, { error: (err as Error).message });
+    }
+  }
+
+  // Ruling on the head by hand, when the agent it was handed to did not ask.
+  if (url.pathname === "/api/rule" && req.method === "POST") {
+    try {
+      const { issue } = (await readJson(req)) as { issue?: string };
+      if (!issue) throw new Error("no issue given");
+      const r = startRuling(resolved, issue);
+      return json(r.started ? 200 : 409, r);
     } catch (err) {
       return json(400, { error: (err as Error).message });
     }
   }
 
   // Filing an issue away, and putting it back. The page's only write to the
-  // record, and a POST for the same reason `/api/launch` is one: it changes
+  // record, and a POST for the same reason `/api/queue` is one: it changes
   // something on disk, and lookout only ever does that because somebody asked.
   if (url.pathname === "/api/archive" && req.method === "POST") {
     try {

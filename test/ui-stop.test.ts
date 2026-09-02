@@ -98,7 +98,7 @@ async function runningTree(): Promise<{ parent: number; kid: number }> {
   // The parent writes its own child's pid down, which is the only way to know
   // the grandchild's fate from out here.
   await until(() => existsSync(KID_FILE));
-  session.running = { child, project, stopping: false };
+  session.running = { child, project, stopping: false, kind: "check" };
   return { parent: child.pid!, kid: Number(readFileSync(KID_FILE, "utf8")) };
 }
 

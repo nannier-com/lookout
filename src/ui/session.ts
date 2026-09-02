@@ -14,6 +14,7 @@
  */
 import type { ChildProcess } from "node:child_process";
 import { LookoutError, type ResolvedConfig } from "../types.js";
+import type { QueueItem } from "./queue.js";
 import type { UiSettings } from "./stored-settings.js";
 
 /**
@@ -78,7 +79,22 @@ export const session: {
    * purpose rather than that it fell over, and what stops a second press from
    * signalling a group that is already closing its browser.
    */
-  running: { child: ChildProcess; project: ResolvedConfig; stopping: boolean } | null;
+  running: {
+    child: ChildProcess;
+    project: ResolvedConfig;
+    stopping: boolean;
+    /**
+     * Which of lookout's own verbs is in the slot.
+     *
+     * There is one slot and two things that want it: the check the header
+     * button starts, and the ruling the queue's head row asks for. The page
+     * says which it is about to stop, because "stop" over a nine-minute check
+     * and "stop" over a ruling somebody just asked for are different presses.
+     */
+    kind: "check" | "verify-fix";
+    /** The issue a ruling is about. Absent for a check, which is about none. */
+    issue?: string;
+  } | null;
   /**
    * Why the last run this page started ended badly, if it did.
    *
@@ -89,10 +105,32 @@ export const session: {
    * with the one artifact that explained it, its stderr, thrown away.
    */
   lastFailure: { code: number | null; message: string } | null;
+  /**
+   * The issues waiting to be handed over, head first.
+   *
+   * Held here rather than read from disk per request because the pump asks for
+   * it many times a second, and because this process is the one that owns it:
+   * `queue.json` is the sidecar that survives a restart, not the authority.
+   */
+  queue: QueueItem[];
+  /**
+   * Bumped on every change to the queue.
+   *
+   * The status payload is cached on a key built by hand out of the things that
+   * move, and none of them is this file: `diskKey` stats the backlog, the event
+   * log and the issues directory, and `queue.json` is a sibling of all three.
+   * Without this term the page would be served a queue from before the press.
+   */
+  queueRev: number;
+  /** The mtime the queue was last read or written at, so an outside edit shows. */
+  queueMtime: number;
 } = {
   settings: { baseUrl: null, navigationFor: null },
   running: null,
   lastFailure: null,
+  queue: [],
+  queueRev: 0,
+  queueMtime: 0,
 };
 
 export function checkIsRunning(): boolean {

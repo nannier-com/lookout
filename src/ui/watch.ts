@@ -25,6 +25,7 @@
 import { existsSync, watch, type FSWatcher } from "node:fs";
 import { lookoutDir } from "../config.js";
 import { liveCount, pushNarration, pushNow } from "./live.js";
+import { pumpQueue } from "./queue-pump.js";
 import { currentProjectOrNull, onProjectChange } from "./session.js";
 
 /**
@@ -49,11 +50,30 @@ function watched(): string[] {
   return project ? [lookoutDir(project)] : [];
 }
 
+/**
+ * Everything a write under `.lookout/` has to set off.
+ *
+ * The queue's pump lives here because the thing it waits for is a ruling, and a
+ * ruling is a write into this directory. It resolves the board through the
+ * payload's cache, so on a tick where nothing it cares about moved it reads
+ * nothing, and it swallows its own failures rather than throwing out of this
+ * timer.
+ */
+function react(): void {
+  void (async () => {
+    await pushNow();
+    const project = currentProjectOrNull();
+    if (project) await pumpQueue(project);
+    // Only broadcasts if the pump actually changed the payload.
+    await pushNow();
+  })();
+}
+
 function nudge(): void {
   if (coalesce) return;
   coalesce = setTimeout(() => {
     coalesce = null;
-    void pushNow();
+    react();
     // Cheap beside it rather than folded into it: what a judge is saying moves
     // many times a second while the board it will land on does not move at all,
     // and the board's own push is a cache hit whenever only narration changed.
@@ -104,7 +124,10 @@ export function startWatching(): void {
     // Nobody is reading. Arming and pushing would both be work for no one.
     if (liveCount() === 0) return;
     arm();
-    void pushNow();
+    // The backstop, not `nudge`, is what runs when `fs.watch` has quietly
+    // stopped, which is exactly the state in which a queue that only advanced
+    // on a watcher event would never advance again.
+    react();
     pushNarration();
   }, BACKSTOP_MS);
   // Do not hold the process open on the backstop alone.

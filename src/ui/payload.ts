@@ -18,6 +18,7 @@ import { readEvents, summarise, type LookoutEvent, type RunStatus } from "../rep
 import { buildBoard, severityTally, tally, type BoardEntry } from "../report/board.js";
 import { buildLearning, learningBadge, learningKey, type Learning } from "../report/learning.js";
 import { checkIsRunning, checkIsStopping, session } from "./session.js";
+import type { QueueItem } from "./queue.js";
 import type { ResolvedConfig } from "../types.js";
 
 /**
@@ -25,7 +26,7 @@ import type { ResolvedConfig } from "../types.js";
  * is a hundred kilobytes of reads. The page polls every 1.5 seconds, so the
  * result is held until something on disk actually moves.
  */
-let boardCache: { key: string; body: string } | null = null;
+let boardCache: { key: string; body: string; board: BoardEntry[] } | null = null;
 
 function diskKey(resolved: ResolvedConfig): string {
   const parts: string[] = [];
@@ -91,6 +92,22 @@ export interface StatusPayload {
     checkRunning: boolean;
     /** Whether that run has been told to stop and is still on its way down. */
     checkStopping: boolean;
+    /**
+     * Which verb is in the run slot, so the page says what stop would stop.
+     *
+     * `runKind` and not `running`: `RunStatus` already carries a boolean by
+     * that name, meaning "the event log says a run is open", which is a
+     * different question from "this server is holding a child".
+     */
+    runKind: "check" | "verify-fix" | null;
+    /**
+     * The issues waiting to be handed over, head first.
+     *
+     * Carried as the queue's own record and nothing more: the board is in this
+     * same payload with every issue's title and status, so the page joins the
+     * two by id rather than the server sending each issue twice.
+     */
+    queue: QueueItem[];
     findings: ReturnType<typeof severityTally>;
     /** One line about lookout working on lookout, for the rail. */
     learning: ReturnType<typeof learningBadge>;
@@ -126,7 +143,13 @@ export async function statusBody(resolved: ResolvedConfig): Promise<string> {
     // would keep telling the page the button had not been pressed.
     checkIsStopping() +
     "|" +
-    (session.lastFailure ? `${session.lastFailure.code}:${session.lastFailure.message}` : "");
+    (session.lastFailure ? `${session.lastFailure.code}:${session.lastFailure.message}` : "") +
+    "|" +
+    // Queueing moves nothing `diskKey` stats: `queue.json` is a sibling of the
+    // backlog and the issues directory, not one of them. Without this term the
+    // page would keep being served the queue from before the press, which is
+    // the same bug the stopping term above exists for.
+    session.queueRev;
   if (boardCache?.key === key) return boardCache.body;
 
   const events = readEvents(resolved);
@@ -155,6 +178,8 @@ export async function statusBody(resolved: ResolvedConfig): Promise<string> {
       issues: tally(board),
       checkRunning: checkIsRunning(),
       checkStopping: checkIsStopping(),
+      runKind: session.running ? session.running.kind : null,
+      queue: session.queue,
       findings: severityTally(outstanding),
       // One line about lookout working on lookout, so the rail can say so
       // from whichever area is open.
@@ -163,6 +188,19 @@ export async function statusBody(resolved: ResolvedConfig): Promise<string> {
     events: events.slice(-400),
   };
   const body = JSON.stringify(payload);
-  boardCache = { key, body };
+  boardCache = { key, body, board };
   return body;
+}
+
+/**
+ * The board the last payload was built from, building one if none is current.
+ *
+ * The queue's pump needs to know where the head stands, and that answer is
+ * already in memory: assembling a second board would re-read the event log and
+ * every issue's state file, which during a check is a hundred kilobytes at
+ * whatever rate the log is being appended to.
+ */
+export async function boardNow(resolved: ResolvedConfig): Promise<BoardEntry[]> {
+  await statusBody(resolved);
+  return boardCache?.board ?? [];
 }

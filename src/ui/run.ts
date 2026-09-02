@@ -28,7 +28,22 @@ import type { ResolvedConfig } from "../types.js";
 
 export async function startCheck(project: ResolvedConfig): Promise<{ started: boolean; reason?: string }> {
   if (session.running && session.running.child.exitCode === null) {
-    return { started: false, reason: "a check is already running" };
+    return {
+      started: false,
+      reason: session.running.kind === "check" ? "a check is already running" : "a ruling is already running",
+    };
+  }
+  // A check photographs the working tree and truncates the event log on its
+  // way in. Both are wrong while somebody is mid-fix in that tree: the
+  // screenshots catch a half-written change, and the truncation erases the
+  // narration of a ruling already in flight. So the queue's handed-off head
+  // holds the door.
+  const handed = session.queue[0]?.handedOffAt;
+  if (handed) {
+    return {
+      started: false,
+      reason: `issue ${session.queue[0]?.issue} is being fixed right now; a check would photograph a half-edited tree`,
+    };
   }
   if (!project.configPath) {
     return { started: false, reason: "no lookout.config.ts in that folder" };
@@ -92,7 +107,62 @@ export async function startCheck(project: ResolvedConfig): Promise<{ started: bo
     void pushNow();
   });
   session.lastFailure = null;
-  session.running = { child, project, stopping: false };
+  session.running = { child, project, stopping: false, kind: "check" };
+  void pushNow();
+  return { started: true };
+}
+
+/**
+ * Ask lookout to rule on the issue at the head of the queue.
+ *
+ * The queue advances on lookout's own record, and only `verify-fix` writes it.
+ * The normal case is the fix agent running the command the handoff asked it to
+ * run; this is what a reader presses when that did not happen, because the
+ * agent stopped early, the window was closed, or the server was restarted
+ * under it. Without it a queue can park on one issue with no way forward but
+ * the X.
+ *
+ * It takes the same slot a check takes, for the same reason: one thing at a
+ * time in one working tree.
+ */
+export function startRuling(
+  project: ResolvedConfig,
+  issue: string,
+): { started: boolean; reason?: string } {
+  if (session.running && session.running.child.exitCode === null) {
+    return {
+      started: false,
+      reason: session.running.kind === "check" ? "a check is running" : "a ruling is already running",
+    };
+  }
+  if (!project.configPath) return { started: false, reason: "no lookout.config.ts in that folder" };
+  const cli = fileURLToPath(new URL("../cli.js", import.meta.url));
+  const child = spawn(
+    process.execPath,
+    [cli, "verify-fix", "--issue", issue],
+    checkSpawnOptions(project.projectDir),
+  );
+  let stderr = "";
+  child.stderr?.on("data", (chunk: Buffer) => {
+    if (stderr.length < MAX_STDERR) stderr += chunk.toString();
+  });
+  child.on("error", (err) => {
+    session.lastFailure = { code: null, message: err.message };
+    session.running = null;
+    void pushNow();
+  });
+  child.on("exit", (code) => {
+    // 0 passed, 1 still open, 3 out of attempts: all three are rulings, and a
+    // ruling is an answer rather than a failure. Only 2 is lookout unable to
+    // say anything, which is the one worth showing in red.
+    if (session.running?.stopping !== true && code === 2) {
+      session.lastFailure = { code, message: tailLines(stderr) || "the ruling could not be made" };
+    }
+    session.running = null;
+    void pushNow();
+  });
+  session.lastFailure = null;
+  session.running = { child, project, stopping: false, kind: "verify-fix", issue };
   void pushNow();
   return { started: true };
 }

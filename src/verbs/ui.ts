@@ -39,6 +39,8 @@ import { stopCheck } from "../ui/run.js";
 import { session, setCurrentProject } from "../ui/session.js";
 import { startWatching, stopWatching } from "../ui/watch.js";
 import { EMPTY_SETTINGS, loadSettings } from "../ui/stored-settings.js";
+import { loadQueue, queueMtime } from "../ui/queue.js";
+import { pumpQueue } from "../ui/queue-pump.js";
 import { execFileAsync, num, str, type Parsed } from "../util.js";
 import { LookoutError, type ResolvedConfig } from "../types.js";
 
@@ -106,6 +108,12 @@ export async function projectToServe(parsed: Parsed): Promise<string | null> {
 export async function ui(parsed: Parsed): Promise<number> {
   const root = await projectToServe(parsed);
   session.settings = root ? await loadSettings(root) : { ...EMPTY_SETTINGS };
+  // The queue outlives the process that was holding it: a server restarted
+  // mid-fix comes back still knowing what it was waiting for and what is behind
+  // it. Its mtime comes with it, so a second server on the same project is
+  // noticed rather than silently overwritten.
+  session.queue = root ? await loadQueue(root) : [];
+  session.queueMtime = root ? queueMtime(root) : 0;
   const baseUrl = str(parsed.flags["base-url"]) ?? session.settings.baseUrl ?? undefined;
   let resolved: ResolvedConfig;
   try {
@@ -145,6 +153,9 @@ export async function ui(parsed: Parsed): Promise<number> {
   // Now that there is somewhere to push to, start noticing that runs are
   // writing. Nothing is pushed until a page actually opens a socket.
   startWatching();
+  // A queue restored from disk may have been settled while nobody was serving
+  // it, and its head may never have been handed over at all.
+  void pumpQueue(resolved);
 
   const href = `http://127.0.0.1:${port}/`;
   console.log(`lookout ui: ${href}`);
