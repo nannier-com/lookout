@@ -71,37 +71,70 @@ export async function archive(issue: string, btn: HTMLButtonElement, archived: b
   }
 }
 
-export async function launch(issue: string, btn: HTMLButtonElement): Promise<void> {
+/**
+ * Put an issue in the queue.
+ *
+ * It does not open anything. Pressing play on five cards used to open five
+ * Terminal windows into one working tree; what the press means is "this one
+ * next", and the server hands them over one at a time.
+ */
+export async function enqueue(issue: string, btn: HTMLButtonElement): Promise<void> {
   const out = slot('[data-launched="' + CSS.escape(issue) + '"]');
   btn.disabled = true;
-  // The button is two SVGs now, so it pulses rather than swapping its text:
+  // The button is two SVGs, so it pulses rather than swapping its text:
   // writing textContent would delete the mark and never put it back.
   btn.classList.add("busy");
   try {
-    const r = await fetch("/api/launch", {
+    const r = await fetch("/api/queue", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ issue: issue, tool: tool }),
     });
-    const j = (await r.json()) as {
-      error?: string;
-      launched?: boolean;
-      toolLabel?: string;
-      reason?: string;
-      command?: string;
-    };
+    const j = (await r.json()) as { error?: string; queue?: { issue: string }[] };
+    // A refusal says why rather than queueing something the pump would drop on
+    // its next tick, which from here looks like a press that did nothing.
     if (j.error) out.textContent = j.error;
-    else if (j.launched) out.textContent = "opened in " + String(j.toolLabel);
     else {
-      // Say why, and hand over the command rather than failing silently.
-      out.innerHTML = esc(j.reason || "could not open a terminal") + " \u00b7 run: <code>"
-        + esc(j.command) + "</code>";
+      const at = (j.queue ?? []).findIndex((q) => q.issue === issue);
+      out.textContent = at === 0 ? "handed to " + toolLabel() : "queued, " + nth(at + 1) + " in line";
     }
   } catch (err) {
     out.textContent = String(err);
   }
   btn.disabled = false;
   btn.classList.remove("busy");
+}
+
+/** Take one back out. The queue's X, and the way out of a head nobody ruled on. */
+export async function unqueue(issue: string): Promise<void> {
+  await fetch("/api/queue/remove", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ issue: issue }),
+  });
+}
+
+/** Ask lookout to rule on an issue now, because whoever was fixing it did not. */
+export async function ruleNow(issue: string, btn: HTMLButtonElement): Promise<void> {
+  btn.disabled = true;
+  try {
+    await fetch("/api/rule", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ issue: issue }),
+    });
+  } finally {
+    // The board's own repaint puts the row back; re-enabling here covers a
+    // refusal, which leaves the row exactly as it was.
+    btn.disabled = false;
+  }
+}
+
+/** 1st, 2nd, 3rd. Small enough to be worth not reaching for a formatter. */
+function nth(n: number): string {
+  const tens = n % 100;
+  if (tens >= 11 && tens <= 13) return n + "th";
+  return n + (["th", "st", "nd", "rd"][n % 10] ?? "th");
 }
 
 /** The tool a launch will open, for whoever is asking. */

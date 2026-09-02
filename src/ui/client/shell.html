@@ -105,11 +105,11 @@
 </section>
 
 </main>
-<aside class="stream" id="stream" aria-label="What the judge is saying">
+<aside class="stream" id="stream" aria-label="The judge, and the issues waiting to be fixed">
   <div class="streamtop">
-    <button type="button" class="sfold" id="streamFold" aria-controls="streamLog"
-      aria-expanded="true" aria-label="Collapse the judge's transcript"
-      title="Collapse the judge's transcript">
+    <button type="button" class="sfold" id="streamFold" aria-controls="streamLog queueList"
+      aria-expanded="true" aria-label="Collapse the judge and the queue"
+      title="Collapse the judge and the queue">
       <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none"
         stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
         <path d="M9 6l6 6-6 6"/></svg></button>
@@ -118,6 +118,12 @@
     <span class="who" id="streamWho"></span>
   </div>
   <div class="streamlog" id="streamLog" role="log" aria-live="polite"></div>
+  <div class="queuetop">
+    <i class="qdot" aria-hidden="true"></i>
+    <h2>Queue</h2>
+    <span class="who" id="queueCount"></span>
+  </div>
+  <div class="queuelist" id="queueList" role="list"></div>
 </aside>
 <div class="shotview" id="shotview" role="dialog" aria-modal="true" aria-labelledby="svTitle" hidden>
   <div class="svtop">

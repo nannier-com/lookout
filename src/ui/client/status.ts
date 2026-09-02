@@ -13,6 +13,7 @@
  */
 import { el, esc, paint, ticks } from "./dom.js";
 import { card } from "./board.js";
+import { isQueued, paintQueue } from "./queue.js";
 import { matchesIssue, stat, statFilter } from "./filters.js";
 import { loadLearning } from "./learning.js";
 import { paintRail, paintWhere, paintPlay, say } from "./shell.js";
@@ -89,6 +90,10 @@ export function render(d: StatusPayload): void {
     checkStopping: !!s.checkStopping,
   };
   paintPlay();
+  // Before the board, not after: the cards read queue membership to draw their
+  // own buttons, and a board painted from the previous tick's queue is a press
+  // that visibly did nothing.
+  paintQueue(d);
   // A run that died says why. The server keeps the child's stderr precisely so
   // this is possible; before, the process exited into a discarded pipe.
   if (d.lastFailure) {
@@ -143,7 +148,12 @@ export function render(d: StatusPayload): void {
   // Acceptance verdicts are part of the signature: a verify-fix that ticks a
   // criterion without changing anything else is exactly the moment the card
   // has to repaint, and leaving them out left it showing the old marks.
+  // Queue membership is in the signature because the card's own button draws
+  // from it: `paint` is a no-op on an unchanged signature, so without this term
+  // pressing play would leave the button exactly as it was and read as a press
+  // that did nothing.
   const sig = JSON.stringify([page.filter, issues.map((b) => [b.id, b.status, b.attempt, b.verdict,
+    isQueued(b.id),
     b.shots.length, b.shots.filter((s) => s.provenance).length,
     (b.before || []).length, (b.after || []).length,
     b.lastSeenAt, (b.timeline || []).length, b.fix && b.fix.commit,

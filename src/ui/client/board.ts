@@ -8,6 +8,7 @@
  */
 import { enc, esc } from "./dom.js";
 import { ruleLine, statusWords, verdictMark, verdictState, verdictWords } from "./card-words.js";
+import { isQueued } from "./queue.js";
 import { toolLabel, toolMark } from "./tools.js";
 import type { BoardEntry, BoardShot } from "../../report/board.js";
 
@@ -245,9 +246,21 @@ function cardAction(b: BoardEntry): string {
       + ' data-restore="1" title="Put this issue back on the board">'
       + back + 'Restore</button>';
   }
-  return '<button type="button" class="launch" data-launch="' + esc(b.id) + '"'
-    + ' aria-label="Open in ' + esc(toolLabel()) + '"'
-    + ' title="Open this issue in ' + esc(toolLabel()) + '">'
+  // Nothing to offer on an issue lookout has given up on: queueing it would
+  // hand somebody a fight `verify-fix` answers exit 3 for without looking.
+  // The card still says blocked, and the note says what to do about it.
+  if (b.status === "blocked") return "";
+  const on = isQueued(b.id);
+  // Queued stays a live control rather than a disabled one: the press that put
+  // it in the line is the press that takes it back out, and a disabled button
+  // leaves the tab order without saying why.
+  return '<button type="button" class="launch' + (on ? " on" : "") + '"'
+    + ' data-' + (on ? "unqueue" : "queue") + '="' + esc(b.id) + '"'
+    + ' aria-pressed="' + (on ? "true" : "false") + '"'
+    + ' aria-label="' + (on ? "Take out of the queue" : "Queue for " + esc(toolLabel())) + '"'
+    + ' title="' + (on
+        ? "In the queue. Press to take it back out."
+        : "Queue this issue to be fixed in " + esc(toolLabel())) + '">'
     + toolMark()
     + '<svg class="go" viewBox="0 0 24 24" width="11" height="11" aria-hidden="true">'
     + '<path fill="currentColor" d="M8 5.2 19 12 8 18.8Z"/></svg>'

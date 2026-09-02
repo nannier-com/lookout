@@ -20,7 +20,7 @@ import { paintJudge, say, setView, toggleJudge } from "./shell.js";
 import { render, runState } from "./status.js";
 import { connected, listen } from "./stream.js";
 import { addNarration } from "./transcript.js";
-import { archive, chooseTool, launch, loadTools } from "./tools.js";
+import { archive, chooseTool, enqueue, loadTools, ruleNow, unqueue } from "./tools.js";
 import { onRefresh, page, type Filter } from "./state.js";
 import { closeShot, openShot, shotBackdrop, shotOpen } from "./shot-view.js";
 import type { NarrationFrame } from "../narration.js";
@@ -167,8 +167,13 @@ document.addEventListener("click", (e) => {
     void saveConfigState({ baseUrl: (el("setUrl") as HTMLInputElement).value });
     return;
   }
-  const go = hit(e, "[data-launch]");
-  if (go?.dataset.launch) { void launch(go.dataset.launch, go as HTMLButtonElement); return; }
+  const go = hit(e, "[data-queue]");
+  if (go?.dataset.queue) { void enqueue(go.dataset.queue, go as HTMLButtonElement); return; }
+  // Both the queue's own X and a card whose button is already pressed.
+  const out = hit(e, "[data-unqueue]");
+  if (out?.dataset.unqueue) { void unqueue(out.dataset.unqueue); return; }
+  const rule = hit(e, "[data-rule]");
+  if (rule?.dataset.rule) { void ruleNow(rule.dataset.rule, rule as HTMLButtonElement); return; }
   const file = hit(e, "[data-archive]");
   if (file?.dataset.archive) {
     void archive(file.dataset.archive, file as HTMLButtonElement, !file.dataset.restore);
