@@ -110,6 +110,8 @@ export function acceptanceSection(ctx: IssueContext): string[] {
     // with no blank line before it is a continuation of the item in markdown,
     // and the note ran into the criterion as one sentence.
     if (c.verdict !== "pending" && c.note) l.push(`  - ${SAID[c.verdict] ?? c.verdict}: ${c.note}`);
+    if (c.evidence && c.evidence.length > 0) l.push(`  - decided on: ${c.evidence.join(", ")}`);
+    if (c.suggestion) l.push(`  - the verifier suggested: ${c.suggestion}`);
     if (c.ruledAt) l.push(`  - ruled ${c.ruledAt}${c.runId ? ` by run ${c.runId}` : ""}`);
   }
   l.push("");

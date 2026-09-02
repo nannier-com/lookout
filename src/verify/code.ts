@@ -12,7 +12,7 @@
 import { setStatus, type Backlog } from "../backlog/lib.js";
 import { CODE_RECAPTURE_CRITERION } from "../issues/acceptance.js";
 import { saveBacklog } from "../verbs/backlog.js";
-import { attemptRecord, recordAttempt } from "./attempt.js";
+import { attemptRecord, observeRepo, previousAttempt, recordAttempt } from "./attempt.js";
 import { ruleCodeCluster } from "../fix/rule-code.js";
 import { ruleVerdict, type Verdict } from "../fix/rule.js";
 import { emit } from "../report/events.js";
@@ -107,10 +107,23 @@ export async function ruleCodeIssue(
   }
   // The attempt before the save: the save rewrites the document, and the
   // document reads the attempts.
+  const previous = await previousAttempt(resolved, issueId);
+  const snapshot = backlog.issues?.[issueId]?.acceptance;
   await recordAttempt(
     resolved,
     issueId,
-    attemptRecord({ n: attempt, commit: opts.commit, note: opts.note, verdict, judgeNote: ruling.note }),
+    attemptRecord({
+      n: attempt,
+      commit: opts.commit,
+      note: opts.note,
+      verdict,
+      judgeNote: ruling.note,
+      runId: runIdNow,
+      ...(snapshot
+        ? { criteria: snapshot.map((c) => ({ id: c.id, text: c.text, verdict: c.verdict, ...(c.note ? { note: c.note } : {}) })) }
+        : {}),
+      observed: await observeRepo(resolved.projectDir, previous?.reported?.commit, opts.commit),
+    }),
   );
   await saveBacklog(resolved, backlog);
 

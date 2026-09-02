@@ -21,7 +21,35 @@ import { DEFAULT_MAX_ATTEMPTS } from "../fix/rule.js";
 import { isShellRegion } from "../backlog/lib.js";
 import { panelOf } from "../judge/panels.js";
 import { DEFAULT_VIEWPORTS } from "../types.js";
+import type { AttemptRecord } from "../fix/state.js";
 import { filingRunOf, type IssueContext } from "./context.js";
+
+/**
+ * What lookout observed in the repository when it ruled, said apart from what
+ * the fixer reported: whether anything was committed, and whether the change
+ * landed in the files the fix was meant to touch.
+ */
+function observationLines(a: AttemptRecord): string[] {
+  const o = a.observed;
+  if (!o) return [];
+  const parts: string[] = [];
+  if (o.head) parts.push(`HEAD ${o.head}`);
+  if (o.dirty === true) {
+    parts.push(
+      `${o.dirtyFiles?.length ?? 0} uncommitted file(s)` + (o.dirtyFiles?.length ? `: ${o.dirtyFiles.join(", ")}` : ""),
+    );
+  } else if (o.dirty === false) {
+    parts.push("working tree clean");
+  }
+  if (o.filesChanged) {
+    parts.push(
+      o.filesChanged.length === 0
+        ? `no files changed since attempt ${a.n - 1}`
+        : `changed since attempt ${a.n - 1}: ${o.filesChanged.join(", ")}`,
+    );
+  }
+  return parts.length > 0 ? [`- in the repository: ${parts.join("; ")}`] : [];
+}
 
 export function attemptsSection(ctx: IssueContext, lookoutCmd: string): string[] {
   const { cluster, state } = ctx;
@@ -40,6 +68,26 @@ export function attemptsSection(ctx: IssueContext, lookoutCmd: string): string[]
     const said = attemptSentences(a);
     l.push(`### attempt ${a.n}, ${a.dispatchedAt}`, "");
     if (said.claimed) l.push(`- ${said.claimed}`);
+    l.push(...observationLines(a));
+    if (a.totalShots !== undefined) {
+      l.push(
+        `- re-captured: ${a.changedShots ?? 0} of ${a.baselineShots ?? 0} comparable screenshot(s) changed` +
+          ` (${a.totalShots} in scope)` +
+          (a.runId ? `, run ${a.runId}` : "") +
+          (a.flags ? `; flags: ${Object.entries(a.flags).map(([k, v]) => (v === true ? `--${k}` : `--${k} ${v}`)).join(" ")}` : ""),
+      );
+    } else if (a.runId) {
+      l.push(`- run ${a.runId}`);
+    }
+    if (a.unclosable && a.unclosable.length > 0) {
+      l.push(`- pixels unchanged since filing on ${a.unclosable.join(", ")}, so nothing there could close`);
+    }
+    for (const f of a.stillOpen ?? []) {
+      l.push(`- still filed after this attempt: ${f.title}${f.shotId ? ` (${f.shotId})` : ""}: ${f.observed}`);
+    }
+    for (const c of (a.criteria ?? []).filter((c) => c.verdict === "unmet")) {
+      l.push(`- criterion not met: ${c.text}${c.note ? `: ${c.note}` : ""}`);
+    }
     if (said.surfaced) l.push(`- ${said.surfaced}`);
     if (said.verdict) {
       // A judge that saw the same thing twice is the finding, and worth more
@@ -47,6 +95,7 @@ export function attemptsSection(ctx: IssueContext, lookoutCmd: string): string[]
       const same = a.judgeNote !== undefined && a.judgeNote === previousNote;
       l.push(same ? `- lookout ruled it ${a.verdict}: unchanged from attempt ${a.n - 1}` : `- ${said.verdict}`);
     }
+    if (a.contactSheet && existsSync(a.contactSheet)) l.push(`- contact sheet of that capture: ${a.contactSheet}`);
     if (a.judgeNote !== undefined) previousNote = a.judgeNote;
     l.push("");
   }

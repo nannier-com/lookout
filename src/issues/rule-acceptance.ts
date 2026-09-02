@@ -23,6 +23,10 @@ export interface DeterministicOutcome {
 export interface JudgedCriterion {
   verdict: "pass" | "fail" | "not-verifiable";
   reasoning: string;
+  /** The shots the verifier says decided it. */
+  evidence?: string[];
+  /** The verifier's one-line remedy, when it offered one. */
+  suggestion?: string;
 }
 
 export interface RuleAcceptanceInput {
@@ -104,6 +108,10 @@ export function ruleAcceptance(input: RuleAcceptanceInput): AcceptanceCriterion[
       ...stamp,
       verdict: judged.verdict === "pass" ? "met" : judged.verdict === "fail" ? "unmet" : "not-verifiable",
       note: judged.reasoning,
+      // Which shots decided it and what the verifier would change: dropped
+      // here for a long time, and exactly what a second attempt reads first.
+      ...(judged.evidence && judged.evidence.length > 0 ? { evidence: judged.evidence } : {}),
+      ...(judged.suggestion ? { suggestion: judged.suggestion } : {}),
     };
   });
 }
@@ -125,7 +133,7 @@ export function asCriteriaText(criteria: AcceptanceCriterion[]): string {
  */
 export function matchJudged(
   criteria: AcceptanceCriterion[],
-  results: { id: number; text: string; verdict: string; reasoning: string }[],
+  results: { id: number; text: string; verdict: string; reasoning: string; evidence?: string[]; suggestion?: string }[],
 ): Map<string, JudgedCriterion> {
   const out = new Map<string, JudgedCriterion>();
   const normalise = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -142,6 +150,8 @@ export function matchJudged(
     out.set(target.id, {
       verdict: r.verdict as JudgedCriterion["verdict"],
       reasoning: r.reasoning,
+      ...(r.evidence && r.evidence.length > 0 ? { evidence: r.evidence.slice(0, 12) } : {}),
+      ...(r.suggestion ? { suggestion: r.suggestion.slice(0, 300) } : {}),
     });
   }
   return out;

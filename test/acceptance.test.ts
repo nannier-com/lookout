@@ -378,3 +378,42 @@ describe("which shots a capped verifier sees", () => {
     expect(rankVerifyShots(shots, new Set(), new Set(), 1)).toHaveLength(1);
   });
 });
+
+describe("the verifier's evidence and suggestion survive the match and the ruling", () => {
+  const criteria: AcceptanceCriterion[] = [
+    { id: "a", text: "First thing is true.", source: "judge", verdict: "pending" },
+  ];
+
+  test("matchJudged keeps which shots decided it and what the verifier would change", () => {
+    const matched = matchJudged(criteria, [
+      { id: 1, text: "First thing is true.", verdict: "fail", reasoning: "not seen",
+        evidence: ["web/app/dash/rest/phone/dark"], suggestion: "darken the text" },
+    ]);
+    expect(matched.get("a")).toEqual({
+      verdict: "fail",
+      reasoning: "not seen",
+      evidence: ["web/app/dash/rest/phone/dark"],
+      suggestion: "darken the text",
+    });
+    // Absent stays absent: no empty arrays or blank strings written.
+    const bare = matchJudged(criteria, [{ id: 1, text: "First thing is true.", verdict: "pass", reasoning: "seen" }]);
+    expect(bare.get("a")).toEqual({ verdict: "pass", reasoning: "seen" });
+  });
+
+  test("ruleAcceptance writes them onto the criterion beside the note", () => {
+    const judged = new Map([
+      ["a", { verdict: "fail" as const, reasoning: "not seen", evidence: ["s1"], suggestion: "darken the text" }],
+    ]);
+    const [c] = ruleAcceptance({
+      criteria,
+      changedShots: 1,
+      totalShots: 1,
+      baselineShots: 1,
+      deterministic: { freshFingerprints: new Set(), recapturedFingerprints: new Set() },
+      judged,
+      ruledAt: "2026-08-30T10:00:00.000Z",
+      runId: "verify-9",
+    });
+    expect(c).toMatchObject({ verdict: "unmet", note: "not seen", evidence: ["s1"], suggestion: "darken the text" });
+  });
+});

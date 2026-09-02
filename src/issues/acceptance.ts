@@ -46,6 +46,10 @@ export interface AcceptanceCriterion {
   /** When it was last ruled, and by which run. Absent means never ruled. */
   ruledAt?: string;
   runId?: string;
+  /** The shots the verifier named as deciding it, when it named any. */
+  evidence?: string[];
+  /** The verifier's one-line remedy, when it offered one. */
+  suggestion?: string;
 }
 
 /** The universal criterion for anything photographed. */

@@ -21,6 +21,20 @@ import type { ResolvedConfig } from "../types.js";
 export type { Verdict } from "./rule.js";
 import type { Verdict } from "./rule.js";
 
+/**
+ * What lookout saw in the repository when it ruled: facts it observed, kept
+ * apart from `reported` so a fixer's claim is never filed as lookout's own.
+ * Absent entirely when the project is not a git checkout.
+ */
+export interface RepoObservation {
+  head?: string;
+  /** Uncommitted changes at ruling time, `.lookout/` excluded. */
+  dirty?: boolean;
+  dirtyFiles?: string[];
+  /** Files changed between the previous attempt's commit and this one's. */
+  filesChanged?: string[];
+}
+
 export interface AttemptRecord {
   n: number;
   dispatchedAt: string;
@@ -34,6 +48,27 @@ export interface AttemptRecord {
    * issue is not reopened, regressed or charged an attempt for them.
    */
   spawned?: string[];
+  /** The run that captured and judged for this ruling. */
+  runId?: string;
+  /** The pixels-moved guard's inputs: what was compared, and how much moved. */
+  totalShots?: number;
+  changedShots?: number;
+  baselineShots?: number;
+  /** Every finding still filed against the issue after this ruling, with the judge's account. */
+  stillOpen?: { title: string; shotId: string; observed: string }[];
+  /** Routes whose pixels did not move since filing, so nothing on them could close. */
+  unclosable?: string[];
+  /**
+   * The criteria as this ruling left them. The issue's own list is overwritten
+   * by the next ruling; this is the only place attempt 1's verdicts survive
+   * attempt 2.
+   */
+  criteria?: { id: string; text: string; verdict: string; note?: string }[];
+  /** The contact sheet of this ruling's capture, absolute. */
+  contactSheet?: string;
+  /** The flags that narrowed this ruling's capture or judging, when any did. */
+  flags?: Record<string, string | boolean>;
+  observed?: RepoObservation;
 }
 
 export interface ClusterState {

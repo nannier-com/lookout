@@ -305,6 +305,8 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
         ...stamp,
         verdict: "unmet",
         note: "The drawer is not open in the fresh capture: the header is unchanged and no panel is visible over the page.",
+        evidence: ["web/app/root/menu-open/desktop/dark"],
+        suggestion: "mount the drawer component when menuOpen is true; the state toggles but nothing reads it",
       };
     }
     if (i === 1) {
@@ -501,6 +503,31 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
             verdict: "still-open",
             judgeNote: "The menu button still does nothing on click: the header is unchanged and no drawer is visible.",
             spawned: [SIBLING_ISSUE],
+            runId: "verify-fixture-2",
+            totalShots: 2,
+            changedShots: 1,
+            baselineShots: 2,
+            stillOpen: [
+              {
+                title: "The menu button does nothing when clicked",
+                shotId: "web/app/root/menu-open/desktop/dark",
+                observed: "The menu button still does nothing on click: the header is unchanged and no drawer is visible.",
+              },
+            ],
+            criteria: [
+              {
+                id: "c1",
+                text: "The menu button opens the navigation drawer at desktop, dark scheme",
+                verdict: "unmet",
+                note: "The drawer is not open in the fresh capture: the header is unchanged and no panel is visible over the page.",
+              },
+            ],
+            flags: { viewports: "desktop" },
+            observed: {
+              head: "9f2c41d7b6a8e05c3d1f",
+              dirty: false,
+              filesChanged: ["src/Header.tsx", "src/Drawer.tsx"],
+            },
           },
         ],
       },

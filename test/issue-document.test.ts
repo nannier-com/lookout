@@ -506,3 +506,68 @@ describe("artifacts", () => {
     expect(after).toContain(`- contact sheet of the last verify-fix of this issue: ${join(evidenceDir(r), `verify-${id}.png`)}`);
   });
 });
+
+describe("what the ruling saw is written under the attempt", () => {
+  test("screenshot counts, the run, the flags, still-open findings, failed criteria, and the repository", async () => {
+    const { r, backlog, id } = await withBacklog([finding({ fixAttempts: 2 })]);
+    const sheet = join(evidenceDir(r), `verify-${id}.png`);
+    writeFileSync(sheet, "");
+    await saveState(r, {
+      id,
+      attempts: [
+        attempt({}),
+        attempt({
+          n: 2,
+          dispatchedAt: "2026-08-30T10:00:00.000Z",
+          reported: { commit: "cafef00d", note: "rebuilt the bundle" },
+          judgeNote: "the badge still covers the heading",
+          runId: "verify-9",
+          totalShots: 6,
+          changedShots: 1,
+          baselineShots: 6,
+          flags: { viewports: "phone", "no-cache": true },
+          stillOpen: [{ title: "Header icons collide with the activity row", shotId: "web/app/dash/rest/phone/dark", observed: "the badge still covers the heading" }],
+          unclosable: ["/settings"],
+          criteria: [{ id: "c1", text: "The heading reads unobstructed at phone width", verdict: "unmet", note: "The badge still sits over the R." }],
+          contactSheet: sheet,
+          observed: { head: "cafef00d", dirty: true, dirtyFiles: ["src/Header.tsx"], filesChanged: ["src/Header.tsx", "src/header.css"] },
+        }),
+      ],
+    });
+    const md = await render(r, backlog, id);
+    expect(md).toContain("- in the repository: HEAD cafef00d; 1 uncommitted file(s): src/Header.tsx; changed since attempt 1: src/Header.tsx, src/header.css");
+    expect(md).toContain("- re-captured: 1 of 6 comparable screenshot(s) changed (6 in scope), run verify-9; flags: --viewports phone --no-cache");
+    expect(md).toContain("- pixels unchanged since filing on /settings, so nothing there could close");
+    expect(md).toContain("- still filed after this attempt: Header icons collide with the activity row (web/app/dash/rest/phone/dark): the badge still covers the heading");
+    expect(md).toContain("- criterion not met: The heading reads unobstructed at phone width: The badge still sits over the R.");
+    expect(md).toContain(`- contact sheet of that capture: ${sheet}`);
+    // The order a reader needs: what was reported, what lookout observed, what it saw, then the verdict.
+    const i = (s: string) => md.indexOf(s);
+    expect(i("a fix was reported at cafef00d")).toBeLessThan(i("- in the repository: HEAD cafef00d"));
+    expect(i("- in the repository: HEAD cafef00d")).toBeLessThan(i("- re-captured: 1 of 6"));
+    expect(i("- criterion not met:")).toBeLessThan(i("- lookout ruled it still-open: the badge still covers the heading"));
+  });
+
+  test("a clean tree and no change since the previous commit are said as such", async () => {
+    const { r, backlog, id } = await withBacklog([finding({ fixAttempts: 2 })]);
+    await saveState(r, {
+      id,
+      attempts: [attempt({}), attempt({ n: 2, observed: { head: "deadbee", dirty: false, filesChanged: [] } })],
+    });
+    const md = await render(r, backlog, id);
+    expect(md).toContain("- in the repository: HEAD deadbee; working tree clean; no files changed since attempt 1");
+  });
+
+  test("a criterion says which shots decided it and what the verifier suggested", async () => {
+    const { r, backlog, id } = await withBacklog([finding()]);
+    const record = backlog.issues![id]!;
+    record.acceptance = composeAcceptance([finding()]).map((c, i) =>
+      i === 0
+        ? { ...c, verdict: "unmet", note: "The badge still sits over the R.", evidence: ["web/app/dash/rest/phone/dark"], suggestion: "move the badge below the heading" }
+        : c,
+    );
+    const md = await render(r, backlog, id);
+    expect(md).toContain("  - decided on: web/app/dash/rest/phone/dark");
+    expect(md).toContain("  - the verifier suggested: move the badge below the heading");
+  });
+});
