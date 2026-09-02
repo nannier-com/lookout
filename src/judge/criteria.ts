@@ -74,7 +74,6 @@ export async function verifyCriteria(
   for (let attempt = 0; attempt < 2; attempt++) {
     const res = await invokeClaude({
       prompt: attempt === 0 ? prompt : prompt + RETRY_SUFFIX,
-      cwd: evidenceDir,
       model,
     });
     text = res.text;

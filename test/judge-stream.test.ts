@@ -5,10 +5,10 @@
 // runs were measured idling for the full ten-minute timeout with the verdict
 // already written. Reading the stream means the end of the answer is seen.
 import { describe, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { invokeClaude } from "../src/judge/claude.js";
+import { invokeClaude, judgeCwd } from "../src/judge/claude.js";
 import { ReplyStream } from "../src/judge/stream.js";
 import "./setup.js";
 
@@ -57,6 +57,33 @@ describe("the reply stream", () => {
     const s = new ReplyStream();
     s.push("Warning: something the CLI printed\n" + RESULT + "\n");
     expect(s.result?.result).toBe("the verdict");
+  });
+});
+
+// The workspace lives inside the judged project now, so a subprocess standing
+// in it would read that project's CLAUDE.md, its .claude/settings.json and its
+// hooks. The isolation the judge used to get from the evidence being elsewhere
+// has to be asked for, and this is the assertion that it is.
+describe("where the subprocess stands", () => {
+  test("runs outside the judged project when no cwd is named", async () => {
+    // The fake CLI prints its own working directory as the verdict.
+    const bin = fakeCli([], "", 'printf \'{"type":"result","subtype":"success","result":"\'"$PWD"\'"}\\n\'');
+    const project = mkdtempSync(join(tmpdir(), "lookout-judged-"));
+    process.env.LOOKOUT_CLAUDE_BIN = bin;
+    try {
+      const res = await invokeClaude({ prompt: "x", model: "sonnet" });
+      // Realpaths on both sides: the shell reports /private/var where mkdtemp
+      // hands back the /var symlink, and that difference is not the subject.
+      expect(res.text.startsWith(realpathSync(project))).toBe(false);
+      expect(res.text).toBe(realpathSync(judgeCwd()));
+    } finally {
+      delete process.env.LOOKOUT_CLAUDE_BIN;
+    }
+  });
+
+  test("the scratch directory is one per process, and exists", () => {
+    expect(judgeCwd()).toBe(judgeCwd());
+    expect(existsSync(judgeCwd())).toBe(true);
   });
 });
 

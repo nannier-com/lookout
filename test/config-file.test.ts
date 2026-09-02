@@ -6,9 +6,10 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadConfig } from "../src/config.js";
+import { evidenceDir, loadConfig } from "../src/config.js";
 import { locateConfig, nearestProjectRoot, projectDirFor } from "../src/config-locate.js";
-import { createConfig, ensureProjectConfig, migrateLegacyConfig } from "../src/config-write.js";
+import { createConfig, ensureIgnored, ensureProjectConfig, migrateLegacyConfig } from "../src/config-write.js";
+import type { ResolvedConfig } from "../src/types.js";
 
 const ONE_TARGET = 'export default { targets: [{ name: "app", url: "http://localhost:3000" }] };\n';
 
@@ -203,5 +204,47 @@ describe("ensureProjectConfig", () => {
     const bare = realpathSync(mkdtempSync(join(tmpdir(), "lookout-bare-")));
     expect(await ensureProjectConfig({ cwd: bare, url: "http://localhost:1" })).toBe("go");
     expect(existsSync(join(bare, "lookout.config.ts"))).toBe(false);
+    expect(existsSync(join(bare, ".gitignore"))).toBe(false);
+  });
+});
+
+// The capture workspace holds screenshots and it lives in the project now, so
+// the ignore line is no longer advice: a project lookout writes a config for
+// gets one whether or not anybody ran `init`.
+describe("keeping the working state out of git", () => {
+  test("the workspace is inside the project's own .lookout/", () => {
+    const dir = project();
+    const resolved: ResolvedConfig = {
+      config: { targets: [] },
+      configPath: join(dir, "lookout.config.ts"),
+      projectDir: dir,
+      project: "fixture",
+    };
+    expect(evidenceDir(resolved)).toBe(join(dir, ".lookout", "workspace"));
+    // Not `.lookout/evidence/`: that name belongs to the pre-0.35 store two
+    // readers still adopt from, and reusing it would fuse the two.
+    expect(evidenceDir(resolved)).not.toBe(join(dir, ".lookout", "evidence"));
+  });
+
+  test("creates a .gitignore when the project has none", async () => {
+    const dir = project();
+    await ensureIgnored(dir);
+    expect(readFileSync(join(dir, ".gitignore"), "utf8")).toContain(".lookout/");
+  });
+
+  test("appends to an existing one, and only once", async () => {
+    const dir = project();
+    writeFileSync(join(dir, ".gitignore"), "node_modules/\n");
+    await ensureIgnored(dir);
+    await ensureIgnored(dir);
+    const body = readFileSync(join(dir, ".gitignore"), "utf8");
+    expect(body).toContain("node_modules/");
+    expect(body.split("\n").filter((l) => l.trim() === ".lookout/")).toHaveLength(1);
+  });
+
+  test("a project configured by --url is ignored too, without init", async () => {
+    const dir = project();
+    expect(await ensureProjectConfig({ cwd: dir, url: "http://localhost:1" })).toBe("go");
+    expect(readFileSync(join(dir, ".gitignore"), "utf8")).toContain(".lookout/");
   });
 });

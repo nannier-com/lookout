@@ -13,7 +13,6 @@ import { basename, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { LookoutError, type LookoutConfig, type ResolvedConfig } from "./types.js";
 import { CONFIG_FILENAME, LOOKOUT_DIR, locateConfig, projectDirFor } from "./config-locate.js";
-import { lookoutHome, workspaceKey } from "./home.js";
 import { isLocalUrl } from "./util.js";
 
 export interface LoadOptions {
@@ -166,12 +165,22 @@ export function lookoutDir(resolved: ResolvedConfig): string {
 
 /**
  * The capture workspace: screenshots, the capture report, the run log, the
- * contact sheet. Under the operator's lookout home rather than inside the
- * judged project, because all of it is working state one capture rebuilds;
- * the pixels worth keeping are copied into the issue folders the moment an
- * issue is filed. Keyed by the project's real path, so two checkouts of one
- * project cannot trample each other's runs.
+ * contact sheet.
+ *
+ * Inside the project's own `.lookout/`, which is gitignored, so it travels
+ * with the checkout it describes and with nothing else. It is still working
+ * state one capture rebuilds, which is why it is a directory of its own
+ * rather than loose beside the backlog: the pixels worth keeping are copied
+ * into the issue folders the moment an issue is filed, and everything here
+ * can be deleted without costing the project a defect.
+ *
+ * `workspace`, not `evidence`: `.lookout/evidence/` is the pre-0.35 store
+ * that `backlog.ts` and `issues/frames.ts` still adopt from, and one name for
+ * both would make a live report indistinguishable from an inherited one.
  */
 export function evidenceDir(resolved: ResolvedConfig): string {
-  return join(lookoutHome(), "evidence", workspaceKey(resolved.projectDir));
+  return join(lookoutDir(resolved), WORKSPACE_DIR);
 }
+
+/** The workspace's directory name inside `.lookout/`. */
+export const WORKSPACE_DIR = "workspace";

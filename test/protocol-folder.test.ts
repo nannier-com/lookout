@@ -15,7 +15,7 @@ describe("the protocol names what is on disk", () => {
   });
 
   test("where the working evidence is, and the sidecar beside every shot", () => {
-    expect(text).toContain("$LOOKOUT_HOME/evidence/");
+    expect(text).toContain(".lookout/workspace/");
     expect(text).toContain("capture-report.json");
     expect(text).toContain("judge-report.json");
     expect(text).toContain("events.jsonl");

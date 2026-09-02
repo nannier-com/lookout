@@ -7,8 +7,8 @@
  * clamped, and the dedupe rule (a navigation to an already-configured route
  * is a check, not a state) is enforced here rather than hoped for.
  *
- * Like the judge, the planner is cwd-pinned to the evidence workspace with
- * Read alone: it looks at screenshots, never at the judged repository.
+ * Like the judge, the planner runs from a scratch directory with Read alone:
+ * it looks at screenshots, named absolutely, never at the judged repository.
  */
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -195,10 +195,10 @@ export async function planRoute(args: {
     maxChecks: String(maxChecks),
   });
 
-  // The workspace exists after any capture, but the subprocess's cwd must
-  // exist or the spawn itself fails with a misleading ENOENT.
+  // The plan is written into the workspace below, and a capture may not have
+  // happened in this project yet.
   await mkdir(evDir, { recursive: true });
-  const res = await invokeClaude({ prompt, cwd: evDir, model: args.model ?? "sonnet" });
+  const res = await invokeClaude({ prompt, model: args.model ?? "sonnet" });
   const cost = res.costUsd ?? 0;
   let raw: unknown;
   try {

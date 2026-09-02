@@ -3,22 +3,25 @@
  * lookout's working state out of git.
  *
  * The config sits at the root, next to package.json, and is meant to be
- * committed: it is what the team agrees lookout looks at. Everything lookout
- * records about the project (the backlog, the issue folders, the learned
- * skill layers) stays under `.lookout/`, which init adds to `.gitignore`;
- * the capture workspace itself lives under the operator's lookout home. The cost
- * is stated rather than hidden: that state is per-checkout, so it does not
- * follow the repo to another machine, and deleting the directory re-rolls
- * every issue id.
+ * committed: it is what the team agrees lookout looks at. Everything else
+ * lookout writes about the project (the backlog, the issue folders, the
+ * learned skill layers, the capture workspace with its screenshots) stays
+ * under `.lookout/`, which `ensureIgnored` adds to `.gitignore`. The cost is
+ * stated rather than hidden: that state is per-checkout, so it does not follow
+ * the repo to another machine, and deleting the directory re-rolls every issue
+ * id.
  *
  * A project still holding the old `.lookout/config.ts` is migrated here rather
  * than told to move it by hand.
  */
-import { existsSync } from "node:fs";
-import { appendFile, readFile } from "node:fs/promises";
-import { join } from "node:path";
-import { LOOKOUT_DIR, nearestProjectRoot } from "../config-locate.js";
-import { createConfig, existingConfigIn, legacyConfigIn, migrateLegacyConfig } from "../config-write.js";
+import { nearestProjectRoot } from "../config-locate.js";
+import {
+  createConfig,
+  ensureIgnored,
+  existingConfigIn,
+  legacyConfigIn,
+  migrateLegacyConfig,
+} from "../config-write.js";
 import { LookoutError } from "../types.js";
 import { str, type Parsed } from "../util.js";
 
@@ -51,32 +54,7 @@ export async function init(parsed: Parsed): Promise<number> {
     console.log(`wrote ${path}`);
   }
 
-  await ignoreWorkingState(root);
+  await ensureIgnored(root);
   console.log("next: check the target url/routes, then run `lookout targets` to verify");
   return 0;
-}
-
-/**
- * Add `.lookout/` to the project's `.gitignore`, once.
- *
- * The config is deliberately not covered by this: it lives at the root now,
- * outside the ignored directory, so a team shares it the way they share every
- * other tool's config.
- */
-async function ignoreWorkingState(root: string): Promise<void> {
-  const gitignore = join(root, ".gitignore");
-  const ignoreLine = `${LOOKOUT_DIR}/`;
-  if (!existsSync(gitignore)) {
-    console.log(`note: no .gitignore here; remember to ignore ${ignoreLine}`);
-    return;
-  }
-  const current = await readFile(gitignore, "utf8");
-  if (current.split("\n").some((l) => l.trim() === ignoreLine)) return;
-  const sep = current.endsWith("\n") ? "" : "\n";
-  await appendFile(
-    gitignore,
-    `${sep}\n# lookout working state (backlog, issue folders; per-checkout).\n` +
-      `# lookout.config.ts is not here on purpose: it is the project's to commit.\n${ignoreLine}\n`,
-  );
-  console.log(`added ${ignoreLine} to .gitignore`);
 }

@@ -162,7 +162,7 @@ export async function gatherFreshEvidence(args: {
 /**
  * Every shot lookout holds a previous hash for, from either source.
  *
- * The capture workspace, under the operator's lookout home, is working state
+ * The capture workspace, inside the project's `.lookout/`, is working state
  * one capture rebuilds, and an empty baseline made every fresh shot look
  * changed, which switched the pixels-moved guard OFF exactly when it was
  * needed: a wiped capture workspace would let judge variance alone pass an

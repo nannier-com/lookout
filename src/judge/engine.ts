@@ -1,7 +1,9 @@
 /**
  * The judge engine: shells out to the locally installed Claude Code CLI
- * (`claude -p`) with read-only tool access, cwd-pinned to the evidence
- * directory so the target repo's instructions never leak into judging.
+ * (`claude -p`) with read-only tool access, run from a scratch directory
+ * outside every project (`judgeCwd` in claude.ts) so the target repo's
+ * instructions never leak into judging. Shot paths are absolute, so standing
+ * nowhere near them costs the judge nothing.
  *
  * The subprocess reads the screenshot files itself (vision via the Read
  * tool); lookout passes paths plus a manifest and demands a strict JSON
@@ -248,7 +250,6 @@ export async function judgeBatch(
     try {
       res = await invokeClaude({
         prompt: attempt === 0 ? prompt : prompt + RETRY_SUFFIX,
-        cwd: evidenceDir,
         model,
         // Only when something is reading it: streaming costs the CLI an order of
         // magnitude more lines and a run nobody is watching should not pay them.

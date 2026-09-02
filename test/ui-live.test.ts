@@ -14,6 +14,7 @@
  */
 import { afterAll, describe, expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, utimesSync, writeFileSync } from "node:fs";
+import { sep } from "node:path";
 import { evidenceDir, lookoutDir } from "../src/config.js";
 import { eventsPath } from "../src/report/events.js";
 import { live } from "../src/ui/live.js";
@@ -167,8 +168,12 @@ describe("the server underneath it", () => {
     expect(((await res.json()) as StatusPayload).projectDir).toBe(project.projectDir);
   });
 
-  test("watches both places a run writes", () => {
-    expect(watching()).toContain(evidenceDir(project));
-    expect(watching()).toContain(lookoutDir(project));
+  // Was "watches both places a run writes", when the workspace lived under the
+  // operator's home and the two roots were disjoint. One root now, and what
+  // has to be true is that the other place a run writes is inside it: two
+  // watchers over one tree would fire twice for every shot.
+  test("one recursive watch, covering the workspace inside it", () => {
+    expect(watching()).toEqual([lookoutDir(project)]);
+    expect(evidenceDir(project).startsWith(lookoutDir(project) + sep)).toBe(true);
   });
 });

@@ -8,10 +8,12 @@
  * That is what makes the page live for a run started in any terminal, not just
  * for one the play button spawned.
  *
- * Two directories, because lookout's state is deliberately in two places: the
- * capture workspace under the operator's lookout home holds the run log and the
- * shots, and the project's own `.lookout/` holds the backlog and the issue
- * folders. Both move during a run and either alone would miss half of it.
+ * One directory, because everything a run writes is under the project's own
+ * `.lookout/`: the backlog and the issue folders at the top of it, the run log
+ * and the shots inside `workspace/`. The watch is recursive, so the workspace
+ * is covered by the same watcher; arming both would be two callbacks for one
+ * write, since `arm` dedupes by exact string and neither path contains the
+ * other as a string it would recognise.
  *
  * A watcher is not a guarantee. `fs.watch` is unreliable on network mounts and
  * silently stops on some of them, and a directory that does not exist yet
@@ -21,7 +23,7 @@
  * body, not a rebuild, and it stops entirely when no page is open.
  */
 import { existsSync, watch, type FSWatcher } from "node:fs";
-import { evidenceDir, lookoutDir } from "../config.js";
+import { lookoutDir } from "../config.js";
 import { liveCount, pushNarration, pushNow } from "./live.js";
 import { currentProjectOrNull, onProjectChange } from "./session.js";
 
@@ -44,7 +46,7 @@ let backstop: ReturnType<typeof setInterval> | null = null;
 /** The directories a run writes into, for whatever project is current. */
 function watched(): string[] {
   const project = currentProjectOrNull();
-  return project ? [evidenceDir(project), lookoutDir(project)] : [];
+  return project ? [lookoutDir(project)] : [];
 }
 
 function nudge(): void {

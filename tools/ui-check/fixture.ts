@@ -16,7 +16,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import sharp from "sharp";
-import { workspaceKey } from "../../src/home.js";
+import { evidenceDir } from "../../src/config.js";
 import { composeAcceptance, type AcceptanceCriterion } from "../../src/issues/acceptance.js";
 import { renderIssueDocument } from "../../src/issues/document.js";
 import { issuesOf } from "../../src/issues/registry.js";
@@ -163,10 +163,9 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
   const checkout = join(root, "checkout");
   const lk = join(project, ".lookout");
   mkdirSync(project, { recursive: true });
-  // The documents are rendered by lookout's own renderer below, and it finds
-  // the capture workspace through the home the served ui will be given. This
-  // process is the fixture builder and nothing else, so pointing it there is
-  // the same as `serve` doing it.
+  // The incident log still lives under the home the served ui will be given.
+  // This process is the fixture builder and nothing else, so pointing it there
+  // is the same as `serve` doing it.
   process.env.LOOKOUT_HOME = home;
   const resolved: ResolvedConfig = {
     config: { targets: [{ name: "app", url: "http://127.0.0.1:5999", routes: ["/", "/settings"] }] },
@@ -175,8 +174,8 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
     project: "project",
   };
   // The capture workspace, exactly where the served ui will look for it:
-  // keyed under the home that `serve` exports as LOOKOUT_HOME.
-  const ev = join(home, "evidence", workspaceKey(project));
+  // inside the project's own `.lookout/`.
+  const ev = evidenceDir(resolved);
   for (const d of [home, lk, ev, join(ev, "web", "app", "root", "rest")]) {
     mkdirSync(d, { recursive: true });
   }

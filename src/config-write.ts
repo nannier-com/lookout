@@ -13,7 +13,7 @@
  * inside `.lookout/` and names any it could not rewrite by hand.
  */
 import { existsSync } from "node:fs";
-import { readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { appendFile, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative } from "node:path";
 import {
   CONFIG_FILENAME,
@@ -130,6 +130,38 @@ export async function createConfig(projectDir: string, seed: ConfigSeed = {}): P
     );
   }
   return path;
+}
+
+/**
+ * Keep `.lookout/` out of git, creating the `.gitignore` when there is none.
+ *
+ * Beside the config writer rather than in `init`, because the ignore line is
+ * part of writing a config: a project configured by `--url` on a first run
+ * never runs `init`, and its `.lookout/` holds screenshots. Creating the file
+ * is the change of posture the workspace's move earned: printing a note was
+ * fair when the ignored directory held text, and is not now that a capture
+ * puts megabytes of PNGs in the working tree.
+ */
+export async function ensureIgnored(root: string): Promise<void> {
+  const gitignore = join(root, ".gitignore");
+  const line = `${LOOKOUT_DIR}/`;
+  const block =
+    "# lookout working state (backlog, issue folders, screenshots; per-checkout).\n" +
+    `# lookout.config.ts is not here on purpose: it is the project's to commit.\n${line}\n`;
+  try {
+    if (!existsSync(gitignore)) {
+      await writeFile(gitignore, block);
+      console.error(`lookout: wrote ${gitignore} ignoring ${line}`);
+      return;
+    }
+    const current = await readFile(gitignore, "utf8");
+    if (current.split("\n").some((l) => l.trim() === line)) return;
+    await appendFile(gitignore, `${current.endsWith("\n") ? "" : "\n"}\n${block}`);
+    console.error(`lookout: added ${line} to ${gitignore}`);
+  } catch {
+    // An unwritable .gitignore is the project's business, not a reason to fail
+    // the run that was going to write a config.
+  }
 }
 
 /** The config already in this directory (root form or legacy), if any. */
@@ -301,6 +333,7 @@ export async function ensureProjectConfig(opts: EnsureOptions): Promise<"go" | "
   const root = nearestProjectRoot(opts.cwd);
   if (!root) return "go"; // Not a project: stay zero-config rather than litter.
   const path = await createConfig(root, { url: opts.url });
+  await ensureIgnored(root);
   if (opts.url) {
     console.error(`lookout: wrote ${path} from --url; the next run reads it and needs no flag.`);
     return "go";

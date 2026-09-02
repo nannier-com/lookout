@@ -51,7 +51,7 @@ export async function ask(parsed: Parsed): Promise<number> {
   });
 
   const model = str(parsed.flags.model) ?? "sonnet";
-  const res = await invokeClaude({ prompt, cwd: evDir, model });
+  const res = await invokeClaude({ prompt, model });
 
   if (parsed.flags.json) {
     printJson({

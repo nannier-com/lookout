@@ -150,9 +150,9 @@ export async function mergeLatest(
   // 2. AI findings from the given or on-disk judge report.
   let judge = opts.judgeOutcome ?? null;
   if (!judge) {
-    // The workspace lives under the operator's home now, but a report an older
-    // lookout left under the project's own .lookout/evidence is still the only
-    // judgement of these shots; adopt it while it is there, the way frames are.
+    // The workspace is `.lookout/workspace/` now, but a report an older lookout
+    // left under `.lookout/evidence/` is still the only judgement of those
+    // shots; adopt it while it is there, the way frames are.
     const jp = [
       join(evidenceDir(resolved), "judge-report.json"),
       join(lookoutDir(resolved), "evidence", "judge-report.json"),

@@ -221,7 +221,6 @@ export async function verifyFindings(
     try {
       res = await invokeClaude({
         prompt: attempt === 0 ? prompt : prompt + RETRY_SUFFIX,
-        cwd: evidenceDir,
         model,
         onSay: narrating() ? (s) => say(call, "refuter", s) : undefined,
       });

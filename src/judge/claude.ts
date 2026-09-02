@@ -12,12 +12,20 @@
  * something else is not, and that must fail rather than be guessed at.
  */
 import { spawn } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { ReplyStream, type JudgeSay, type ResultLine } from "./stream.js";
 import { LookoutError } from "../types.js";
 
 export interface JudgeInvocation {
   prompt: string;
-  cwd: string;
+  /**
+   * Where the subprocess runs. Defaults to a scratch directory outside every
+   * project (`judgeCwd`), which is what every judging path wants; `self-heal`
+   * is the one caller that names its own, because it is editing that checkout.
+   */
+  cwd?: string;
   model: string;
   timeoutMs?: number;
   /**
@@ -43,6 +51,26 @@ export interface JudgeInvocation {
  */
 export function claudeBin(): string {
   return process.env.LOOKOUT_CLAUDE_BIN ?? "claude";
+}
+
+/**
+ * A scratch directory for the subprocess to run in, made once per process.
+ *
+ * The CLI reads instructions from its working directory upwards: a cwd inside
+ * the judged repository would hand the oracle that project's `CLAUDE.md`, its
+ * `.claude/settings.json` and its hooks, and let `Read` climb into its source.
+ * The evidence used to be outside every project, so pinning the judge to it was
+ * enough on its own; now that the workspace lives in the project, the isolation
+ * has to be asked for. Every path the prompt names is absolute, so the judge
+ * loses nothing by standing somewhere empty.
+ */
+let scratch: string | null = null;
+export function judgeCwd(): string {
+  if (scratch) return scratch;
+  scratch = mkdtempSync(join(tmpdir(), "lookout-judge-"));
+  const dir = scratch;
+  process.on("exit", () => rmSync(dir, { recursive: true, force: true }));
+  return scratch;
 }
 
 /** How long to wait for a stalled CLI, and how long to let stdout drain after it exits. */
@@ -78,7 +106,7 @@ export function invokeClaude(inv: JudgeInvocation): Promise<{ text: string; cost
     inv.model,
   ];
   return new Promise((resolve, reject) => {
-    const child = spawn(claudeBin(), args, { cwd: inv.cwd, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(claudeBin(), args, { cwd: inv.cwd ?? judgeCwd(), stdio: ["ignore", "pipe", "pipe"] });
     const reply = new ReplyStream(inv.onSay);
     let stderr = "";
     let settled = false;
