@@ -15,8 +15,11 @@
  * batch failing, and that is decided by the caller, which knows how many there
  * were.
  */
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { evidenceDir } from "../config.js";
 import { judgeBatch, type AiFinding } from "../judge/engine.js";
+import { groupHash } from "../judge/ledger.js";
 import { verifyFindings, type VerifiedFinding } from "../judge/verify.js";
 import { recordIncident } from "../skills/incidents.js";
 import { emit } from "../report/events.js";
@@ -55,6 +58,13 @@ export interface JudgePass {
   costUsd: number;
   /** Planned panel calls, which is what makes "all of them failed" decidable. */
   batchCount: number;
+  /**
+   * Each successful panel call's reply, whole, as a file under the capture
+   * workspace, keyed like `uncacheable`. The ledger entry for the verdict
+   * points at it, so the reasoning a finding was distilled from can be read
+   * back by whoever wants more than the distillate.
+   */
+  replies: Map<string, string>;
 }
 
 /**
@@ -126,6 +136,7 @@ export async function judgeInBatches(args: {
   const confirmed: VerifiedFinding[] = [];
   const refuted: (AiFinding & { verifierNote: string })[] = [];
   const uncacheable = new Set<string>();
+  const replies = new Map<string, string>();
   const failedBatches: { panel: string; shots: number; message: string }[] = [];
   let rejectedCount = 0;
   let costUsd = 0;
@@ -195,6 +206,19 @@ export async function judgeInBatches(args: {
         rejectedHere += res.rejected.length;
         costUsd += res.costUsd ?? 0;
         durationMs += res.durationMs;
+        // The reply, whole, beside the screenshots it is about. Best effort:
+        // a transcript that cannot be written is a missing pointer, never a
+        // failed batch.
+        if (res.raw) {
+          const rel = join("judge-replies", `${groupHash(job.shots).slice(0, 12)}@${panelName}.txt`);
+          try {
+            await mkdir(join(evDir, "judge-replies"), { recursive: true });
+            await writeFile(join(evDir, rel), res.raw);
+            replies.set(workKey(item), rel);
+          } catch {
+            // Nothing: the verdict stands without its transcript.
+          }
+        }
         // A shot the reply accounted for in neither list has no verdict from
         // this panel. Caching would make silence look like a clean bill of
         // health, durably; left out, the pair is judged again next run.
@@ -289,5 +313,6 @@ export async function judgeInBatches(args: {
     rejected: rejectedCount,
     costUsd,
     batchCount: plan.toJudge.length,
+    replies,
   };
 }

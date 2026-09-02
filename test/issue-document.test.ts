@@ -669,3 +669,27 @@ describe("what capture recorded about the view wins over the config", () => {
     expect(md).toContain("- design hand-off: /abs/design.png (sha256 d9)");
   });
 });
+
+describe("the judge's own transcript is an artifact", () => {
+  test("listed when the ledger points at it for one of this issue's views and the file is there", async () => {
+    const { r, backlog, id } = await withBacklog([finding()]);
+    const rel = "judge-replies/abcdef123456@judge-geometry.txt";
+    writeFileSync(
+      join(r.projectDir, ".lookout", "ledger.json"),
+      JSON.stringify({
+        note: "",
+        entries: {
+          "h@v7@judge-geometry@p@m": { verdict: "findings", panel: "judge-geometry", shotIds: ["web/app/dash/rest/phone/dark"], judgedAt: "t", runId: "check-1", reply: rel },
+          "x@v7@judge-text@p@m": { verdict: "clean", panel: "judge-text", shotIds: ["web/app/other/rest/phone/dark"], judgedAt: "t", runId: "check-1", reply: "judge-replies/other@judge-text.txt" },
+        },
+      }),
+    );
+    const before = await render(r, backlog, id);
+    expect(before).not.toContain("judge transcript");
+    mkdirSync(join(evidenceDir(r), "judge-replies"), { recursive: true });
+    writeFileSync(join(evidenceDir(r), rel), "```json\n{\"findings\":[]}\n```");
+    const after = await render(r, backlog, id);
+    expect(after).toContain(`- judge transcript (judge-geometry, run check-1): ${join(evidenceDir(r), rel)}`);
+    expect(after).not.toContain("judge-text");
+  });
+});

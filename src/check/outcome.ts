@@ -96,7 +96,9 @@ export async function recordOutcome(args: {
         ids.has(f.shotId) &&
         (item.panel.def.categories as readonly string[]).includes(f.category),
     );
-    recordVerdicts(plan.ledger, checkRunId, item.identity, [{ shots: item.shots, findings }]);
+    recordVerdicts(plan.ledger, checkRunId, item.identity, [
+      { shots: item.shots, findings, reply: pass.replies.get(workKey(item)) },
+    ]);
   }
   if (args.fullScope) {
     const live = new Set([...groupShots(scope.shots).values()].map((g) => groupHash(g)));

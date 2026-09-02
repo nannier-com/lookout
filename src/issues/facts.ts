@@ -110,5 +110,13 @@ export function artifactsOf(ctx: IssueContext): ArtifactFact[] {
     ["contact sheet of the last check", join(evDir, "contact-sheet.png"), false],
     ["contact sheet of the last verify-fix of this issue", join(evDir, `verify-${cluster.id}.png`), false],
   ];
+  // The panels' own replies about this issue's views, when the ledger points
+  // at any and the workspace still holds them: the reasoning the findings
+  // were distilled from, for the agent that wants more than the distillate.
+  const shotIds = new Set(cluster.members.flatMap((m) => m.evidence.map((e) => e.shotId)));
+  for (const entry of Object.values(ctx.ledger?.entries ?? {})) {
+    if (!entry.reply || !entry.shotIds.some((id) => shotIds.has(id))) continue;
+    rows.push([`judge transcript (${entry.panel}, run ${entry.runId})`, join(evDir, entry.reply), false]);
+  }
   return rows.map(([name, path, durable]) => ({ name, path, exists: existsSync(path), durable }));
 }

@@ -241,3 +241,17 @@ describe("--no-cache", () => {
     expect(plan.ledger.entries[ledgerKey("otherhash", id)]).toBeDefined();
   });
 });
+
+describe("an entry points at the panel's reply", () => {
+  test("the transcript's path rides on the entry when given, and is absent when not", () => {
+    const ledger = { note: "", entries: {} } as Parameters<typeof recordVerdicts>[0];
+    const id = { panel: "judge-geometry", version: 7, promptHash: "p", model: "m" };
+    const shot = { id: "web/app/dash/rest/desktop/dark", hash: "h1" } as Parameters<typeof recordVerdicts>[3][number]["shots"][number];
+    recordVerdicts(ledger, "run1", id, [{ shots: [shot], findings: [], reply: "judge-replies/abc@judge-geometry.txt" }]);
+    const [withReply] = Object.values(ledger.entries);
+    expect(withReply!.reply).toBe("judge-replies/abc@judge-geometry.txt");
+    const bare = { note: "", entries: {} } as Parameters<typeof recordVerdicts>[0];
+    recordVerdicts(bare, "run1", id, [{ shots: [shot], findings: [] }]);
+    expect(Object.values(bare.entries)[0]!.reply).toBeUndefined();
+  });
+});

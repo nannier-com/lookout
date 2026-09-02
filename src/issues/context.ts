@@ -10,6 +10,7 @@
 import { evidenceDir } from "../config.js";
 import { loadReport } from "../capture/store.js";
 import { loadPlans, type NavigationFile } from "../navigate/store.js";
+import { loadLedger, type Ledger } from "../judge/ledger.js";
 import { loadFrames, type FrameSet } from "./frames.js";
 import { loadState, type ClusterState } from "../fix/state.js";
 import { forgeOf, type Forge } from "../report/forge.js";
@@ -46,6 +47,11 @@ export interface IssueContext {
    */
   plans: NavigationFile | null;
   /**
+   * The judge ledger, for the transcripts behind this issue's views. Absent
+   * when the project has none yet.
+   */
+  ledger: Ledger | null;
+  /**
    * The whole backlog, when the caller has it open: what lets a document name
    * the other issues filed on the same screenshot. A caller rendering one
    * issue in isolation leaves it out, and the section is simply absent.
@@ -69,11 +75,12 @@ export async function loadIssueContext(
   record?: IssueRecordView,
   extras: IssueExtras = {},
 ): Promise<IssueContext> {
-  const [frames, state, report, plans] = await Promise.all([
+  const [frames, state, report, plans, ledger] = await Promise.all([
     loadFrames(resolved, cluster.id),
     loadState(resolved, cluster.id),
     loadReport(resolved).catch(() => null),
     loadPlans(resolved).catch(() => null),
+    loadLedger(resolved).catch(() => null),
   ]);
   let forge: Promise<Forge | null> | null = null;
   return {
@@ -85,6 +92,7 @@ export async function loadIssueContext(
     state,
     report,
     plans,
+    ledger,
     ...(extras.backlog ? { backlog: extras.backlog } : {}),
     forge: () => (forge ??= forgeOf(resolved.projectDir)),
   };

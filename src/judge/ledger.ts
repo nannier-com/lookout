@@ -43,6 +43,12 @@ export interface LedgerEntry {
   shotIds: string[];
   judgedAt: string;
   runId: string;
+  /**
+   * The panel's reply, whole, as a file under the capture workspace
+   * (relative to it). A pointer rather than the text: the ledger is committed
+   * by projects that want cheap re-runs, and a transcript is page text.
+   */
+  reply?: string;
 }
 
 export interface Ledger {
@@ -170,9 +176,9 @@ export function recordVerdicts(
   ledger: Ledger,
   runId: string,
   id: PanelIdentity,
-  judged: { shots: ShotRecord[]; findings: VerifiedFinding[] }[],
+  judged: { shots: ShotRecord[]; findings: VerifiedFinding[]; reply?: string }[],
 ): void {
-  for (const { shots, findings } of judged) {
+  for (const { shots, findings, reply } of judged) {
     if (shots.length === 0) continue;
     ledger.entries[ledgerKey(groupHash(shots), id)] = {
       verdict: findings.length === 0 ? "clean" : "findings",
@@ -181,6 +187,7 @@ export function recordVerdicts(
       shotIds: shots.map((s) => s.id).sort(),
       judgedAt: nowIso(),
       runId,
+      ...(reply ? { reply } : {}),
     };
   }
 }
