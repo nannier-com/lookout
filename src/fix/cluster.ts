@@ -19,6 +19,7 @@
  */
 import type { BacklogFinding, FindingStatus } from "../backlog/lib.js";
 import { isShellRegion } from "../backlog/region.js";
+import { categoryPhrase } from "../judge/glossary.js";
 import { routeSlug } from "../capture/store.js";
 import { LookoutError, type Severity } from "../types.js";
 import type { Category } from "../judge/rubric.js";
@@ -196,7 +197,7 @@ export function clusterFindings(
       // would advertise one of several defects and mislead the fix session.
       title:
         defects.length > 1
-          ? `${defects.length} ${worst.category} defects on ${routes.join(", ")}`
+          ? `${defects.length} ${categoryPhrase(worst.category)} problems on ${routes.join(", ")}`
           : worst.title,
       problem: worst.problem,
       expected: worst.expected,

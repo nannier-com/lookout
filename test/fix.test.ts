@@ -155,7 +155,8 @@ describe("co-located accessibility violations", () => {
     // Four rules, one screenshot: the brief must not list it four times.
     expect(clusters[0]!.shotCount).toBe(1);
     expect(clusters[0]!.findingCount).toBe(4);
-    expect(clusters[0]!.title).toBe("4 a11y defects on /users");
+    // The category in words, not its token: the title is printed on its own.
+    expect(clusters[0]!.title).toBe("4 accessibility problems on /users");
   });
 
   test("different routes stay separate, since they are different components", () => {

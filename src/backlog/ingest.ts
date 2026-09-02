@@ -114,10 +114,9 @@ export function deterministicToFindings(
         category: map.category,
         attribute,
         severity: severityFromDeterministic(df),
-        title: df.message.slice(0, 160),
-        // The title is the check's message; the prose is the explanation of it.
-        // These were once the same string, which is how a ticket came to print
-        // its own heading as the whole of what was wrong.
+        // Title, problem, expected and observed, all written from the check's
+        // record. The title used to be the message itself, which led with a
+        // rule id or a measurement, and the problem was the title again.
         ...explainDeterministic(df),
         channel: "deterministic",
         confidence: "high",

@@ -156,3 +156,64 @@ describe("an accessibility violation whose capture kept the elements", () => {
     expect(problem).toContain("axe's own account of what to change: Fix any of the following: Heading order invalid.");
   });
 });
+
+describe("every check has a title that is not its message", () => {
+  const every: DeterministicFinding[] = [
+    { type: "console-error", severity: "error", message: "TypeError: x is undefined", meta: { url: "http://a/main.js", line: 12, repeats: 3 } },
+    { type: "page-error", severity: "error", message: "ReferenceError: y", meta: { stack: "ReferenceError: y\n    at boot (http://a/main.js:3:1)" } },
+    { type: "request-failed", severity: "warning", message: "net::ERR_FAILED: http://a/api/items", meta: { url: "http://a/api/items", method: "POST", resourceType: "fetch" } },
+    { type: "horizontal-overflow", severity: "error", message: "content protrudes 42px horizontally (.card__title)", meta: { worst: 42, offender: ".card__title", offenderPath: "main > div" } },
+    { type: "horizontal-overflow", severity: "error", message: "page scrolls 220px sideways at 390px viewport", meta: { delta: 220, viewport: 390, offenderPath: "table" } },
+    { type: "blank-shot", severity: "error", message: "image is near-uniform" },
+    { type: "capture-error", severity: "warning", message: 'interaction state "menu-open" failed: timeout', meta: { state: "menu-open" } },
+    { type: "scheme-mismatch", severity: "warning", message: "dark and light captures are byte-identical" },
+    { type: "stale-frame", severity: "warning", message: "two samples differed" },
+    { type: "off-origin", severity: "error", message: "capture landed on http://accounts.example", meta: { landed: "http://accounts.example", expected: "http://127.0.0.1:5999" } },
+    { type: "dead-interaction", severity: "warning", message: '"Menu" (header button) did nothing when clicked', meta: { name: "Menu", href: null } },
+    axe({}),
+  ];
+
+  test("no title leads with a rule id, and none is the raw message", () => {
+    for (const df of every) {
+      const p = explainDeterministic(df);
+      expect({ type: df.type, prefixed: /^[a-z0-9-]+: /.test(p.title) }).toEqual({ type: df.type, prefixed: false });
+      expect({ type: df.type, raw: p.title === df.message }).toEqual({ type: df.type, raw: false });
+      expect({ type: df.type, expected: p.expected.length > 0, observed: p.observed.length > 0 }).toEqual({ type: df.type, expected: true, observed: true });
+    }
+  });
+
+  test("the titles say what a person would recognise", () => {
+    const t = (i: number) => explainDeterministic(every[i]!).title;
+    expect(t(0)).toBe("The page logged an error: TypeError: x is undefined");
+    expect(t(3)).toBe("Content runs 42px off the side of the screen (.card__title)");
+    expect(t(4)).toBe("The page scrolls 220px sideways at 390px wide");
+    expect(t(6)).toBe('lookout could not open the "menu-open" state to photograph it');
+    expect(t(9)).toBe("The capture landed on http://accounts.example instead of the application");
+    expect(t(10)).toBe('"Menu" did nothing when clicked');
+    expect(t(11)).toBe("Heading levels should only increase by one");
+  });
+
+  test("observed carries the record's detail; expected is the fixed state", () => {
+    expect(explainDeterministic(every[0]!).observed).toBe("TypeError: x is undefined (http://a/main.js line 12), 3 times");
+    expect(explainDeterministic(every[1]!).observed).toBe("ReferenceError: y (at boot (http://a/main.js:3:1))");
+    expect(explainDeterministic(every[2]!).observed).toBe("net::ERR_FAILED: http://a/api/items (POST fetch)");
+    expect(explainDeterministic(every[3]!).expected).toBe("Nothing on the page extends past the viewport's edge, and the page does not scroll sideways.");
+    expect(explainDeterministic(every[10]!).expected).toBe('Clicking "Menu" changes the page.');
+    expect(explainDeterministic(every[9]!).expected).toBe("The capture stays on http://127.0.0.1:5999.");
+  });
+
+  test("the five capture-side types say so first and record rather than measure", () => {
+    for (const i of [5, 6, 7, 8, 9]) {
+      const p = explainDeterministic(every[i]!);
+      expect({ type: every[i]!.type, first: /^(This is a problem with (lookout's )?(the )?capture|Either the application ignores)/.test(p.problem) }).toEqual({ type: every[i]!.type, first: true });
+      expect(p.problem).toContain("What lookout recorded: ");
+      expect(p.problem).not.toContain("What the check measured");
+    }
+    expect(explainDeterministic(every[0]!).problem).toContain("What the check measured: ");
+  });
+
+  test("axe's impact sentence names the severity lookout files it under", () => {
+    expect(explainDeterministic(axe({ impact: "moderate" })).problem).toContain("axe rates this moderate, which lookout files as medium");
+    expect(explainDeterministic(axe({ impact: "critical" })).problem).toContain("axe rates this critical, which lookout files as high");
+  });
+});

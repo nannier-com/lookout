@@ -21,6 +21,12 @@
 import type { DeterministicFinding } from "../types.js";
 
 export interface Prose {
+  /**
+   * One line naming the defect, in words rather than the check's message: the
+   * message leads with a rule id or a measurement, and a title is printed on
+   * its own, on a card, in a list, in a commit.
+   */
+  title: string;
   /** The two-part explanation: what a person would notice, then the detail. */
   problem: string;
   /** The fixed state, as a sentence. Empty when the check cannot phrase one. */
@@ -45,10 +51,10 @@ const sentence = (s: string): string => {
  * that prints the bare word is asking its reader to already know the scale.
  */
 const AXE_IMPACT: Record<string, string> = {
-  critical: "axe rates this critical, meaning it stops somebody using assistive technology from getting at the content at all.",
-  serious: "axe rates this serious, meaning it makes the affected content very hard to use with assistive technology.",
-  moderate: "axe rates this moderate, meaning it frustrates somebody using assistive technology without stopping them outright.",
-  minor: "axe rates this minor, meaning it is a nuisance rather than a barrier.",
+  critical: "axe rates this critical, which lookout files as high: it stops somebody using assistive technology from getting at the content at all.",
+  serious: "axe rates this serious, which lookout files as high: it makes the affected content very hard to use with assistive technology.",
+  moderate: "axe rates this moderate, which lookout files as medium: it frustrates somebody using assistive technology without stopping them outright.",
+  minor: "axe rates this minor, which lookout files as medium: it is a nuisance rather than a barrier.",
 };
 
 interface AxeNode {
@@ -171,6 +177,7 @@ function axeProse(df: DeterministicFinding): Prose {
     .join(" ");
 
   return {
+    title: sentence(help).replace(/\.$/, "").slice(0, 160),
     problem: `${plain}\n\n${detail}`,
     expected: rule
       ? `The page satisfies the accessibility rule \`${rule}\`.${description ? ` ${sentence(description)}` : ""}`
@@ -203,26 +210,115 @@ const CONSEQUENCE: Partial<Record<DeterministicFinding["type"], string>> = {
   "horizontal-overflow":
     "Content runs off the side of the screen. On a narrow viewport that means a reader has to scroll " +
     "sideways to finish a line, or simply never sees the part that is off the edge.",
-  "blank-shot":
-    "The screen was photographed before it had drawn anything, so this capture is evidence of the " +
-    "capture timing rather than of the application. Nothing else in this ticket can be trusted until " +
-    "the screen is caught after it has painted.",
-  "capture-error":
-    "lookout could not reach the state it was asked to photograph, so this view has gone unjudged. " +
-    "That is a hole in the evidence, not a clean result.",
-  "scheme-mismatch":
-    "The light and dark captures came back the same, which means the application never applied the " +
-    "scheme it was asked for. Anyone using the other scheme sees whatever this screenshot shows.",
-  "stale-frame":
-    "The screen was still changing when it was photographed, so this image is a moment in the middle " +
-    "of rendering rather than the finished view.",
-  "off-origin":
-    "The capture ended up on a different application than the one under test, so this screenshot is " +
-    "not of the screen its label claims. Every finding filed against it is misattributed.",
   "dead-interaction":
     "Something a person would click did nothing when it was clicked. To a user this reads as the " +
     "application being broken or frozen, with no feedback saying otherwise.",
+  // The five below are problems with lookout's capture, or with how the
+  // application answers it, rather than defects a user would see, and they
+  // say so first: a reader who takes them for the application's fault goes
+  // looking in the wrong place.
+  "blank-shot":
+    "This is a problem with lookout's capture rather than with the application: the screen was " +
+    "photographed before it had drawn anything, so this picture is evidence of the capture timing, " +
+    "not of the screen. Nothing else filed against it can be trusted until the screen is caught " +
+    "after it has painted, which usually means a longer settle.",
+  "capture-error":
+    "This is a problem with lookout's capture rather than with the application: lookout could not " +
+    "drive the page into the state it was asked to photograph (a state is a view reached by " +
+    "interacting first, such as an opened menu), so that view has gone unjudged. That is a hole in " +
+    "the evidence, not a clean result.",
+  "scheme-mismatch":
+    "Either the application ignores the colour scheme it is asked for (light or dark), or lookout's " +
+    "way of asking did not reach it: the light and dark captures came back identical. Anyone using " +
+    "the other scheme sees whatever this screenshot shows. The config's `scheme` setting says how " +
+    "lookout asks.",
+  "stale-frame":
+    "This is a problem with lookout's capture rather than with the application: the screen was still " +
+    "changing when it was photographed, so this picture is a moment in the middle of rendering rather " +
+    "than the finished view.",
+  "off-origin":
+    "This is a problem with the capture rather than with the screen: the capture ended up on a " +
+    "different application than the one under test, so this screenshot is not of the screen its " +
+    "label claims, and every finding filed against it describes the wrong page. A sign-in redirect " +
+    "is the usual cause.",
 };
+
+/** The five types that describe the capture rather than the application. */
+const ABOUT_CAPTURE: ReadonlySet<DeterministicFinding["type"]> = new Set([
+  "blank-shot",
+  "capture-error",
+  "scheme-mismatch",
+  "stale-frame",
+  "off-origin",
+]);
+
+/** One line naming the defect, from the check's record rather than its message. */
+function titleOf(df: DeterministicFinding): string {
+  const m = df.meta ?? {};
+  const head = (s: string, n = 120): string => (s.length > n ? `${s.slice(0, n)}…` : s);
+  switch (df.type) {
+    case "console-error":
+      return `The page logged an error: ${head(df.message)}`;
+    case "page-error":
+      return `A script on the page threw: ${head(df.message)}`;
+    case "request-failed":
+      return `A request the page made failed: ${head(str(m.url) || df.message)}`;
+    case "horizontal-overflow":
+      return num(m.worst) > 0
+        ? `Content runs ${num(m.worst)}px off the side of the screen${str(m.offender) ? ` (${str(m.offender)})` : ""}`
+        : `The page scrolls ${num(m.delta)}px sideways at ${num(m.viewport)}px wide`;
+    case "blank-shot":
+      return "lookout photographed this screen before it had painted";
+    case "capture-error":
+      return str(m.state) ? `lookout could not open the "${str(m.state)}" state to photograph it` : "lookout could not photograph this state";
+    case "scheme-mismatch":
+      return "The light and dark captures came out the same";
+    case "stale-frame":
+      return "The screen was still changing when it was photographed";
+    case "off-origin":
+      return str(m.landed) ? `The capture landed on ${str(m.landed)} instead of the application` : "The capture landed on another application";
+    case "dead-interaction":
+      return str(m.name) ? `"${str(m.name)}" did nothing when clicked` : "A control did nothing when clicked";
+    default:
+      return head(df.message, 160);
+  }
+}
+
+/** The fixed state and what this capture showed, per type; both from the record, never invented. */
+function expectation(df: DeterministicFinding): { expected: string; observed: string } {
+  const m = df.meta ?? {};
+  const at = (s: string) => (s ? ` (${s})` : "");
+  switch (df.type) {
+    case "console-error":
+      return {
+        expected: "The page logs no errors while this screen renders.",
+        observed: `${df.message}${at([str(m.url), num(m.line) ? `line ${num(m.line)}` : ""].filter(Boolean).join(" "))}${num(m.repeats) > 1 ? `, ${num(m.repeats)} times` : ""}`,
+      };
+    case "page-error":
+      return { expected: "No script on this page throws uncaught.", observed: `${df.message}${at(str(m.stack).split("\n")[1]?.trim() ?? "")}` };
+    case "request-failed":
+      return { expected: "Every request this page makes succeeds.", observed: `${df.message}${at([str(m.method), str(m.resourceType)].filter(Boolean).join(" "))}` };
+    case "horizontal-overflow":
+      return {
+        expected: "Nothing on the page extends past the viewport's edge, and the page does not scroll sideways.",
+        observed: `${df.message}${at(str(m.offenderPath))}`,
+      };
+    case "blank-shot":
+      return { expected: "The screen has painted before it is photographed.", observed: df.message };
+    case "capture-error":
+      return { expected: str(m.state) ? `The "${str(m.state)}" state can be reached and photographed.` : "Every state can be reached and photographed.", observed: df.message };
+    case "scheme-mismatch":
+      return { expected: "The dark and light captures differ: the application applies the scheme it is asked for.", observed: df.message };
+    case "stale-frame":
+      return { expected: "The screen has finished rendering before it is photographed.", observed: df.message };
+    case "off-origin":
+      return { expected: str(m.expected) ? `The capture stays on ${str(m.expected)}.` : "The capture stays on the application's own origin.", observed: df.message };
+    case "dead-interaction":
+      return { expected: str(m.name) ? `Clicking "${str(m.name)}" changes the page.` : "Every control lookout clicks changes the page.", observed: df.message };
+    default:
+      return { expected: "", observed: df.message };
+  }
+}
 
 /**
  * The prose for one deterministic finding: what a person would notice, then
@@ -232,9 +328,10 @@ const CONSEQUENCE: Partial<Record<DeterministicFinding["type"], string>> = {
 export function explainDeterministic(df: DeterministicFinding): Prose {
   if (df.type === "axe-violation") return axeProse(df);
   const consequence = CONSEQUENCE[df.type];
+  const trailer = ABOUT_CAPTURE.has(df.type) ? "What lookout recorded" : "What the check measured";
   return {
-    problem: consequence ? `${consequence}\n\nWhat the check measured: ${df.message}` : df.message,
-    expected: "",
-    observed: "",
+    title: titleOf(df),
+    problem: consequence ? `${consequence}\n\n${trailer}: ${df.message}` : df.message,
+    ...expectation(df),
   };
 }
