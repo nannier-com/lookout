@@ -63,7 +63,7 @@ describe("where criteria come from", () => {
       attribute: "axe-button-name",
     });
     expect(derivedCriterion(axe)).toBe(
-      "No accessibility violation of rule `button-name` on /dash at desktop, dark scheme.",
+      "/dash passes the accessibility check `button-name` at desktop, dark scheme.",
     );
     const overflow = finding({
       channel: "deterministic",
@@ -423,7 +423,7 @@ describe("the attributes that used to fall through to the default template", () 
     const dead = finding({ channel: "deterministic", category: "states", attribute: "dead-control", formFactor: "phone" });
     expect(derivedCriterion(dead)).toBe("Every control lookout clicked on /dash responds at phone, dark scheme.");
     const bare = finding({ channel: "deterministic", category: "a11y", attribute: "axe" });
-    expect(derivedCriterion(bare)).toBe("No accessibility violation on /dash at desktop, dark scheme.");
+    expect(derivedCriterion(bare)).toBe("/dash passes every accessibility check at desktop, dark scheme.");
   });
 
   test("the default names the category in words, never the token", () => {
@@ -462,5 +462,14 @@ describe("a reworded criterion keeps the ruling lookout already made", () => {
     const before = composeAcceptance([f]).map((c) => ruled(c, "met"));
     const after = composeAcceptance([f], before);
     expect(after.map((c) => c.verdict)).toEqual(["met", "met"]);
+  });
+});
+
+
+describe("the universal criteria are said in words a reader has been introduced to", () => {
+  test("no oracle, and the photograph is what it is", () => {
+    expect(RECAPTURE_CRITERION).toBe("Every screenshot this issue was filed against was photographed again, and at least one of them changed.");
+    expect(CODE_RECAPTURE_CRITERION).toBe("lookout re-read the source and no longer sees this.");
+    expect(CODE_RECAPTURE_CRITERION).not.toContain("oracle");
   });
 });

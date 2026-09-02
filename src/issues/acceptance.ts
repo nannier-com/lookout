@@ -55,7 +55,7 @@ export interface AcceptanceCriterion {
 
 /** The universal criterion for anything photographed. */
 export const RECAPTURE_CRITERION =
-  "Every screenshot this issue was filed against was re-captured, and at least one changed.";
+  "Every screenshot this issue was filed against was photographed again, and at least one of them changed.";
 
 /**
  * The universal criterion for an issue no screenshot was ever involved in.
@@ -64,7 +64,7 @@ export const RECAPTURE_CRITERION =
  * the record that exists so nobody answers "is it fixed" from memory.
  */
 export const CODE_RECAPTURE_CRITERION =
-  "The oracle that filed this re-read the source, and no longer sees it.";
+  "lookout re-read the source and no longer sees this.";
 
 /**
  * Keyed by what the criterion SAYS, not by which finding contributed it. Two
@@ -98,12 +98,14 @@ function where(f: BacklogFinding): string {
  * the failure it is the absence of.
  */
 export function derivedCriterion(f: BacklogFinding): string {
+  // Stated as the check passing, with the check named: the rule id is what
+  // re-runs, and the sentence around it says what kind of check it is.
   if (f.attribute.startsWith("axe-")) {
-    return `No accessibility violation of rule \`${f.attribute.slice(4)}\` on ${where(f)}.`;
+    return `${f.route} passes the accessibility check \`${f.attribute.slice(4)}\` at ${f.formFactor}, ${f.scheme} scheme.`;
   }
   // An axe finding whose rule id capture did not record: the check still
   // re-runs, so the criterion is the whole scan passing.
-  if (f.attribute === "axe") return `No accessibility violation on ${where(f)}.`;
+  if (f.attribute === "axe") return `${f.route} passes every accessibility check at ${f.formFactor}, ${f.scheme} scheme.`;
   switch (f.attribute) {
     case "dead-control":
       return `Every control lookout clicked on ${f.route} responds at ${f.formFactor}, ${f.scheme} scheme.`;

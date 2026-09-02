@@ -175,7 +175,7 @@ describe("the acceptance criteria say what the last ruling saw", () => {
     expect(md).toContain("  - not met: The badge still sits over the R.");
     expect(md).toContain("  - ruled 2026-08-30T10:00:00.000Z by run verify-9");
     expect(md).toContain("- [ ] The badge sits clear of the heading");
-    expect(md).toContain("- [x] Every screenshot this issue was filed against was re-captured, and at least one changed.");
+    expect(md).toContain("- [x] Every screenshot this issue was filed against was photographed again, and at least one of them changed.");
     expect(md).toContain("  - met: 1 of 2 screenshot(s) changed.");
     // The legend, so the marks need no key elsewhere.
     expect(md).toContain("`[!]` was not");
