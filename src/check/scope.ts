@@ -56,9 +56,12 @@ export async function resolveScope(parsed: Parsed): Promise<CheckScope> {
       dropped,
     });
   }
+  // Every platform's shots are judged: a device shot is a rendering of its
+  // own, and it used to be captured and then dropped here before any panel
+  // saw it. Navigation discovery stays web only (check/navigate.ts), since a
+  // device has no DOM to harvest.
   const shots = inConfig.filter(
     (s) =>
-      s.platform === "web" &&
       (!onlyTargets || onlyTargets.includes(s.target)) &&
       (!onlyRoutes ||
         onlyRoutes.some((r) => s.route === r || s.route === `/${r}` || s.routeName === r)),

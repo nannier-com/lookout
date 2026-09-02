@@ -19,6 +19,8 @@ import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process"
 import { fileURLToPath } from "node:url";
 import { EventLog, readEvents, summarise } from "../report/events.js";
 import { downReason, preflight, resolveTargets } from "../targets.js";
+import { deviceDownReason, preflightDevices } from "../capture/native-preflight.js";
+import { detectProjectKind } from "../project-kind.js";
 import { pushNow } from "./live.js";
 import { session } from "./session.js";
 import { navigationConsented } from "./stored-settings.js";
@@ -37,9 +39,14 @@ export async function startCheck(project: ResolvedConfig): Promise<{ started: bo
   // can say which target is down and how to start it, instead of showing
   // nothing while a doomed subprocess exits into a discarded pipe.
   try {
-    const reason = downReason(
-      await preflight(resolveTargets(project.config, undefined, undefined, project.configPath)),
-    );
+    // The same two probes the CLI runs, so the page refuses for the same
+    // reasons a run would fail: a web target down, or a required device gone.
+    const kind = await detectProjectKind(project.projectDir, project.config);
+    const web = kind.web
+      ? downReason(await preflight(resolveTargets(project.config, undefined, undefined, project.configPath)))
+      : null;
+    const devices = deviceDownReason(await preflightDevices(project.config, kind.native));
+    const reason = [web, devices].filter((r): r is string => r !== null).join("\n");
     if (reason) return { started: false, reason };
   } catch (e) {
     // A config that cannot even be resolved into targets is itself the answer.

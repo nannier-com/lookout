@@ -207,3 +207,22 @@ describe("util", () => {
     expect(isLocalUrl("https://example.com")).toBe(false);
   });
 });
+
+describe("the native block's device keys", () => {
+  const t = [{ name: "app", url: "http://localhost:1" }];
+  const ios = { deepLinkScheme: "x", bundleId: "com.x" };
+
+  test("startHint is a string and devices is a non-empty list of phone or tablet", () => {
+    const ok = validateConfig({ targets: t, native: { ios: { ...ios, startHint: "make ios-sim", devices: ["phone", "tablet"] } } }, "t");
+    expect(ok.native?.ios).toMatchObject({ startHint: "make ios-sim", devices: ["phone", "tablet"] });
+    expect(() => validateConfig({ targets: t, native: { ios: { ...ios, startHint: 3 } } }, "t")).toThrow(/native.ios.startHint/);
+    expect(() => validateConfig({ targets: t, native: { ios: { ...ios, devices: [] } } }, "t")).toThrow(/native.ios.devices/);
+    expect(() => validateConfig({ targets: t, native: { ios: { ...ios, devices: ["watch"] } } }, "t")).toThrow(/native.ios.devices/);
+  });
+
+  test("platforms is validated against the set", () => {
+    expect(validateConfig({ targets: t, platforms: ["ios", "web", "ios"] }, "t").platforms).toEqual(["ios", "web"]);
+    expect(() => validateConfig({ targets: t, platforms: [] }, "t")).toThrow(/platforms/);
+    expect(() => validateConfig({ targets: t, platforms: ["windows"] }, "t")).toThrow(/unknown platform "windows"/);
+  });
+});

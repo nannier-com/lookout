@@ -160,13 +160,18 @@ export function downReason(statuses: TargetStatus[]): string | null {
   return `target(s) not reachable:\n${lines.join("\n")}`;
 }
 
-/** Throw with start instructions when any requested target is down. */
-export function requireUp(statuses: TargetStatus[]): void {
-  const reason = downReason(statuses);
-  if (!reason) return;
+/**
+ * Throw with start instructions when any requested target is down, or when
+ * the device fold's own probe (native-preflight.ts) found a device missing.
+ * Both reasons print together: a project judged in both folds is told
+ * everything that stands in the run's way at once.
+ */
+export function requireUp(statuses: TargetStatus[], deviceReason: string | null = null): void {
+  const reasons = [downReason(statuses), deviceReason].filter((r): r is string => r !== null);
+  if (reasons.length === 0) return;
   throw new LookoutError(
-    reason,
-    "lookout never starts services itself; start the app, then re-run",
+    reasons.join("\n"),
+    "lookout never starts services, simulators or emulators itself; start what is missing, then re-run",
   );
 }
 

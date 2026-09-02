@@ -4,6 +4,7 @@
  */
 import { assertTargetsAllowed, loadConfig } from "../config.js";
 import { describeKind, detectProjectKind } from "../project-kind.js";
+import { deviceDownReason, deviceLines, preflightDevices } from "../capture/native-preflight.js";
 import { preflight, resolveTargets } from "../targets.js";
 import { list, printJson, row, str, type Parsed } from "../util.js";
 
@@ -16,12 +17,16 @@ export async function targets(parsed: Parsed): Promise<number> {
   assertTargetsAllowed(resolved.config, !!parsed.flags["allow-remote"]);
 
   const selected = resolveTargets(resolved.config, list(parsed.flags.targets));
-  const statuses = await preflight(selected);
   const kind = await detectProjectKind(resolved.projectDir, resolved.config);
+  // Each fold is probed for what it needs: the web fold's URLs, the device
+  // fold's simulators and emulators with the app on them.
+  const statuses = kind.web ? await preflight(selected) : [];
+  const devices = await preflightDevices(resolved.config, kind.native);
+  const ready = statuses.every((s) => s.up) && deviceDownReason(devices) === null;
 
   if (parsed.flags.json) {
-    printJson({ project: resolved.project, configPath: resolved.configPath, targets: statuses, fold: kind });
-    return statuses.every((s) => s.up) ? 0 : 1;
+    printJson({ project: resolved.project, configPath: resolved.configPath, targets: statuses, devices, fold: kind });
+    return ready ? 0 : 1;
   }
 
   console.log(`project: ${resolved.project}`);
@@ -37,5 +42,8 @@ export async function targets(parsed: Parsed): Promise<number> {
     console.log(row(s.name, `${s.url}  ${s.routes} route(s)  ${state}`));
     if (!s.up && s.startHint) console.log(row("", `start it: ${s.startHint}`));
   }
-  return statuses.every((s) => s.up) ? 0 : 1;
+  for (const line of deviceLines(devices)) console.log(row("device", line));
+  const gap = deviceDownReason(devices);
+  if (gap) console.log(gap);
+  return ready ? 0 : 1;
 }

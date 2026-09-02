@@ -79,6 +79,9 @@ export async function gatherFreshEvidence(args: {
       ...parsed.flags,
       targets: scope.targets.join(","),
       routes: scope.routes.join(","),
+      // The cluster's own platform: a web issue is ruled on the web fold and
+      // an iOS issue on the iOS devices, whatever else the project walks.
+      ...(parsed.flags.platforms === undefined ? { platforms: cluster.platform } : {}),
       ...(owning ? { panels: owning } : {}),
     },
   });

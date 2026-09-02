@@ -4,8 +4,10 @@
  * Layout under the project's capture workspace (evidenceDir: a per-project
  * directory in the operator's lookout home, not inside the judged project):
  *   capture-report.json
- *   web/<target>/<route-slug>/<state>--<formFactor>-<scheme>.png
- *   ios|android/<target>/<route-slug>/<state>--<scheme>.png
+ *   <platform>/<target>/<route-slug>/<state>--<formFactor>-<scheme>.png
+ *
+ * The form factor is in every platform's filename: a phone and a tablet shot
+ * of one route on one platform are two files, never one overwriting the other.
  *
  * Filenames are stable so re-runs overwrite in place and the report's shot ids
  * stay the dedupe key.
@@ -46,8 +48,7 @@ export function shotId(a: ShotAxes): string {
 
 /** Path relative to the evidence dir. */
 export function shotRelPath(a: ShotAxes): string {
-  const ff = a.platform === "web" ? `${a.formFactor}-` : "";
-  return join(a.platform, a.target, routeSlug(a.route), `${a.state}--${ff}${a.scheme}.png`);
+  return join(a.platform, a.target, routeSlug(a.route), `${a.state}--${a.formFactor}-${a.scheme}.png`);
 }
 
 export function reportPath(resolved: ResolvedConfig): string {

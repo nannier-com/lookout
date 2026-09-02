@@ -179,7 +179,23 @@ export interface NativeAppConfig {
   settleMs?: number;
   /** Query param the app reads to force a scheme (e.g. "scheme"), if any. */
   appearanceParam?: string;
+  /**
+   * Human instruction printed when no device with the app is booted. lookout
+   * never boots a simulator or installs an app; it tells the operator what to
+   * do, in the project's own words (a `make ios-sim`, an `expo run:ios`).
+   */
+  startHint?: string;
+  /**
+   * The device kinds a run must have booted: default `["phone"]`. A kind
+   * listed here and not booted stops the run, like a web target that is
+   * down; a kind not listed is captured when it happens to be booted and
+   * recorded as a skip when it is not.
+   */
+  devices?: DeviceKind[];
 }
+
+/** What a native device is for a form factor: a phone or a tablet. */
+export type DeviceKind = Extract<FormFactor, "phone" | "tablet">;
 
 export interface LookoutConfig {
   /** Project label used in reports. Defaults to the directory name. */
@@ -407,6 +423,8 @@ export interface ShotRecord {
   schemeMechanism?: "emulate" | "url-param" | "recipe";
   /** The selector that was framed, when the shot is of one element. */
   element?: string;
+  /** The simulator or emulator a native shot was taken on: its name and the id lookout addressed it by. */
+  device?: { id: string; name: string };
   /** What a state other than rest is, in the words of whoever planned it. */
   stateDescription?: string;
   /** What was clicked to reach a synthesized state, and what was expected. */

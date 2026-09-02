@@ -20,6 +20,7 @@ const cluster = (over: Partial<FixCluster> = {}): FixCluster => ({
   id: "418203",
   key: "app--contrast--disabled",
   target: "app",
+  platform: "web",
   category: "contrast",
   attribute: "disabled",
   defects: [{ attribute: "disabled", severity: "high", title: "Disabled button unreadable", problem: "text is too faint" }],

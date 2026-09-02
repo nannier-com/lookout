@@ -1,0 +1,5 @@
+---
+"@nannier-com/lookout": patch
+---
+
+**The device fold reaches the judges.** A native or React Native project is now photographed on its booted iOS and Android devices by default, one phone and one tablet per platform, each addressed by its own identifier: an iPad is recorded as `tablet`, never as a phone, and a phone and a tablet shot of one route are two files. Device shots are judged by the same panels as web shots, with their own identity (the platform is part of a device finding's fingerprint and issue key; every web key is unchanged), and `verify-fix` rules a device issue on its devices. Each fold is probed for what it needs before a run: the web fold's URL over HTTP, the device fold's simulators and emulators with the app installed, using the new `native.<platform>.startHint` in the project's own words and `native.<platform>.devices` for the kinds a run must have. `lookout targets` and the page's settings panel show the booted devices beside the targets; the play button refuses for the same reasons a run would fail.

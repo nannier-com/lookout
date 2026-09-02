@@ -17,10 +17,15 @@
  * cannot collide. Form factor and scheme stay in the key either way: a desktop
  * nav rail and a phone tab bar are different components, and fusing them would
  * let a fix photographed on one close evidence about the other.
+ *
+ * A device finding carries its platform too. An iOS screen and the web page it
+ * mirrors are two renderings from two codebases, so a defect on one is not
+ * evidence about the other; a web fingerprint is byte-identical to what it
+ * always was, because every existing backlog is keyed by it.
  */
 import { routeSlug } from "../capture/store.js";
 import { isShellRegion, type Region } from "./region.js";
-import type { FormFactor, Scheme } from "../types.js";
+import type { FormFactor, PlatformKind, Scheme } from "../types.js";
 import type { SourceRef } from "./lib.js";
 
 // Fingerprints: the dedupe identity across runs. Axes only, no prose, so a
@@ -30,6 +35,7 @@ export function fingerprintOf(f: {
   target: string;
   route: string;
   state: string;
+  platform?: PlatformKind;
   formFactor?: FormFactor;
   scheme?: Scheme;
   category: string;
@@ -41,6 +47,7 @@ export function fingerprintOf(f: {
     f.target,
     where,
     f.state,
+    ...(f.platform && f.platform !== "web" ? [f.platform] : []),
     f.formFactor ?? "-",
     f.scheme ?? "-",
     f.category,

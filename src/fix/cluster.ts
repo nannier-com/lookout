@@ -21,7 +21,7 @@ import type { BacklogFinding, FindingStatus } from "../backlog/lib.js";
 import { isShellRegion } from "../backlog/region.js";
 import { categoryPhrase } from "../judge/glossary.js";
 import { routeSlug } from "../capture/store.js";
-import { LookoutError, type Severity } from "../types.js";
+import { LookoutError, type PlatformKind, type Severity } from "../types.js";
 import type { Category } from "../judge/rubric.js";
 
 const SEVERITY_RANK: Record<Severity, number> = { critical: 0, high: 1, medium: 2, low: 3 };
@@ -32,6 +32,8 @@ export interface FixCluster {
   /** Derived identity: target + category + attribute. What dedupe turns on. */
   key: string;
   target: string;
+  /** Where the members were photographed: web, or the device platform. */
+  platform: PlatformKind;
   category: Category;
   attribute: string;
   /** Every distinct defect in the cluster, worst first; one entry per attribute. */
@@ -73,7 +75,18 @@ export function slug(s: string): string {
 
 type ClusterKeyAxes = Pick<BacklogFinding, "target" | "category" | "attribute" | "channel" | "route"> & {
   region?: BacklogFinding["region"];
+  platform?: BacklogFinding["platform"];
 };
+
+/**
+ * The platform's place in a key: a segment for a device, nothing for the
+ * web, so every key a web backlog already holds is unchanged. A device
+ * defect is fixed in native code, a different file from the web one, so it
+ * is its own piece of work.
+ */
+function platformSegment(f: Pick<ClusterKeyAxes, "platform">): string {
+  return f.platform && f.platform !== "web" ? `${slug(f.platform)}--` : "";
+}
 
 export function clusterKeyOf(f: ClusterKeyAxes): string {
   // Deterministic accessibility findings are keyed by axe rule id, which names
@@ -87,7 +100,7 @@ export function clusterKeyOf(f: ClusterKeyAxes): string {
   // it, one malformed nav landmark was thirteen issues with thirteen ids.
   if (f.channel === "deterministic" && f.category === "a11y") {
     const locus = isShellRegion(f.region) ? f.region! : routeSlug(f.route);
-    return `${slug(f.target)}--${slug(locus)}--a11y`;
+    return `${slug(f.target)}--${platformSegment(f)}${slug(locus)}--a11y`;
   }
   return clusterKeyRest(f);
 }
@@ -115,7 +128,7 @@ function clusterKeyRest(f: ClusterKeyAxes): string {
   if (f.channel === "code") {
     return `${slug(f.target)}--code--${slug(f.route)}--${slug(f.attribute)}`;
   }
-  return `${slug(f.target)}--${slug(f.category)}--${slug(f.attribute)}`;
+  return `${slug(f.target)}--${platformSegment(f)}${slug(f.category)}--${slug(f.attribute)}`;
 }
 
 export interface ClusterOptions {
@@ -189,6 +202,7 @@ export function clusterFindings(
       id,
       key,
       target: worst.target,
+      platform: worst.platform ?? "web",
       category: worst.category,
       attribute: worst.attribute,
       defects,

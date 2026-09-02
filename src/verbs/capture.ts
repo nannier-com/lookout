@@ -22,6 +22,7 @@ import { emit, EventLog, setCurrentLog } from "../report/events.js";
 import type { ShotRecord } from "../types.js";
 import { LookoutError } from "../types.js";
 import { resolveFormFactors, resolvePlatforms, resolveSchemes } from "../capture/matrix.js";
+import { deviceDownReason, preflightDevices } from "../capture/native-preflight.js";
 import { detectProjectKind } from "../project-kind.js";
 import { list, num, printJson, runId, str, type Parsed } from "../util.js";
 
@@ -69,8 +70,6 @@ export async function runCapture(parsed: Parsed): Promise<{
     list(parsed.flags.routes),
     resolved.configPath,
   );
-  requireUp(await preflight(targets));
-
   // The matrix: every form factor and both schemes unless a flag narrows,
   // and the platforms the project's fold walks unless a flag decides.
   const formFactors = resolveFormFactors(parsed.flags.viewports);
@@ -78,6 +77,15 @@ export async function runCapture(parsed: Parsed): Promise<{
   const platforms = resolvePlatforms(
     parsed.flags.platforms,
     await detectProjectKind(resolved.projectDir, resolved.config),
+  );
+  // Each fold is probed for what it needs and nothing else: the web fold's
+  // URL over HTTP, the device fold's simulators and emulators with the app on
+  // them. A native-only project has no server to answer, and asking one to
+  // would stop every run before a device was ever looked at.
+  const nativePlatforms = platforms.filter((p): p is "ios" | "android" => p !== "web");
+  requireUp(
+    platforms.includes("web") ? await preflight(targets) : [],
+    deviceDownReason(await preflightDevices(resolved.config, nativePlatforms)),
   );
 
   const axeFlag = str(parsed.flags.axe) ?? "route";
@@ -154,7 +162,6 @@ export async function runCapture(parsed: Parsed): Promise<{
     }
   }
 
-  const nativePlatforms = platforms.filter((p): p is "ios" | "android" => p !== "web");
   if (nativePlatforms.length > 0) {
     const { captureNative } = await import("../capture/native.js");
     // The native app's routes come from the config-named target (default first).

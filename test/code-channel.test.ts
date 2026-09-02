@@ -87,6 +87,7 @@ describe("hand-rolls as findings", () => {
   test("the fingerprint ignores the line number, so edits above it do not re-file", () => {
     const base = {
       target: "app",
+      platform: "web",
       category: "consistency",
       attribute: "hand-rolled",
     };
@@ -119,6 +120,7 @@ describe("ruling a code finding by re-reading the source", () => {
       id: "123456",
       key: clusterKeyOf(f as BacklogFinding),
       target: f.target,
+      platform: "web",
       category: f.category,
       attribute: f.attribute,
       defects: [],
@@ -250,6 +252,7 @@ describe("ruling a finding the skill found, not the scanner", () => {
       id: "654321",
       key: clusterKeyOf(f as BacklogFinding),
       target: f.target,
+      platform: "web",
       category: f.category,
       attribute: f.attribute,
       defects: [],
@@ -335,6 +338,7 @@ describe("the ruling resolves the kit the way filing does", () => {
       id: "654321",
       key: clusterKeyOf(f),
       target: f.target,
+      platform: "web",
       category: f.category,
       attribute: f.attribute,
       defects: [],

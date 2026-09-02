@@ -34,6 +34,13 @@ export function paintSettings(): void {
       (t.up ? "reachable" : "not responding" + (t.status ? " (HTTP " + t.status + ")" : "")) +
       "</span></div>").join("");
   }
+  // The device fold, when the project has one: each booted simulator or
+  // emulator, or the gap that would stop a run, in the same rows the targets
+  // use, because to the person opening this panel they are the same question.
+  if (page.config.configured && !page.config.error) {
+    box.innerHTML += page.config.devices.map((d) =>
+      '<div class="tgt"><span class="' + (d.up ? "up" : "down") + '">' + esc(d.line) + "</span></div>").join("");
+  }
   paintNav();
   paintPlay();
 }

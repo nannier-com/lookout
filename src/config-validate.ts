@@ -172,6 +172,13 @@ export function validateConfig(raw: unknown, path: string): LookoutConfig {
       if (!isRecord(n) || typeof n.deepLinkScheme !== "string" || typeof n.bundleId !== "string") {
         fail(path, `native.${os} must declare deepLinkScheme and bundleId`);
       }
+      if (n.startHint !== undefined && typeof n.startHint !== "string") {
+        fail(path, `native.${os}.startHint must be a string`);
+      }
+      if (n.devices !== undefined) {
+        const ok = Array.isArray(n.devices) && n.devices.length > 0 && n.devices.every((d) => d === "phone" || d === "tablet");
+        if (!ok) fail(path, `native.${os}.devices must be a non-empty array of "phone" | "tablet"`);
+      }
     }
   }
 

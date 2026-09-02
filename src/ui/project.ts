@@ -10,6 +10,8 @@
  */
 import { loadConfig } from "../config.js";
 import { preflight, resolveTargets } from "../targets.js";
+import { deviceLines, preflightDevices } from "../capture/native-preflight.js";
+import { detectProjectKind } from "../project-kind.js";
 import { currentProject, currentProjectOrNull, session, setCurrentProject } from "./session.js";
 import { forgetNarration } from "./narration.js";
 import { forgetBoard } from "./payload.js";
@@ -64,6 +66,11 @@ export interface SettingsView {
    */
   navigation: boolean;
   targets: { name: string; url: string; routes: number; up: boolean; status: number | null }[];
+  /**
+   * The device fold, one line per booted device or per gap, in the words
+   * `lookout targets` prints. Empty for a project judged in the web fold only.
+   */
+  devices: { line: string; up: boolean }[];
   error: string | null;
 }
 
@@ -98,12 +105,14 @@ export async function settingsView(): Promise<SettingsView> {
   const project = currentProjectOrNull();
   const configured = project?.configPath !== null && project?.configPath !== undefined;
   let targets: { name: string; url: string; routes: number; up: boolean; status: number | null }[] = [];
+  let devices: { line: string; up: boolean }[] = [];
   let error: string | null = null;
   if (configured) {
     try {
-      const statuses = await preflight(
-        resolveTargets(project.config, undefined, undefined, project.configPath),
-      );
+      const kind = await detectProjectKind(project.projectDir, project.config);
+      const statuses = kind.web
+        ? await preflight(resolveTargets(project.config, undefined, undefined, project.configPath))
+        : [];
       targets = statuses.map((t) => ({
         name: t.name,
         url: t.url,
@@ -111,6 +120,9 @@ export async function settingsView(): Promise<SettingsView> {
         up: t.up,
         status: t.status,
       }));
+      // The device fold's probe, as lines: what is booted, and what is not.
+      const probed = await preflightDevices(project.config, kind.native);
+      devices = deviceLines(probed).map((line) => ({ line, up: !/DOWN|no device booted|not configured|\(required\)$/.test(line) }));
     } catch (e) {
       error = (e as Error).message;
     }
@@ -124,6 +136,7 @@ export async function settingsView(): Promise<SettingsView> {
     project: project?.project ?? null,
     configured,
     targets,
+    devices,
     error,
   };
 }
