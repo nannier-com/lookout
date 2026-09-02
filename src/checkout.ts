@@ -14,12 +14,15 @@
  * at a fixture instead of at the repository it is running from.
  */
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { LOOKOUT_DIR } from "./config-locate.js";
 
 export function ownCheckout(): string | null {
-  const root = process.env.LOOKOUT_CHECKOUT ?? fileURLToPath(new URL("..", import.meta.url));
+  // Resolved, because `fileURLToPath` of a directory URL keeps its trailing
+  // slash: two spellings of one checkout would dedupe as two incident sources
+  // and print with a stray separator wherever the path is shown.
+  const root = resolve(process.env.LOOKOUT_CHECKOUT ?? fileURLToPath(new URL("..", import.meta.url)));
   return existsSync(join(root, "src")) && existsSync(join(root, ".git")) ? root : null;
 }
 

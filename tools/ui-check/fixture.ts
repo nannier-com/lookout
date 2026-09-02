@@ -157,17 +157,12 @@ async function freeze(
   writeFileSync(join(lk, "issues", id, "frames.json"), JSON.stringify(manifest, null, 2) + "\n");
 }
 
-export async function buildFixture(root: string): Promise<{ project: string; home: string; checkout: string }> {
+export async function buildFixture(root: string): Promise<{ project: string; checkout: string }> {
   rmSync(root, { recursive: true, force: true });
   const project = join(root, "project");
-  const home = join(root, "home");
   const checkout = join(root, "checkout");
   const lk = join(project, ".lookout");
   mkdirSync(project, { recursive: true });
-  // The incident log still lives under the home the served ui will be given.
-  // This process is the fixture builder and nothing else, so pointing it there
-  // is the same as `serve` doing it.
-  process.env.LOOKOUT_HOME = home;
   const resolved: ResolvedConfig = {
     config: { targets: [{ name: "app", url: "http://127.0.0.1:5999", routes: ["/", "/settings"] }] },
     configPath: join(project, "lookout.config.ts"),
@@ -177,7 +172,7 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
   // The capture workspace, exactly where the served ui will look for it:
   // inside the project's own `.lookout/`.
   const ev = evidenceDir(resolved);
-  for (const d of [home, lk, ev, join(ev, "web", "app", "root", "rest")]) {
+  for (const d of [lk, ev, join(ev, "web", "app", "root", "rest")]) {
     mkdirSync(d, { recursive: true });
   }
 
@@ -881,7 +876,7 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
   // the capture report, the plans, the sidecar, the state.
   await writeDocuments(resolved, backlog, lk, [INTENTIONAL_ISSUE]);
 
-  return { project, home, checkout };
+  return { project, checkout };
 }
 
 /**

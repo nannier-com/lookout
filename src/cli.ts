@@ -179,6 +179,14 @@ function warnIfStale(): void {
 
 async function main(): Promise<number> {
   warnIfStale();
+  // The variable is not read any more, and an operator who exported it once is
+  // entitled to know that rather than to wonder where their state went.
+  if (process.env.LOOKOUT_HOME) {
+    console.error(
+      "lookout: LOOKOUT_HOME is no longer read; lookout keeps its state in each project's .lookout/,",
+    );
+    console.error("  and what it does to itself in its own checkout. `lookout doctor` says more.");
+  }
   const [verbName, ...rest] = process.argv.slice(2);
   if (!verbName || verbName === "help" || verbName === "--help" || verbName === "-h") {
     help();

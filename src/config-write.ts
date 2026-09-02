@@ -56,7 +56,9 @@ export function configTemplate(seed: ConfigSeed = {}): string {
 // lookout project config. Targets are the apps this repo renders; lookout
 // captures them, judges them, and tracks findings in .lookout/backlog.json.
 // lookout writes and maintains this file; it belongs at the project root and
-// in git, while everything under .lookout/ is per-checkout working state.
+// in git, while everything under .lookout/ is per-checkout state: the
+// screenshots, the reports, the run log, and what went wrong with lookout
+// itself while it was looking at this project.
 // lookout never starts services: startHint is what it prints when one is down.
 const config: LookoutConfig = {
   targets: [

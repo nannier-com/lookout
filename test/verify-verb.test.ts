@@ -125,7 +125,6 @@ function promptOf(argvFile: string): string {
 beforeEach(() => {
   process.env.LOOKOUT_CLAUDE_BIN = MOCK;
   process.env.MOCK_MODE = "criteria";
-  process.env.LOOKOUT_HOME = mkdtempSync(join(tmpdir(), "lookout-home-"));
 });
 
 afterEach(() => {
@@ -133,7 +132,6 @@ afterEach(() => {
   delete process.env.MOCK_MODE;
   delete process.env.MOCK_CRITERIA;
   delete process.env.MOCK_ARGV_FILE;
-  delete process.env.LOOKOUT_HOME;
   stubResolved = null;
 });
 

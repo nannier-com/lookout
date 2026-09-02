@@ -1,5 +1,5 @@
-# Every test file loads this first, so no test can write into the operator's
-# home. See test/setup.ts for why that needs to be a suite-wide guarantee
+# Every test file loads this first, so no test can write into lookout's own
+# checkout. See test/setup.ts for why that needs to be a suite-wide guarantee
 # rather than something each test remembers to do.
 [test]
 preload = ["./test/setup.ts"]

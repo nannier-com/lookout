@@ -13,22 +13,14 @@ import { join } from "node:path";
 import { buildLearning, learningBadge, learningKey } from "../src/report/learning.js";
 import { improveLockPath } from "../src/verbs/skills.js";
 import { tmpProject } from "./tmp-project.js";
+import { SUITE_CHECKOUT } from "./setup.js";
 import { incidentsPath } from "../src/skills/incidents.js";
 import { attemptsDir } from "../src/checkout.js";
 
-const HOME = process.env.LOOKOUT_HOME;
-
+/** Back to the suite's checkout, so a test that made one cannot leak it. */
 afterEach(() => {
-  if (HOME === undefined) delete process.env.LOOKOUT_HOME;
-  else process.env.LOOKOUT_HOME = HOME;
+  process.env.LOOKOUT_CHECKOUT = SUITE_CHECKOUT;
 });
-
-/** A machine-wide lookout home nothing else is writing to. */
-function tmpHome(): string {
-  const dir = mkdtempSync(join(tmpdir(), "lookout-learning-home-"));
-  process.env.LOOKOUT_HOME = dir;
-  return dir;
-}
 
 /**
  * A checkout the page can read a heal's records out of: self-heal keeps them
@@ -51,7 +43,6 @@ function writeHistory(projectDir: string, entries: unknown[]): void {
 
 describe("what lookout has changed about itself", () => {
   test("a project that has never improved anything still reports its skills", async () => {
-    tmpHome();
     const resolved = tmpProject();
     const l = await buildLearning(resolved);
 
@@ -69,7 +60,6 @@ describe("what lookout has changed about itself", () => {
   });
 
   test("history comes back newest first, and a broken line does not lose the rest", async () => {
-    tmpHome();
     const resolved = tmpProject();
     const dir = join(resolved.projectDir, ".lookout", "skills");
     mkdirSync(dir, { recursive: true });
@@ -87,7 +77,6 @@ describe("what lookout has changed about itself", () => {
   });
 
   test("a proposal waiting to be read is reported against its skill", async () => {
-    tmpHome();
     const resolved = tmpProject();
     const dir = join(resolved.projectDir, ".lookout", "skills", "design-placement");
     mkdirSync(dir, { recursive: true });
@@ -100,7 +89,6 @@ describe("what lookout has changed about itself", () => {
   });
 
   test("a held improve lock is what says lookout is learning right now", async () => {
-    tmpHome();
     const resolved = tmpProject();
     const lock = improveLockPath(resolved);
     mkdirSync(join(resolved.projectDir, ".lookout", "skills"), { recursive: true });
@@ -193,7 +181,6 @@ describe("what lookout has changed about itself", () => {
   });
 
   test("the cache key moves when the record does", async () => {
-    tmpHome();
     const resolved = tmpProject();
     const before = learningKey(resolved);
     writeHistory(resolved.projectDir, [

@@ -11,7 +11,7 @@
  * with the very options `startCheck` uses, and the assertion is that both are
  * gone afterwards rather than that a function was called.
  */
-import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -25,19 +25,10 @@ import { statusBody } from "../src/ui/payload.js";
 import { tmpProject } from "./tmp-project.js";
 import type { StatusPayload } from "../src/ui/payload.js";
 
-// `evidenceDir`/`eventsPath` re-read LOOKOUT_HOME on every call, and the suite
-// runs every file against the same process: another file that points it
-// somewhere else and restores it only in its own `afterAll` can still be in
-// effect for the first tests of the next file, which is indistinguishable
-// from a real bug until this file's own directory stops existing partway
-// through its run. Pinned here and reasserted after every test, the way
-// test/learning.test.ts already guards the same hazard, so this file's
-// directory cannot be pulled out from under it by another one.
-const HOME = process.env.LOOKOUT_HOME;
-afterEach(() => {
-  if (HOME === undefined) delete process.env.LOOKOUT_HOME;
-  else process.env.LOOKOUT_HOME = HOME;
-});
+// The pin this file used to carry is gone with the variable it pinned:
+// `evidenceDir` and `eventsPath` are pure functions of the project directory
+// now, so another test file cannot pull this one's directory out from under it
+// by redirecting a global.
 
 const project = tmpProject("lookout-stop-");
 mkdirSync(evidenceDir(project), { recursive: true });

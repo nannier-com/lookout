@@ -22,24 +22,30 @@ every gate is green:
   Everything project-specific reaches lookout through that project's own
   layer: its `lookout.config.ts`, its rubric, its `.lookout/` skill
   amendments.
-- **lookout's own requirements never live inside a judged project.** Whatever
-  lookout needs in order to run ships with the package (code, skills, the
-  base rubric, the reply contracts) or lives in `LOOKOUT_HOME`, default
-  `~/.lookout` (incidents, heals, self-heal runs, ui settings, and one
-  capture workspace per project: shots, the capture report, the run log, all
-  of it rebuildable by a single capture). What lookout writes into a
-  project's `.lookout/` is the durable record of that project and belongs to
-  it: the backlog, the ledger, the issue folders (each carrying its own
-  frozen before/after pixels), its amendments. If lookout would fail against
-  a fresh checkout of a brand-new project because a file it needs exists only
-  inside some other project, that file is in the wrong place; move it into
-  the package or `LOOKOUT_HOME`.
+- **lookout's own requirements never come from another project.** Whatever
+  lookout needs in order to run ships with the package: code, skills, the base
+  rubric, the reply contracts. There is no machine-wide home; `LOOKOUT_HOME`
+  and `~/.lookout` are gone.
+- **Everything lookout writes about a project lives in that project's
+  gitignored `.lookout/`**: the durable record (the backlog, the ledger, the
+  issue folders with their frozen before/after pixels, the amendments) and the
+  working state alike (`workspace/`, rebuildable by one capture;
+  `incidents.jsonl`, what went wrong with lookout while it was here;
+  `ui.json`). The one file that travels with a repo is `lookout.config.ts` at
+  its root, which lookout writes and the team commits.
+- **What lookout writes about itself lives in its own checkout's `.lookout/`**:
+  the heals, the reverted self-heal attempts, the lock, and a failure with no
+  configured project in scope. An installed package has no checkout, so it
+  writes none of it. If lookout would fail against a fresh checkout of a
+  brand-new project because a file it needs exists only inside some other
+  project, that file is in the wrong place; move it into the package.
 
 ## Where a change goes
 
 | you are changing | it lives in |
 | --- | --- |
-| where a project's config lives, or who writes it | `src/config-locate.ts` (found), `src/config-write.ts` (created, migrated), `src/config.ts` (loaded) |
+| where a project's config lives, or who writes it | `src/config-locate.ts` (found), `src/config-write.ts` (created, migrated, gitignored), `src/config.ts` (loaded) |
+| where anything lookout writes goes | `src/config.ts` (`lookoutDir`, `evidenceDir`), `src/checkout.ts` (what lookout writes about itself) |
 | whether a stored shot or a settled finding is still in the config's reach | `src/config-scope.ts` (the predicate), `src/targets.ts` (`shotInConfig`, the decision) |
 | how a screen is captured | `src/capture/` (web, native, checks, contact sheet, store) |
 | what an AI capability is asked | `skills/<name>/SKILL.md`, never a string literal in code |

@@ -26,10 +26,9 @@ const WORK = join(ROOT, ".lookout-ui-check");
 const PORT = Number(process.env.UI_CHECK_PORT ?? 7399);
 const URL = `http://127.0.0.1:${PORT}/`;
 
-function fixturePaths(): { project: string; home: string; checkout: string } {
+function fixturePaths(): { project: string; checkout: string } {
   return {
     project: join(WORK, "fixture", "project"),
-    home: join(WORK, "fixture", "home"),
     checkout: join(WORK, "fixture", "checkout"),
   };
 }
@@ -386,9 +385,9 @@ const [command, a, b] = process.argv.slice(2);
 
 if (command === "fixture") {
   const paths = await buildFixture(join(WORK, "fixture"));
-  console.log(`fixture built:\n  project  ${paths.project}\n  home     ${paths.home}\n  checkout ${paths.checkout}`);
+  console.log(`fixture built:\n  project  ${paths.project}\n  checkout ${paths.checkout}`);
 } else if (command === "serve") {
-  const { project, home, checkout } = fixturePaths();
+  const { project, checkout } = fixturePaths();
   if (!existsSync(project)) {
     console.error("no fixture yet: run `bun tools/ui-check/run.ts fixture` first");
     process.exit(2);
@@ -396,7 +395,7 @@ if (command === "fixture") {
   // Inherit stdio so the ui's own startup lines are visible; this blocks.
   const child = spawn(process.execPath, [join(ROOT, "src", "cli.ts"), "ui", "--port", String(PORT)], {
     cwd: project,
-    env: { ...process.env, LOOKOUT_HOME: home, LOOKOUT_CHECKOUT: checkout },
+    env: { ...process.env, LOOKOUT_CHECKOUT: checkout },
     stdio: "inherit",
   });
   process.on("SIGINT", () => child.kill("SIGINT"));

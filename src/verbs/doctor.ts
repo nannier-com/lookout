@@ -8,6 +8,9 @@
  * so it is opt-in).
  */
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { LOOKOUT_DIR } from "../config-locate.js";
 import { execFileAsync, printJson, row, str } from "../util.js";
 import type { Parsed } from "../util.js";
 
@@ -92,6 +95,19 @@ export async function doctor(parsed: Parsed): Promise<number> {
       fix: "install Xcode command line tools for iOS simulator capture",
     });
   }
+  // A directory an older lookout kept its state in. Reported, never touched:
+  // lookout does not delete an operator's files, and it is the only place the
+  // tool still mentions the home it used to have.
+  const stale = join(homedir(), LOOKOUT_DIR);
+  if (existsSync(stale)) {
+    checks.push({
+      name: "~/.lookout",
+      required: false,
+      ok: true,
+      detail: `left over from an older lookout; nothing reads it, and it is safe to delete (${stale})`,
+    });
+  }
+
   const adbPath = process.env.ADB ?? "adb";
   const adb = await version(adbPath, ["version"]);
   checks.push({

@@ -1,8 +1,7 @@
 // The code channel end to end: a hand-rolled component becomes a finding, that
 // finding clusters per file, and re-reading the source is what closes it.
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { detect } from "../src/design/detect.js";
 import { primaryKit } from "../src/design/inventory.js";
@@ -24,19 +23,18 @@ import type { HandRoll } from "../src/design/inventory.js";
 
 const MOCK = join(import.meta.dir, "mock-claude.ts");
 
-/** Run with a claude stand-in and an incident log of its own, then restore. */
+/**
+ * Run with a claude stand-in, then restore.
+ *
+ * The incident log used to need redirecting here too. It is per project now,
+ * and the suite's preload keeps a no-project failure out of this repository.
+ */
 function withClaude<T>(bin: string, fn: () => Promise<T>): Promise<T> {
   const beforeBin = process.env.LOOKOUT_CLAUDE_BIN;
-  const beforeHome = process.env.LOOKOUT_HOME;
   process.env.LOOKOUT_CLAUDE_BIN = bin;
-  // Incidents are appended to the operator's home by default, and a test run
-  // has no business writing there.
-  process.env.LOOKOUT_HOME = mkdtempSync(join(tmpdir(), "lookout-home-"));
   return fn().finally(() => {
     if (beforeBin === undefined) delete process.env.LOOKOUT_CLAUDE_BIN;
     else process.env.LOOKOUT_CLAUDE_BIN = beforeBin;
-    if (beforeHome === undefined) delete process.env.LOOKOUT_HOME;
-    else process.env.LOOKOUT_HOME = beforeHome;
   });
 }
 

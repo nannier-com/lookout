@@ -687,10 +687,16 @@ The config is the one file meant to be shared, so it is the one file outside
 this directory: `lookout.config.ts` sits at the project root and is committed
 like any other tool's config.
 
-The whole of `.lookout/` is lookout's working state, and `lookout init` keeps
-it out of git (`.lookout/` in the project's `.gitignore`). It is per-checkout:
-it does not follow the repo to another machine, and deleting the directory
-re-rolls every issue id.
+The whole of `.lookout/` is lookout's state for that project, and lookout keeps
+it out of git: whenever it writes a config it adds `.lookout/` to the project's
+`.gitignore`, creating that file if there is none. It is per-checkout: it does
+not follow the repo to another machine, and deleting the directory re-rolls
+every issue id. lookout keeps nothing in a home directory of its own, and a
+`~/.lookout` from an older version is no longer read (`lookout doctor` says so
+when it finds one).
+
+A zero-config `--url` run in a directory that is not a project writes its
+workspace to `<cwd>/.lookout/workspace/`, where the run was started.
 
 ```
 lookout.config.ts  the project's targets and recipes (at the root, in git)
@@ -708,8 +714,19 @@ lookout.config.ts  the project's targets and recipes (at the root, in git)
   issues/archive/<id>/  issues filed away, same folder, moved whole
   skills/          this project's layer over lookout's shipped skills,
                      plus signals-seen.json, the learned-from watermark
-  evidence/        screenshots + capture-report.json + judge-report.json
+  incidents.jsonl  what went wrong with lookout itself while it was here
+  ui.json          what `lookout ui` remembers: base URL, click consent
+  workspace/       screenshots + their provenance sidecars, capture-report.json,
+                     judge-report.json, verify-report.json, events.jsonl, the
+                     narration, the contact sheets. Rebuilt by any capture.
+  evidence/        the pre-0.35 workspace, still read if an older lookout left
+                     one; never written again, safe to delete
 ```
+
+lookout's own checkout carries the same directory for what lookout does to
+itself: `.lookout/incidents.jsonl` for a failure with no project in scope, and
+`.lookout/self-heal/` for the heals that stuck, the reverted attempts and the
+lock.
 
 ### The fix loop (for agents)
 

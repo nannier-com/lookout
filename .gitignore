@@ -4,9 +4,12 @@ dist/
 *.tsbuildinfo
 coverage/
 
-# lookout's own working state, when run against itself or test pages: evidence,
-# backlog, issue folders, learned skill layers. Per-checkout, not the repo's.
-# lookout.config.ts is deliberately not in here: it lives at the root, in git.
+# lookout's own state: the workspace and backlog of anything it is run against
+# here, plus what it does to itself (incidents with no project in scope, the
+# heals, the reverted self-heal attempts, the lock). Per-checkout, not the
+# repo's, and self-heal refuses to run without this line, because a failed gate
+# reverts with `git clean`. lookout.config.ts is deliberately not in here: it
+# lives at the root, in git.
 .lookout/
 
 # Local agent config; never part of the published project.

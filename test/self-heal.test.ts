@@ -9,13 +9,12 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { lockHeld, ownCheckout, selfHeal } from "../src/verbs/self-heal.js";
+import { dirname, join } from "node:path";
+import { lockHeld, selfHeal } from "../src/verbs/self-heal.js";
 import { clusterIncidents, incidentsPath, readIncidents, recordIncident } from "../src/skills/incidents.js";
 import { LookoutError } from "../src/types.js";
-import { SUITE_HOME } from "./setup.js";
 import { tmpProject } from "./tmp-project.js";
-import { attemptsDir, healsPath } from "../src/checkout.js";
+import { attemptsDir, healsPath, ownCheckout, selfHealLockPath } from "../src/checkout.js";
 
 const MOCK = join(import.meta.dir, "mock-claude.ts");
 
@@ -48,12 +47,6 @@ function checkout(gatesPass = false): string {
   return dir;
 }
 
-function home(): string {
-  const dir = mkdtempSync(join(tmpdir(), "lookout-home-"));
-  process.env.LOOKOUT_HOME = dir;
-  return dir;
-}
-
 /** A checkout, and lookout pointed at it: where a no-project failure lands. */
 function tmpCheckout(): string {
   const dir = checkout();
@@ -62,10 +55,9 @@ function tmpCheckout(): string {
 }
 
 afterEach(() => {
-  // Back to the suite's throwaway home rather than deleted: an unset
-  // LOOKOUT_HOME is the operator's real one, and every test that ran after this
-  // file would append its incidents there.
-  process.env.LOOKOUT_HOME = SUITE_HOME;
+  // Cleared rather than restored: the suite's preload puts its own checkout
+  // back before the next test, and an unset variable would otherwise hand a
+  // later test this repository to record incidents into.
   delete process.env.LOOKOUT_CHECKOUT;
   delete process.env.LOOKOUT_CLAUDE_BIN;
   delete process.env.MOCK_HEAL_FILE;
@@ -123,7 +115,6 @@ describe("what self-heal refuses", () => {
   });
 
   test("a checkout with uncommitted work in it", async () => {
-    home();
     const dir = checkout();
     process.env.LOOKOUT_CHECKOUT = dir;
     writeFileSync(join(dir, "src", "wip.ts"), "// somebody is mid-edit\n");
@@ -132,8 +123,9 @@ describe("what self-heal refuses", () => {
   });
 
   test("running while another heal holds the lock", () => {
-    const dir = home();
-    const lock = join(dir, "self-heal.lock");
+    const dir = checkout();
+    const lock = selfHealLockPath(dir);
+    mkdirSync(dirname(lock), { recursive: true });
     writeFileSync(lock, "now");
     expect(lockHeld(lock)).toBe(true);
     // An abandoned lock is not a lock: a healer that died must not wedge this
@@ -153,7 +145,6 @@ describe("what self-heal refuses", () => {
   });
 
   test("nothing to heal when nothing has gone wrong", async () => {
-    home();
     process.env.LOOKOUT_CHECKOUT = checkout();
     expect(await selfHeal({ positionals: [], flags: {} })).toBe(0);
   });
@@ -161,7 +152,6 @@ describe("what self-heal refuses", () => {
 
 describe("a change that fails a gate", () => {
   test("is reverted whole, kept for a person to read, and recorded", async () => {
-    home();
     const dir = checkout();
     process.env.LOOKOUT_CHECKOUT = dir;
     process.env.LOOKOUT_CLAUDE_BIN = MOCK;
@@ -196,7 +186,6 @@ describe("a change that fails a gate", () => {
 
 describe("a change that passes every gate", () => {
   test("is kept, committed alone with a patch changeset, and never pushed", async () => {
-    home();
     const dir = checkout(true);
     process.env.LOOKOUT_CHECKOUT = dir;
     process.env.LOOKOUT_CLAUDE_BIN = MOCK;
@@ -227,7 +216,6 @@ describe("a change that passes every gate", () => {
 describe("the reply contract is load-bearing", () => {
   test("an unparseable healer reply is reverted, recorded, and exits 1", async () => {
     const dir = checkout();
-    home();
     // The checkout first: a failure with no project in scope is recorded
     // against lookout's own checkout, so which one is current decides where
     // this seeded incident lands.
@@ -255,7 +243,6 @@ describe("the reply contract is load-bearing", () => {
 
   test("the prompt carries exactly one incident group, the heaviest active one", async () => {
     const dir = checkout(true);
-    home();
     process.env.LOOKOUT_CHECKOUT = dir;
     for (let i = 0; i < 3; i++) {
       recordIncident({ at: new Date().toISOString(), kind: "crash", message: `heavy bug ${i}`, verb: "check" });
@@ -278,7 +265,6 @@ describe("the reply contract is load-bearing", () => {
 
   test("a committed heal is marked, so the settled group stops being offered", async () => {
     const dir = checkout(true);
-    home();
     // The checkout first: a failure with no project in scope is recorded
     // against lookout's own checkout, so which one is current decides where
     // this seeded incident lands.

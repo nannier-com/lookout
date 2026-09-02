@@ -758,11 +758,8 @@ describe("what an improve consumes and refuses", () => {
     expect(await improveSkills(r, "sonnet", { auto: true })).toBe(0);
   });
 
-  test("a rollback records a skill-rollback incident for the machine-wide log", async () => {
+  test("a rollback records a skill-rollback incident in this project's log", async () => {
     const { clusterIncidents, readIncidents } = await import("../src/skills/incidents.js");
-    const home = mkdtempSync(join(tmpdir(), "lookout-home-"));
-    const beforeHome = process.env.LOOKOUT_HOME;
-    process.env.LOOKOUT_HOME = home;
     const r = project();
     process.env.LOOKOUT_CLAUDE_BIN = MOCK;
     process.env.MOCK_AMENDMENT = "- File every deliberately light surface as a defect.";
@@ -776,8 +773,6 @@ describe("what an improve consumes and refuses", () => {
       expect(groups.some((g) => g.kind === "skill-rollback")).toBe(true);
     } finally {
       delete process.env.MOCK_AMENDMENT;
-      if (beforeHome === undefined) delete process.env.LOOKOUT_HOME;
-      else process.env.LOOKOUT_HOME = beforeHome;
     }
   });
 });
