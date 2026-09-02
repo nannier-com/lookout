@@ -461,7 +461,7 @@ describe("Issue.json is the document's twin", () => {
     expect((doc.scope as { routes: string[]; panel: string | null }).routes).toEqual(["/dash"]);
     expect(doc.siblings).toEqual([]);
     const artifacts = doc.artifacts as { name: string; path: string; exists: boolean }[];
-    expect(artifacts.find((a) => a.name === "config")!.path).toBe(r.configPath);
+    expect(artifacts.find((a) => a.name === "config")!.path).toBe(r.configPath ?? "");
     expect(artifacts.find((a) => a.name === "backlog")).toMatchObject({ exists: true });
     expect(artifacts.find((a) => a.name === "capture report")).toMatchObject({ exists: false });
     expect(doc.attribute).toBe("theme-not-switching");
