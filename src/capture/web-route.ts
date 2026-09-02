@@ -20,8 +20,8 @@ import {
   checkHorizontalOverflow,
   checkOffOrigin,
   detectAnimated,
-  runAxe,
 } from "./checks.js";
+import { runAxe } from "./axe.js";
 import { shotId, writeShotFile, writeShotSidecar, type ShotAxes } from "./store.js";
 import { attachProvenance, buildSidecar, collectProvenanceInPage, selectorsOf } from "./provenance.js";
 import { resolveElement, schemeUrl, setScheme, settle } from "./web-page.js";

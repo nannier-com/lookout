@@ -17,7 +17,7 @@ import { loadConfig } from "../config.js";
 import { clusterKeyOf } from "../fix/cluster.js";
 import { findIssue, issueById } from "../issues/registry.js";
 import { spawnedIssues, stampCausedBy } from "../issues/spawned.js";
-import { loadState, saveState } from "../fix/state.js";
+import { attemptRecord, judgeNoteFor, recordAttempt } from "../verify/attempt.js";
 import { ruleCodeIssue } from "../verify/code.js";
 import { baselineHashes } from "../verify/evidence.js";
 import { unclosableMembers } from "../verify/closure.js";
@@ -265,25 +265,14 @@ ${issueId}: not ruled. ${what}`);
     return 2;
   }
 
-  const judgeNote = nothingChanged
-    ? baselineShots === 0
-      ? `no baseline: none of the ${shotsById.size} screenshot(s) in this scope have a previous ` +
-        "capture to compare against, so lookout cannot tell whether the fix reached the rendered " +
-        "output. Run `lookout check` on this scope first, then verify."
-      : `nothing changed: all ${baselineShots} comparable screenshot(s) in this scope are ` +
-        "byte-identical to the previous run, so no edit reached the rendered output. Either the fix " +
-        "was not applied, it was applied somewhere the app does not use, or the app was not rebuilt."
-    : stillOpen.length > 0
-      ? stillOpen[0]!.observed
-      : unmet.length > 0
-        ? `${unmet.length} acceptance criteri${unmet.length === 1 ? "on" : "a"} still fail: ` +
-          unmet.map((c) => c.text).join("; ")
-        : unclosable.length > 0
-          ? `${unclosable.length} finding(s) sit on pixels unchanged since they were filed ` +
-            `(${[...new Set(unclosable.map((m) => m.route))].join(", ")}); the judge not re-filing ` +
-            "them is not evidence of a fix. If they were fixed earlier or are intended, adjudicate " +
-            "them; otherwise the fix has not reached these views."
-          : "";
+  const judgeNote = judgeNoteFor({
+    nothingChanged,
+    baselineShots,
+    totalShots: shotsById.size,
+    stillOpen,
+    unmet,
+    unclosable,
+  });
 
   // A defect this fix caused somewhere else is a NEW issue, with its own number
   // and its own evidence. It is not this one regressing, and charging it here
@@ -332,18 +321,11 @@ ${issueId}: not ruled. ${what}`);
   await saveBacklog(resolved, backlog);
 
   // 5. Record the attempt.
-  const state = await loadState(resolved, issueId);
-  state.attempts.push({
-    n: attempt,
-    dispatchedAt: nowIso(),
-    ...(reportedCommit || reportedNote
-      ? { reported: { ...(reportedCommit ? { commit: reportedCommit } : {}), ...(reportedNote ? { note: reportedNote } : {}) } }
-      : {}),
-    verdict,
-    ...(judgeNote ? { judgeNote } : {}),
-    ...(caused.length > 0 ? { spawned: caused } : {}),
-  });
-  await saveState(resolved, state);
+  await recordAttempt(
+    resolved,
+    issueId,
+    attemptRecord({ n: attempt, commit: reportedCommit, note: reportedNote, verdict, judgeNote, spawned: caused }),
+  );
 
   emit(
     "verdict",

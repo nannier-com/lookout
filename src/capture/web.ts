@@ -15,6 +15,7 @@
 import { chromium, type Browser } from "playwright";
 import {
   DEFAULT_VIEWPORTS,
+  DEVICE_SCALE_FACTOR,
   type FormFactor,
   type ResolvedConfig,
   type RunRecord,
@@ -88,7 +89,7 @@ export async function captureWeb(
     const context = await browser.newContext({
       viewport: viewports[formFactors[0] ?? "desktop"],
       reducedMotion: "reduce",
-      deviceScaleFactor: 2,
+      deviceScaleFactor: DEVICE_SCALE_FACTOR,
     });
     const page = await context.newPage();
     const collector = attachConsoleCollector(page);

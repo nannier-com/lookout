@@ -21,6 +21,13 @@ export const DEFAULT_VIEWPORTS: Record<FormFactor, Viewport> = {
   phone: { width: 390, height: 844 },
 };
 
+/**
+ * Every web capture renders at this device scale. Beside the viewports rather
+ * than inside the capture module so a document can state the pixel geometry
+ * of a screenshot without loading playwright to ask.
+ */
+export const DEVICE_SCALE_FACTOR = 2;
+
 export interface RouteDef {
   /** Path under the target's base URL, e.g. "/settings". */
   path: string;

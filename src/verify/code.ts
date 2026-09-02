@@ -12,7 +12,7 @@
 import { setStatus, type Backlog } from "../backlog/lib.js";
 import { CODE_RECAPTURE_CRITERION } from "../issues/acceptance.js";
 import { saveBacklog } from "../verbs/backlog.js";
-import { loadState, saveState } from "../fix/state.js";
+import { attemptRecord, recordAttempt } from "./attempt.js";
 import { ruleCodeCluster } from "../fix/rule-code.js";
 import { ruleVerdict, type Verdict } from "../fix/rule.js";
 import { emit } from "../report/events.js";
@@ -107,22 +107,11 @@ export async function ruleCodeIssue(
   }
   await saveBacklog(resolved, backlog);
 
-  const state = await loadState(resolved, issueId);
-  state.attempts.push({
-    n: attempt,
-    dispatchedAt: nowIso(),
-    ...(opts.commit || opts.note
-      ? {
-          reported: {
-            ...(opts.commit ? { commit: opts.commit } : {}),
-            ...(opts.note ? { note: opts.note } : {}),
-          },
-        }
-      : {}),
-    verdict,
-    ...(ruling.note ? { judgeNote: ruling.note } : {}),
-  });
-  await saveState(resolved, state);
+  await recordAttempt(
+    resolved,
+    issueId,
+    attemptRecord({ n: attempt, commit: opts.commit, note: opts.note, verdict, judgeNote: ruling.note }),
+  );
 
   emit(
     "verdict",
