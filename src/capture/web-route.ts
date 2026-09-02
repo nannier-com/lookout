@@ -10,6 +10,7 @@ import type {
   DeterministicFinding,
   FormFactor,
   ResolvedConfig,
+  Scheme,
   ShotRecord,
   StateRecipe,
 } from "../types.js";
@@ -21,7 +22,7 @@ import {
   checkOffOrigin,
   detectAnimated,
 } from "./checks.js";
-import { runAxe, runTargetSize } from "./axe.js";
+import { axeForShot, runTargetSize, type AxeSeen } from "./axe.js";
 import { checkEdgeClipping, type ScrollerNote } from "./check-clip.js";
 import { checkCollisions } from "./checks-collide.js";
 import { shotId, writeShotFile, writeShotSidecar, type ShotAxes } from "./store.js";
@@ -79,6 +80,9 @@ export async function captureRoute(
   let synth: SynthesizedStates | null = null;
   let freshHarvest: RouteHarvest | null = null;
 
+  // What the scan has filed on this route, per scheme, so a narrower form
+  // factor adds only what is new.
+  const axeSeen = new Map<Scheme, AxeSeen>();
   for (const scheme of ctx.schemes) {
     let navigated = false;
     for (const formFactor of ctx.formFactors) {
@@ -185,10 +189,15 @@ export async function captureRoute(
             ctx.progress(`clip check failed on ${shotId(axes)}: ${(e as Error).message.slice(0, 120)}`);
           }
         }
-        const axeHere =
-          ctx.axe === "all" || (ctx.axe === "route" && formFactor === ctx.formFactors[0]);
-        if (axeHere && stateName === "rest") {
-          findings.push(...(await runAxe(page, elementSel ?? null, { contrast: ctx.axeContrast })));
+        // The accessibility scan at every form factor, at rest. "route" files
+        // a violation at the widest form factor that shows it and, at each
+        // narrower one, only the nodes the wider layouts did not (a hamburger
+        // button with no name, content a media query pushed off screen);
+        // "all" files every violation on every form factor.
+        if (ctx.axe !== "off" && stateName === "rest") {
+          const seen = ctx.axe === "route" ? axeSeen.get(scheme) ?? new Map<string, Set<string>>() : null;
+          if (seen) axeSeen.set(scheme, seen);
+          findings.push(...(await axeForShot(page, elementSel ?? null, { contrast: ctx.axeContrast, seen })));
         }
         // Control size, at the width where a finger is the pointer. The scan
         // above runs at the FIRST form factor, which is desktop, so without

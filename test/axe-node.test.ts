@@ -3,7 +3,7 @@
 // it can carry a row of somebody's data, and the folder it ends up in is
 // committed with the project.
 import { describe, expect, test } from "bun:test";
-import { axeFinding, summariseHtml, type AxeViolation } from "../src/capture/axe.js";
+import { axeFinding, newAxeFindings, rememberAxe, summariseHtml, type AxeViolation } from "../src/capture/axe.js";
 
 describe("summarising an element's markup", () => {
   test("keeps the tag, a few naming attributes and the visible text, nothing else", () => {
@@ -72,5 +72,57 @@ describe("a violation as a finding", () => {
   test("a serious or critical impact is an error; anything else a warning", () => {
     expect(axeFinding({ ...violation(1), impact: "critical" }).severity).toBe("error");
     expect(axeFinding({ ...violation(1), impact: "minor" }).severity).toBe("warning");
+  });
+});
+
+describe("the same violation at a narrower form factor", () => {
+  const finding = (rule: string, targets: string[]) => ({
+    type: "axe-violation" as const,
+    severity: "error" as const,
+    message: `${rule}: help`,
+    meta: {
+      ruleId: rule,
+      nodeCount: targets.length,
+      targets: targets.slice(0, 3),
+      nodes: targets.map((target) => ({ target, element: { tag: "img", attrs: {}, text: "" } })),
+    },
+  });
+
+  test("a violation every node of which the wider layout already showed is not filed again", () => {
+    const seen = new Map<string, Set<string>>();
+    rememberAxe([finding("image-alt", ["img.logo"])], seen);
+    expect(newAxeFindings([finding("image-alt", ["img.logo"])], seen)).toEqual([]);
+  });
+
+  test("a node only the narrower layout shows is filed, and the finding names only that node", () => {
+    const seen = new Map<string, Set<string>>();
+    rememberAxe([finding("button-name", ["button.share"])], seen);
+    const out = newAxeFindings([finding("button-name", ["button.share", "button.menu"])], seen);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.meta).toMatchObject({ ruleId: "button-name", nodeCount: 1, targets: ["button.menu"] });
+    expect((out[0]!.meta!.nodes as { target: string }[]).map((n) => n.target)).toEqual(["button.menu"]);
+    expect(out[0]!.message).toBe("button-name: help");
+  });
+
+  test("a different rule on a node already seen for another rule is still news", () => {
+    const seen = new Map<string, Set<string>>();
+    rememberAxe([finding("image-alt", ["img.logo"])], seen);
+    expect(newAxeFindings([finding("link-name", ["img.logo"])], seen)).toHaveLength(1);
+  });
+
+  test("remembering then asking again is empty: the memory is idempotent", () => {
+    const seen = new Map<string, Set<string>>();
+    const twice = [finding("image-alt", ["img.a", "img.b"])];
+    expect(newAxeFindings(twice, seen)).toHaveLength(1);
+    rememberAxe(twice, seen);
+    expect(newAxeFindings(twice, seen)).toEqual([]);
+    rememberAxe(twice, seen);
+    expect(newAxeFindings(twice, seen)).toEqual([]);
+  });
+
+  test("findings that are not axe's pass through untouched", () => {
+    const seen = new Map<string, Set<string>>();
+    const other = { type: "console-error" as const, severity: "error" as const, message: "boom" };
+    expect(newAxeFindings([other], seen)).toEqual([other]);
   });
 });

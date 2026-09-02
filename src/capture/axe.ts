@@ -139,6 +139,82 @@ export async function runAxe(
 }
 
 /**
+ * What the scan has already filed on a route: rule id to the selectors of
+ * the elements it fired on. The scan runs at every form factor, and a
+ * violation the desktop layout showed is not news at tablet or phone; what
+ * is news is the node only the narrower layout shows (a hamburger button
+ * with no name, content a media query pushed off screen). Kept per scheme,
+ * because the walk is schemes outside and form factors inside.
+ */
+export type AxeSeen = Map<string, Set<string>>;
+
+type AxeNode = { target: string };
+
+function nodesOf(f: DeterministicFinding): AxeNode[] {
+  const nodes = f.meta?.nodes;
+  return Array.isArray(nodes) ? (nodes as AxeNode[]).filter((n) => typeof n?.target === "string") : [];
+}
+
+/** Add every (rule, node) pair a scan reported. */
+export function rememberAxe(findings: readonly DeterministicFinding[], seen: AxeSeen): void {
+  for (const f of findings) {
+    const rule = f.meta?.ruleId;
+    if (typeof rule !== "string") continue;
+    const set = seen.get(rule) ?? new Set<string>();
+    for (const n of nodesOf(f)) set.add(n.target);
+    seen.set(rule, set);
+  }
+}
+
+/**
+ * The findings a narrower form factor adds: a violation is kept only when at
+ * least one of its nodes is new for its rule, and the kept copy names only
+ * those nodes, so a phone-only finding reads as what it is. The dedupe works
+ * on the nodes the finding kept (MAX_NODES), which is the same lossy cut the
+ * record has always made.
+ */
+export function newAxeFindings(findings: readonly DeterministicFinding[], seen: AxeSeen): DeterministicFinding[] {
+  const out: DeterministicFinding[] = [];
+  for (const f of findings) {
+    const rule = f.meta?.ruleId;
+    if (typeof rule !== "string" || f.type !== "axe-violation") {
+      out.push(f);
+      continue;
+    }
+    const known = seen.get(rule) ?? new Set<string>();
+    const fresh = nodesOf(f).filter((n) => !known.has(n.target));
+    if (fresh.length === 0) continue;
+    out.push({
+      ...f,
+      meta: {
+        ...f.meta,
+        nodes: fresh,
+        nodeCount: fresh.length,
+        targets: fresh.slice(0, 3).map((n) => n.target),
+      },
+    });
+  }
+  return out;
+}
+
+/**
+ * The scan for one shot. With `seen`, the route's memory for this scheme: the
+ * findings come back narrowed to what this form factor adds, and the memory
+ * grows by everything the scan saw. Without it, every violation, every time.
+ */
+export async function axeForShot(
+  page: Page,
+  includeSelector: string | null,
+  opts: { contrast: boolean; seen: AxeSeen | null },
+): Promise<DeterministicFinding[]> {
+  const raw = await runAxe(page, includeSelector, { contrast: opts.contrast });
+  if (!opts.seen) return raw;
+  const fresh = newAxeFindings(raw, opts.seen);
+  rememberAxe(raw, opts.seen);
+  return fresh;
+}
+
+/**
  * How big a control is, measured at the width where it matters.
  *
  * axe ships `target-size` disabled, and lookout's own default (`--axe route`)

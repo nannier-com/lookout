@@ -33,7 +33,12 @@ import { nowIso } from "../util.js";
 export interface WebCaptureOptions {
   formFactors: FormFactor[];
   schemes: Scheme[];
-  /** "route" = axe once per route x scheme at the widest form factor; "all" = every shot; "off". */
+  /**
+   * "route" = the accessibility scan at every form factor at rest, a violation
+   * filed at the widest form factor that shows it and, at narrower ones, only
+   * the nodes the wider layouts did not; "all" = every violation on every
+   * form factor's rest shot; "off".
+   */
   axe: "route" | "all" | "off";
   axeContrast: boolean;
   /** Extra settle after load, ms. */
