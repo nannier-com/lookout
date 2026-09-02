@@ -417,3 +417,50 @@ describe("the verifier's evidence and suggestion survive the match and the rulin
     expect(c).toMatchObject({ verdict: "unmet", note: "not seen", evidence: ["s1"], suggestion: "darken the text" });
   });
 });
+
+describe("the attributes that used to fall through to the default template", () => {
+  test("a dead control and a rule-less axe scan state themselves", () => {
+    const dead = finding({ channel: "deterministic", category: "states", attribute: "dead-control", formFactor: "phone" });
+    expect(derivedCriterion(dead)).toBe("Every control lookout clicked on /dash responds at phone, dark scheme.");
+    const bare = finding({ channel: "deterministic", category: "a11y", attribute: "axe" });
+    expect(derivedCriterion(bare)).toBe("No accessibility violation on /dash at desktop, dark scheme.");
+  });
+
+  test("the default names the category in words, never the token", () => {
+    const odd = finding({ channel: "deterministic", category: "a11y", attribute: "something-new", title: "T" });
+    expect(derivedCriterion(odd)).toBe('The accessibility defect "T" is gone on /dash at desktop, dark scheme.');
+  });
+});
+
+describe("a reworded criterion keeps the ruling lookout already made", () => {
+  const ruled = (c: AcceptanceCriterion, verdict: AcceptanceCriterion["verdict"]): AcceptanceCriterion => ({
+    ...c, verdict, note: `ruled ${verdict}`, ruledAt: "2026-08-30T10:00:00.000Z", runId: "verify-9", evidence: ["s1"],
+  });
+
+  test("a derived criterion and the universal one carry over by origin when their text changed", () => {
+    const f = finding({ channel: "deterministic", category: "layout-overflow", attribute: "horizontal-scroll", acceptance: [] });
+    const before = composeAcceptance([f]).map((c) => ruled(c, c.source === "universal" ? "met" : "unmet"));
+    // The same criteria, as if their templates had been reworded: different ids, same origins.
+    const reworded = before.map((c) => ({ ...c, id: `${c.id}-old`, text: `${c.text} (old wording)` }));
+    const after = composeAcceptance([f], reworded);
+    const derived = after.find((c) => c.source === "derived")!;
+    expect(derived.text).toBe("/dash does not scroll horizontally at desktop.");
+    expect(derived).toMatchObject({ verdict: "unmet", note: "ruled unmet", runId: "verify-9", evidence: ["s1"] });
+    expect(after.find((c) => c.source === "universal")).toMatchObject({ verdict: "met", note: "ruled met" });
+  });
+
+  test("a judge criterion is never carried by its finding alone", () => {
+    const f = finding({ acceptance: ["A", "B"] });
+    const before = composeAcceptance([f]).map((c) => ruled(c, "unmet"));
+    const reworded = before.map((c) => (c.source === "judge" ? { ...c, id: `${c.id}-old`, text: `${c.text} reworded` } : c));
+    const after = composeAcceptance([f], reworded);
+    for (const c of after.filter((c) => c.source === "judge")) expect(c.verdict).toBe("pending");
+  });
+
+  test("an id that still matches wins over the origin", () => {
+    const f = finding({ channel: "deterministic", category: "layout-overflow", attribute: "horizontal-scroll", acceptance: [] });
+    const before = composeAcceptance([f]).map((c) => ruled(c, "met"));
+    const after = composeAcceptance([f], before);
+    expect(after.map((c) => c.verdict)).toEqual(["met", "met"]);
+  });
+});

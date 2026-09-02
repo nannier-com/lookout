@@ -24,6 +24,7 @@
  * the verdicts are written by `verify-fix` and rendered read-only.
  */
 import type { BacklogFinding } from "../backlog/lib.js";
+import { categoryPhrase } from "../judge/glossary.js";
 import { shortHash } from "../util.js";
 
 export type CriterionVerdict = "pending" | "met" | "unmet" | "not-verifiable";
@@ -100,7 +101,12 @@ export function derivedCriterion(f: BacklogFinding): string {
   if (f.attribute.startsWith("axe-")) {
     return `No accessibility violation of rule \`${f.attribute.slice(4)}\` on ${where(f)}.`;
   }
+  // An axe finding whose rule id capture did not record: the check still
+  // re-runs, so the criterion is the whole scan passing.
+  if (f.attribute === "axe") return `No accessibility violation on ${where(f)}.`;
   switch (f.attribute) {
+    case "dead-control":
+      return `Every control lookout clicked on ${f.route} responds at ${f.formFactor}, ${f.scheme} scheme.`;
     case "console-error":
       return `${f.route} loads with no console errors at ${f.formFactor}, ${f.scheme} scheme.`;
     case "page-error":
@@ -120,7 +126,9 @@ export function derivedCriterion(f: BacklogFinding): string {
     case "off-origin":
       return `${f.route} stays on the application's own origin at ${f.formFactor}.`;
     default:
-      return `The ${f.category} defect "${f.title}" is gone on ${where(f)}.`;
+      // A check with no template of its own names its category in words, so
+      // an attribute added to the map later never prints a bare token here.
+      return `The ${categoryPhrase(f.category)} defect "${f.title}" is gone on ${where(f)}.`;
   }
 }
 
@@ -153,6 +161,29 @@ export function composeAcceptance(
   existing: AcceptanceCriterion[] = [],
 ): AcceptanceCriterion[] {
   const previous = new Map(existing.map((c) => [c.id, c]));
+  // A criterion's id is a hash of its text, so rewording a template minted
+  // new ids and every verdict already ruled on the old text reset to pending.
+  // A derived criterion is unique per finding and the universal one per
+  // issue, so when the id misses, the previous criterion with the same origin
+  // is the same question reworded, and its ruling carries over. Judge
+  // criteria are several per finding and are never carried by origin alone.
+  const byOrigin = new Map<string, AcceptanceCriterion[]>();
+  for (const c of existing) {
+    if (c.source === "judge") continue;
+    const key = c.source === "universal" ? "universal" : `${c.source}|${c.from ?? ""}`;
+    byOrigin.set(key, [...(byOrigin.get(key) ?? []), c]);
+  }
+  const carried = (fresh: AcceptanceCriterion): AcceptanceCriterion => {
+    const hit = previous.get(fresh.id);
+    if (hit) return hit;
+    if (fresh.source === "judge") return fresh;
+    const key = fresh.source === "universal" ? "universal" : `${fresh.source}|${fresh.from ?? ""}`;
+    const candidates = byOrigin.get(key) ?? [];
+    if (candidates.length !== 1) return fresh;
+    const [old] = candidates;
+    const { id: _id, text: _text, ...ruling } = old!;
+    return { ...fresh, ...ruling, id: fresh.id, text: fresh.text, source: fresh.source };
+  };
   const out: AcceptanceCriterion[] = [];
   const seen = new Set<string>();
 
@@ -160,7 +191,7 @@ export function composeAcceptance(
     for (const fresh of criteriaFor(member)) {
       if (seen.has(fresh.id)) continue;
       seen.add(fresh.id);
-      out.push(previous.get(fresh.id) ?? fresh);
+      out.push(carried(fresh));
     }
   }
 
@@ -170,7 +201,7 @@ export function composeAcceptance(
   // screenshot criterion on an old code issue simply drops out here.
   const allCode = members.length > 0 && members.every((m) => m.channel === "code");
   const universal = criterion("universal", allCode ? CODE_RECAPTURE_CRITERION : RECAPTURE_CRITERION);
-  if (!seen.has(universal.id)) out.push(previous.get(universal.id) ?? universal);
+  if (!seen.has(universal.id)) out.push(carried(universal));
   return out;
 }
 
