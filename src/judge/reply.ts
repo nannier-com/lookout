@@ -81,7 +81,7 @@ function siblingIds(
 
 export function ingestJudgeReply(
   parsed: unknown,
-  args: { shots: ShotRecord[]; project: string; panel?: PanelLane },
+  args: { shots: ShotRecord[]; project?: string; panel?: PanelLane },
 ): IngestedReply {
   const { shots, project, panel } = args;
   const known = new Set(shots.map((s) => s.id));

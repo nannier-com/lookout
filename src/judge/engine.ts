@@ -138,6 +138,12 @@ export interface JudgeContext {
    * shot is read whole, which is right for a prompt built for its text alone.
    */
   pieces?: Pieces;
+  /**
+   * The project's directory, for the incident log. Distinct from `project`,
+   * which is the display name the prompt is written with: what decides where
+   * a failure is recorded is a path, and a name is not one.
+   */
+  projectDir?: string;
 }
 
 /**
@@ -310,7 +316,7 @@ export async function judgeBatch(
           verb: "check",
           message: "judge reply was not parseable JSON after a retry",
           detail: text.slice(0, 1000),
-          project,
+          project: ctx.projectDir,
           judge: ctx.panel?.name,
         });
         throw new LookoutError(
@@ -321,7 +327,7 @@ export async function judgeBatch(
     }
   }
 
-  const ingested = ingestJudgeReply(parsed, { shots, project, panel: ctx.panel });
+  const ingested = ingestJudgeReply(parsed, { shots, project: ctx.projectDir, panel: ctx.panel });
   // A shot called clean that the model never opened is not clean; it is a
   // shot nobody ruled on. It joins the unaccounted, which leaves the pair out
   // of the cache and judges it again next run, and the incident names the
@@ -340,7 +346,7 @@ export async function judgeBatch(
       message:
         `${unread.length} shot(s) marked clean without being read (${where.join(", ")}): ` +
         unread.join(", ").slice(0, 300),
-      project,
+      project: ctx.projectDir,
       judge: ctx.panel?.name,
     });
   }

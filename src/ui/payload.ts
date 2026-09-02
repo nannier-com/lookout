@@ -53,7 +53,7 @@ export function forgetBoard(): void {
  * What lookout has changed about itself, held the way the board is held.
  *
  * Assembling it reads the skill files, the amendment history, the frozen set,
- * the machine-wide incident log and a git log of lookout's own checkout. The
+ * this project's incident log and a git log of lookout's own checkout. The
  * page polls, so the answer is kept until one of those moves. Both readers
  * share the cache: the area itself serves this object, and the rail's dot is
  * one line folded out of the same one.

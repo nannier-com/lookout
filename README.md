@@ -92,7 +92,7 @@ can read rather than files you have to know to open:
   because nothing could grade it, the frozen screenshots that gate the next one,
   and every amendment applied, rolled back or proposed, a rollback carrying the
   settled verdict that killed it
-- **its own code**: the failures lookout keeps hitting on this machine, the
+- **its own code**: the failures lookout keeps hitting in this project, the
   heals a gate reverted with the gates that failed and the diff kept on disk,
   and the commits that stuck
 
@@ -646,11 +646,14 @@ The manifest survives evidence cleans and the frozen pixels may not;
 lookout self-heal
 ```
 
-Failures lookout hits are appended to `~/.lookout/incidents.jsonl`, pooled
-across every project on the machine: crashes, operator errors, judge replies
-that could not be parsed, findings rejected at ingestion. (The log compacts
-entries older than 90 days once it outgrows 2000 lines; nothing else ever
-rewrites it.) `self-heal` groups them and picks the one group the run works
+Failures lookout hits are appended to the incident log of the project they
+happened in, `<project>/.lookout/incidents.jsonl`: crashes, operator errors,
+judge replies that could not be parsed, findings rejected at ingestion. A
+failure with no configured project in scope goes to lookout's own checkout
+instead, and nowhere at all on an installed package, which has no source to
+heal. `self-heal` reads the checkout's log, the log of the project it was run
+in, and the one `--project` names. (A log compacts entries older than 90 days
+once it outgrows 2000 lines; nothing else ever rewrites one.) `self-heal` groups them and picks the one group the run works
 on itself: the heaviest active pressure in the last 30 days, where a group
 healed before that came back outranks everything, and one with two reverted
 attempts on record waits for a person. It fixes that group's cause in

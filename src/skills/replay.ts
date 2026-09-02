@@ -145,6 +145,7 @@ export async function replayRegression(
     const fresh: AiFinding[] = [];
     for (const judge of active) {
       const res = await judgeBatch(judge.text, resolved.project, batch, dir, model, {
+        projectDir: resolved.projectDir,
         handoff: judge.handoff,
         panel: {
           name: judge.def.name,
@@ -163,7 +164,7 @@ export async function replayRegression(
     // cannot run means the gate cannot grade, and amend.ts answers that by
     // rolling the candidate back rather than counting unrefuted findings as a
     // verdict.
-    const verified = await verifyFindings(refute.text, fresh, shotsById, dir, model);
+    const verified = await verifyFindings(refute.text, fresh, shotsById, dir, model, resolved.projectDir);
     costUsd += verified.costUsd ?? 0;
     findings.push(...verified.confirmed);
   }

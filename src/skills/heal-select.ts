@@ -8,7 +8,7 @@
  * newest occurrence breaking ties), which also makes the healed-marker
  * mechanical: lookout knows exactly which group it healed.
  *
- * Heals live in ~/.lookout/heals.jsonl. A group with no occurrences after
+ * Heals live with the checkout they changed. A group with no occurrences after
  * its latest heal is settled and stops counting as pressure; one that keeps
  * occurring is `recurred`, the loudest state there is, because a fix that
  * did not stick is worse news than a fresh bug.
@@ -176,12 +176,13 @@ export async function discoverReplayProjects(incidents: Incident[], limit = 2): 
 }
 
 /**
- * Drop incidents older than 90 days once the log exceeds 2000 lines. Called
- * only under the self-heal lock, the one writer allowed to rewrite the file
- * everybody else only appends to.
+ * Drop incidents older than 90 days once a log exceeds 2000 lines. Called
+ * only under the self-heal lock, the one writer allowed to rewrite the files
+ * everybody else only appends to, and called once per source: each project
+ * keeps its own log and each grows at its own rate.
  */
-export function compactIncidents(now = new Date().toISOString()): number {
-  const p = incidentsPath();
+export function compactIncidents(projectDir: string, now = new Date().toISOString()): number {
+  const p = incidentsPath(projectDir);
   if (!existsSync(p)) return 0;
   try {
     const lines = readFileSync(p, "utf8").trim().split("\n").filter(Boolean);

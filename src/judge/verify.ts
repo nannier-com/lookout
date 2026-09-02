@@ -189,6 +189,8 @@ export async function verifyFindings(
   shotsById: Map<string, ShotRecord>,
   evidenceDir: string,
   model: string,
+  /** Whose incident log a refuter failure belongs in. */
+  projectDir?: string,
 ): Promise<VerifyResult> {
   const serious = findings.filter(needsRefuting);
   const rest: VerifiedFinding[] = findings
@@ -243,6 +245,7 @@ export async function verifyFindings(
           verb: "check",
           message: "refuter: reply was not parseable JSON after a retry",
           detail: res.text.slice(0, 1000),
+          project: projectDir,
         });
       }
     }

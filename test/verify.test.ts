@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { buildRefutePrompt, needsRefuting, verifyFindings } from "../src/judge/verify.js";
 import { loadSkill } from "../src/skills/load.js";
 import { tmpProject } from "./tmp-project.js";
+import { incidentsPath } from "../src/skills/incidents.js";
 import type { AiFinding } from "../src/judge/engine.js";
 import type { ShotRecord } from "../src/types.js";
 
@@ -293,21 +294,20 @@ describe("the refuter's retry", () => {
   });
 
   test("two garbage replies record an incident and keep every finding unverified", async () => {
-    const home = mkdtempSync(join(tmpdir(), "lookout-home-"));
-    process.env.LOOKOUT_HOME = home;
+    const r = tmpProject("lookout-refuter-");
     process.env.LOOKOUT_CLAUDE_BIN = MOCK;
     process.env.MOCK_MODE = "ask";
     try {
       const f = finding({ severity: "critical" });
       const shots = new Map([[f.shotId, shot(f.shotId)]]);
-      const res = await verifyFindings(refute.text, [f], shots, "/tmp", "sonnet");
+      const res = await verifyFindings(refute.text, [f], shots, "/tmp", "sonnet", r.projectDir);
       expect(res.confirmed).toHaveLength(1);
       expect(res.confirmed[0]?.verified).toBe(false);
       expect(res.refuted).toHaveLength(0);
-      const log = readFileSync(join(home, "incidents.jsonl"), "utf8");
+      const log = readFileSync(incidentsPath(r.projectDir), "utf8");
       expect(log).toContain("refuter: reply was not parseable JSON after a retry");
     } finally {
-      delete process.env.LOOKOUT_HOME;
+      delete process.env.LOOKOUT_CLAUDE_BIN;
     }
   });
 });

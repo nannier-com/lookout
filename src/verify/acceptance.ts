@@ -159,7 +159,7 @@ export async function ruleIssueAcceptance(args: {
         kind: "crash",
         verb: "verify-fix",
         message: `acceptance verifier failed: ${(e as Error).message.slice(0, 200)}`,
-        project: resolved.project,
+        project: resolved.projectDir,
       });
     }
   }

@@ -2,10 +2,13 @@
  * The suite is not allowed to write into the operator's home.
  *
  * This is a guard, not a feature test. The failure it exists to catch is
- * silent: incidents recorded by a test land in the same append-only log the
- * learning area of `lookout ui` reads, so the only symptom is an operator being
- * shown failures that never happened to them, long after the run that wrote
- * them. Nothing else in the suite would notice.
+ * silent: state a test wrote lands where `lookout ui` reads it, so the only
+ * symptom is an operator being shown something that never happened to them,
+ * long after the run that wrote it. Nothing else in the suite would notice.
+ *
+ * The incident log has left the home for the project it happened in, so the
+ * guard's first assertion now covers what replaced it; the heals, the
+ * self-heal attempts and the ui's settings are still here, and still guarded.
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
@@ -14,6 +17,7 @@ import { join } from "node:path";
 import { incidentsPath } from "../src/skills/incidents.js";
 import { lookoutHome } from "../src/home.js";
 import { SUITE_HOME } from "./setup.js";
+import { tmpProject } from "./tmp-project.js";
 
 const OPERATOR_HOME = join(homedir(), ".lookout");
 
@@ -25,7 +29,16 @@ describe("where a test run keeps lookout's home", () => {
   test("a throwaway directory, never the operator's", () => {
     expect(lookoutHome()).toBe(SUITE_HOME);
     expect(lookoutHome()).not.toBe(OPERATOR_HOME);
-    expect(incidentsPath().startsWith(homedir() + "/")).toBe(false);
+  });
+
+  // Was an assertion that the incident log was not under the home directory,
+  // back when one file held every project's. The log is per project now, so
+  // what has to be true is that it is inside the project it belongs to.
+  test("an incident log is inside its own project, not under any home", () => {
+    const r = tmpProject("lookout-guard-");
+    expect(incidentsPath(r.projectDir)).toBe(join(r.projectDir, ".lookout", "incidents.jsonl"));
+    expect(incidentsPath(r.projectDir).startsWith(homedir() + "/")).toBe(false);
+    expect(incidentsPath(r.projectDir).startsWith(lookoutHome())).toBe(false);
   });
 
   test("a test that clears the variable", () => {

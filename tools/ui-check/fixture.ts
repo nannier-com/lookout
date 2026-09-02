@@ -4,7 +4,7 @@
  * Everything the ui can show is represented: an open issue with evidence and
  * acceptance criteria, one adjudicated as intentional, a history of lookout
  * amending its own instructions including a rollback, a frozen set to gate the
- * next amendment, a machine-wide incident log, a reverted self-heal attempt and
+ * next amendment, an incident log, a reverted self-heal attempt and
  * a checkout with two heals that stuck. Without all of that a screenshot proves
  * only that the empty states render.
  *
@@ -819,9 +819,9 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
     ),
   );
 
-  // What has gone wrong with lookout itself, machine-wide.
+  // What has gone wrong with lookout itself, in this project.
   writeFileSync(
-    join(home, "incidents.jsonl"),
+    join(lk, "incidents.jsonl"),
     [
       { at: "2026-08-25T12:00:00.000Z", kind: "judge-unparseable", verb: "check", message: "the judge reply at offset 2048 was not json" },
       { at: "2026-08-26T12:00:00.000Z", kind: "judge-unparseable", verb: "check", message: "the judge reply at offset 917 was not json" },

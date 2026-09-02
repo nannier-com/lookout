@@ -14,6 +14,7 @@ import { lockHeld, ownCheckout, selfHeal } from "../src/verbs/self-heal.js";
 import { clusterIncidents, incidentsPath, readIncidents, recordIncident } from "../src/skills/incidents.js";
 import { LookoutError } from "../src/types.js";
 import { SUITE_HOME } from "./setup.js";
+import { tmpProject } from "./tmp-project.js";
 
 const MOCK = join(import.meta.dir, "mock-claude.ts");
 
@@ -23,6 +24,11 @@ function checkout(gatesPass = false): string {
   mkdirSync(join(dir, "src"), { recursive: true });
   mkdirSync(join(dir, ".changeset"), { recursive: true });
   writeFileSync(join(dir, "src", "thing.ts"), "export const a = 1;\n");
+  // lookout's own state lives in the checkout's `.lookout/` now (the incident
+  // log here, the heals and attempts next). Unignored, the first incident this
+  // fixture records would make `git status` dirty and self-heal would refuse
+  // to run over what it thinks is somebody's work in progress.
+  writeFileSync(join(dir, ".gitignore"), ".lookout/\n");
   if (gatesPass) {
     // Gates that succeed, so the accepting path can be exercised without
     // standing up a whole toolchain in a temp directory.
@@ -47,6 +53,13 @@ function home(): string {
   return dir;
 }
 
+/** A checkout, and lookout pointed at it: where a no-project failure lands. */
+function tmpCheckout(): string {
+  const dir = checkout();
+  process.env.LOOKOUT_CHECKOUT = dir;
+  return dir;
+}
+
 afterEach(() => {
   // Back to the suite's throwaway home rather than deleted: an unset
   // LOOKOUT_HOME is the operator's real one, and every test that ran after this
@@ -58,12 +71,30 @@ afterEach(() => {
 });
 
 describe("the incident log", () => {
-  test("outlives a run, unlike the event log", () => {
-    home();
-    recordIncident({ at: "t1", kind: "crash", message: "boom", project: "/p" });
-    recordIncident({ at: "t2", kind: "operator-error", message: "no config", project: "/p" });
-    expect(readIncidents().map((i) => i.kind)).toEqual(["crash", "operator-error"]);
-    expect(existsSync(incidentsPath())).toBe(true);
+  test("outlives a run, unlike the event log, in the project it happened in", () => {
+    const p = tmpProject("lookout-incidents-").projectDir;
+    writeFileSync(join(p, "lookout.config.json"), '{"targets":[]}');
+    recordIncident({ at: "t1", kind: "crash", message: "boom", project: p });
+    recordIncident({ at: "t2", kind: "operator-error", message: "no config", project: p });
+    expect(readIncidents(p).map((i) => i.kind)).toEqual(["crash", "operator-error"]);
+    expect(existsSync(incidentsPath(p))).toBe(true);
+  });
+
+  test("a failure with no configured project in scope goes to lookout's own checkout", () => {
+    const checkout = tmpCheckout();
+    const bare = mkdtempSync(join(tmpdir(), "lookout-bare-"));
+    recordIncident({ at: "t1", kind: "crash", message: "boom", project: bare });
+    // Not in the directory it happened in: that directory has no lookout
+    // config, and littering one with a `.lookout/` is what this avoids.
+    expect(existsSync(join(bare, ".lookout"))).toBe(false);
+    expect(readIncidents(checkout).map((i) => i.message)).toEqual(["boom"]);
+  });
+
+  test("and nowhere at all when there is no checkout either", () => {
+    process.env.LOOKOUT_CHECKOUT = mkdtempSync(join(tmpdir(), "lookout-installed-"));
+    const bare = mkdtempSync(join(tmpdir(), "lookout-bare-"));
+    expect(() => recordIncident({ at: "t", kind: "crash", message: "boom", project: bare })).not.toThrow();
+    expect(existsSync(join(bare, ".lookout"))).toBe(false);
   });
 
   test("groups occurrences of one failure by shape, not by wording", () => {
@@ -79,7 +110,7 @@ describe("the incident log", () => {
   });
 
   test("a log that cannot be written does not replace the failure it records", () => {
-    process.env.LOOKOUT_HOME = "/proc/nonexistent-and-unwritable";
+    process.env.LOOKOUT_CHECKOUT = "/proc/nonexistent-and-unwritable";
     expect(() => recordIncident({ at: "t", kind: "crash", message: "boom" })).not.toThrow();
   });
 });
@@ -145,7 +176,7 @@ describe("a change that fails a gate", () => {
 
     // And the rollback is itself an incident: a healer that keeps failing the
     // same way is a thing worth seeing.
-    expect(readIncidents().map((i) => i.kind)).toContain("self-heal-rollback");
+    expect(readIncidents(dir).map((i) => i.kind)).toContain("self-heal-rollback");
 
     // The commit it would have made was never made.
     expect(execFileSync("git", ["log", "--oneline"], { cwd: dir }).toString().trim().split("\n")).toHaveLength(1);
@@ -186,8 +217,11 @@ describe("the reply contract is load-bearing", () => {
   test("an unparseable healer reply is reverted, recorded, and exits 1", async () => {
     const dir = checkout();
     const h = home();
-    recordIncident({ at: new Date().toISOString(), kind: "crash", message: "boom in module 7", verb: "check" });
+    // The checkout first: a failure with no project in scope is recorded
+    // against lookout's own checkout, so which one is current decides where
+    // this seeded incident lands.
     process.env.LOOKOUT_CHECKOUT = dir;
+    recordIncident({ at: new Date().toISOString(), kind: "crash", message: "boom in module 7", verb: "check" });
     process.env.LOOKOUT_CLAUDE_BIN = MOCK;
     process.env.MOCK_HEAL_FILE = join(dir, "src", "healed.ts");
     process.env.MOCK_HEAL_GARBAGE = "1";
@@ -198,7 +232,7 @@ describe("the reply contract is load-bearing", () => {
       expect(existsSync(join(dir, "src", "healed.ts"))).toBe(false);
       const log = execFileSync("git", ["log", "--oneline"], { cwd: dir }).toString();
       expect(log.trim().split("\n")).toHaveLength(1);
-      expect(readFileSync(incidentsPath(), "utf8")).toContain("healer-unparseable");
+      expect(readFileSync(incidentsPath(dir), "utf8")).toContain("healer-unparseable");
       // The raw reply is kept for a person.
       const attempts = readdirSync(join(h, "self-heal"));
       expect(attempts).toHaveLength(1);
@@ -211,11 +245,11 @@ describe("the reply contract is load-bearing", () => {
   test("the prompt carries exactly one incident group, the heaviest active one", async () => {
     const dir = checkout(true);
     home();
+    process.env.LOOKOUT_CHECKOUT = dir;
     for (let i = 0; i < 3; i++) {
       recordIncident({ at: new Date().toISOString(), kind: "crash", message: `heavy bug ${i}`, verb: "check" });
     }
     recordIncident({ at: new Date().toISOString(), kind: "judge-unparseable", message: "light bug", verb: "check" });
-    process.env.LOOKOUT_CHECKOUT = dir;
     process.env.LOOKOUT_CLAUDE_BIN = MOCK;
     process.env.MOCK_HEAL_FILE = join(dir, "src", "healed.ts");
     const argvFile = join(dir, "argv.jsonl");
@@ -234,8 +268,11 @@ describe("the reply contract is load-bearing", () => {
   test("a committed heal is marked, so the settled group stops being offered", async () => {
     const dir = checkout(true);
     const h = home();
-    recordIncident({ at: new Date().toISOString(), kind: "crash", message: "boom in module 7", verb: "check" });
+    // The checkout first: a failure with no project in scope is recorded
+    // against lookout's own checkout, so which one is current decides where
+    // this seeded incident lands.
     process.env.LOOKOUT_CHECKOUT = dir;
+    recordIncident({ at: new Date().toISOString(), kind: "crash", message: "boom in module 7", verb: "check" });
     process.env.LOOKOUT_CLAUDE_BIN = MOCK;
     process.env.MOCK_HEAL_FILE = join(dir, "src", "healed.ts");
     expect(await selfHeal({ positionals: [], flags: {} })).toBe(0);

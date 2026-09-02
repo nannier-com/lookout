@@ -2,8 +2,8 @@
  * `lookout self-heal`: fix what lookout keeps getting wrong, in lookout itself.
  *
  * Everything else here judges an application. This judges the tool, from the
- * one record that outlives a run: the incident log, pooled across every project
- * on this machine.
+ * one record that outlives a run: the incident log, read from this checkout
+ * and from the project the run was started in.
  *
  * It is the most dangerous thing in the codebase, because it edits the code
  * that does the judging. What makes it acceptable is that nothing it writes is
@@ -18,11 +18,12 @@
  */
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { loadSkill, renderSkill } from "../skills/load.js";
-import { readIncidents, recordIncident, shapeOf } from "../skills/incidents.js";
+import { incidentSources, readIncidentsFrom, recordIncident, shapeOf } from "../skills/incidents.js";
 import { lookoutHome } from "../home.js";
+import { ownCheckout } from "../checkout.js";
+import { locateConfig } from "../config-locate.js";
 import {
   activeGroups,
   compactIncidents,
@@ -49,19 +50,22 @@ export interface Gate {
   output: string;
 }
 
+// Re-exported: this is where self-heal's callers and its tests look for it,
+// and it lives in `checkout.ts` because the incident log needs it too, and
+// `skills/ -> verbs/` would be an inverted import.
+export { ownCheckout };
+
 /**
- * lookout's own checkout, or null when this is an installed package.
- *
- * The same test `warnIfStale` uses: a `src` directory beside `dist` means the
- * source is here. A published install has no source to heal and no repository
- * to revert in, so this refuses rather than editing node_modules.
- *
- * LOOKOUT_CHECKOUT overrides it, which is how a test points this at a fixture
- * instead of at the repository it is running from.
+ * The logs one heal may read: lookout's own checkout, the project the run was
+ * started in, and the one `--project` names. Order is provenance, not
+ * priority; `readIncidentsFrom` sorts the entries by time.
  */
-export function ownCheckout(): string | null {
-  const root = process.env.LOOKOUT_CHECKOUT ?? fileURLToPath(new URL("../..", import.meta.url));
-  return existsSync(join(root, "src")) && existsSync(join(root, ".git")) ? root : null;
+function healSources(parsed: Parsed): string[] {
+  return incidentSources(
+    ownCheckout(),
+    locateConfig(process.cwd())?.projectDir,
+    str(parsed.flags.project),
+  );
 }
 
 async function git(cwd: string, args: string[]): Promise<string> {
@@ -118,10 +122,13 @@ export async function selfHeal(parsed: Parsed): Promise<number> {
   await mkdir(lookoutHome(), { recursive: true });
   await writeFile(lock, nowIso());
   try {
-    // The one writer allowed to rewrite the append-only log: old entries
-    // leave once the file is big enough to matter.
-    const compacted = compactIncidents();
-    if (compacted > 0) console.log(`incident log: compacted ${compacted} entr(ies) older than 90 days`);
+    // The one writer allowed to rewrite the append-only logs: old entries
+    // leave once a file is big enough to matter. Once per source, because
+    // each project keeps its own and each grows at its own rate.
+    for (const dir of healSources(parsed)) {
+      const compacted = compactIncidents(dir);
+      if (compacted > 0) console.log(`${dir}: compacted ${compacted} incident(s) older than 90 days`);
+    }
     return await heal(parsed);
   } finally {
     await rm(lock, { force: true });
@@ -163,7 +170,13 @@ async function heal(parsed: Parsed): Promise<number> {
     );
   }
 
-  const incidents = readIncidents();
+  // Every log this run is entitled to read: lookout's own checkout, which
+  // holds the failures that happened with no project in scope, the project the
+  // run was started in, and the one `--project` names. Pooling across every
+  // project on the machine is what the home used to buy and what this gives
+  // up: a heal now answers what broke where lookout was actually working.
+  const sources = healSources(parsed);
+  const incidents = readIncidentsFrom(sources);
   const groups = activeGroups(incidents, readHeals());
   if (groups.length === 0) {
     console.log("nothing to heal: no active incidents in the window.");

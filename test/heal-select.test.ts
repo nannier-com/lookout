@@ -2,11 +2,10 @@
 // settle unless they recur, twice-failed groups wait for a person, and the
 // rollback ledger of healing itself is only ever the last thing left.
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { writeFileSync } from "node:fs";
 import { activeGroups, compactIncidents, pickGroup, type ActiveGroup } from "../src/skills/heal-select.js";
-import type { Incident } from "../src/skills/incidents.js";
+import { incidentsPath, type Incident } from "../src/skills/incidents.js";
+import { tmpProject } from "./tmp-project.js";
 
 const NOW = "2026-08-31T12:00:00.000Z";
 
@@ -94,21 +93,14 @@ describe("the pick", () => {
 
 describe("compaction", () => {
   test("a small log is untouched; a big one loses only its ancient lines", () => {
-    const home = mkdtempSync(join(tmpdir(), "lookout-home-"));
-    const beforeHome = process.env.LOOKOUT_HOME;
-    process.env.LOOKOUT_HOME = home;
-    try {
-      const lines = [
-        ...Array.from({ length: 2100 }, () => incident({ at: "2026-08-01T00:00:00.000Z" })),
-        ...Array.from({ length: 5 }, () => incident({ at: "2026-01-01T00:00:00.000Z" })),
-      ];
-      writeFileSync(join(home, "incidents.jsonl"), lines.map((l) => JSON.stringify(l)).join("\n") + "\n");
-      expect(compactIncidents(NOW)).toBe(5);
-      // Under the threshold now: a second pass changes nothing.
-      expect(compactIncidents(NOW)).toBe(0);
-    } finally {
-      if (beforeHome === undefined) delete process.env.LOOKOUT_HOME;
-      else process.env.LOOKOUT_HOME = beforeHome;
-    }
+    const dir = tmpProject("lookout-compact-").projectDir;
+    const lines = [
+      ...Array.from({ length: 2100 }, () => incident({ at: "2026-08-01T00:00:00.000Z" })),
+      ...Array.from({ length: 5 }, () => incident({ at: "2026-01-01T00:00:00.000Z" })),
+    ];
+    writeFileSync(incidentsPath(dir), lines.map((l) => JSON.stringify(l)).join("\n") + "\n");
+    expect(compactIncidents(dir, NOW)).toBe(5);
+    // Under the threshold now: a second pass changes nothing.
+    expect(compactIncidents(dir, NOW)).toBe(0);
   });
 });

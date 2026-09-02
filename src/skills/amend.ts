@@ -320,7 +320,7 @@ async function improve(resolved: ResolvedConfig, model: string, opts: ImproveOpt
       stale,
     });
     // Stamped seen: identical evidence would produce the identical rollback
-    // at model cost each time. And bridged to the machine-wide incident log:
+    // at model cost each time. And bridged to this project's incident log:
     // one rollback is the gate working, but only that log can see "the same
     // skill keeps rolling back across runs and projects", which indicts the
     // machinery rather than the project.

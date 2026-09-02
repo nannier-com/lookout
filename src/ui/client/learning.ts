@@ -118,7 +118,7 @@ function paintIncidents(l: Learning): void {
       + " \u00b7 last " + when(g.latestAt) + state + '</span></span></div>';
   }).join("");
   const html = rows
-    || '<div class="empty">Nothing has gone wrong with lookout itself on this machine.</div>';
+    || '<div class="empty">Nothing has gone wrong with lookout itself in this project.</div>';
   paint("lincidents", html, html);
 }
 

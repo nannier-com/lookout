@@ -157,7 +157,7 @@ export async function readBatch(ctx: BatchContext, batch: Candidate[]): Promise<
       kind: "crash",
       verb: "conformance",
       message: `conformance batch failed: ${e instanceof Error ? e.message : String(e)}`,
-      project: ctx.resolved.project,
+      project: ctx.resolved.projectDir,
     });
     out.unread.push(...batch.map((c) => c.path));
     return out;
@@ -175,7 +175,7 @@ export async function readBatch(ctx: BatchContext, batch: Candidate[]): Promise<
       verb: "conformance",
       message: "conformance reply was not JSON",
       detail: reply.text.slice(0, 400),
-      project: ctx.resolved.project,
+      project: ctx.resolved.projectDir,
     });
     out.unread.push(...batch.map((c) => c.path));
     return out;

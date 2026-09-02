@@ -18,8 +18,12 @@
  * The two tracks are kept apart on purpose, because their blast radius is not
  * the same. An amendment changes what this project's judge believes and lives
  * in this project's own directory. A heal changes the code every project on
- * this machine runs, which is why its record is machine-wide and its evidence
- * is a git commit.
+ * this machine runs, which is why its evidence is a git commit in lookout's
+ * own checkout rather than anything this project holds.
+ *
+ * The incidents shown here are this project's: what went wrong with lookout
+ * while it was looking at the app in front of you. `lookout doctor` is the
+ * verb that reads more than one log.
  */
 import { readFile, readdir } from "node:fs/promises";
 import { existsSync, statSync } from "node:fs";
@@ -110,7 +114,7 @@ export interface Learning {
       threshold: number;
     };
   };
-  /** The source track: lookout's own code, pooled across every project. */
+  /** The source track: lookout's own code, and what it did wrong here. */
   code: {
     /** lookout's checkout, or null when this is an installed package. */
     checkout: string | null;
@@ -141,7 +145,7 @@ export function learningKey(resolved: ResolvedConfig): string {
     improveLockPath(resolved),
     join(lookoutDir(resolved), "skills"),
     regressionManifestPath(resolved),
-    incidentsPath(),
+    incidentsPath(resolved.projectDir),
     healsPath(),
     seenPath(resolved),
     lockPath(),
@@ -346,7 +350,7 @@ export async function buildLearning(resolved: ResolvedConfig): Promise<Learning>
   // Active pressure, recurred-first: a healed group that stayed quiet is
   // settled history (the attempts and commits sections still tell it), and a
   // fix that did not stick is the loudest state there is.
-  const incidents = activeGroups(readIncidents(), readHeals())
+  const incidents = activeGroups(readIncidents(resolved.projectDir), readHeals())
     .slice(0, MAX_INCIDENT_GROUPS)
     .map((g) => ({
       kind: g.kind,

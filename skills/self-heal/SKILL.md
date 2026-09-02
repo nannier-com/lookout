@@ -1,15 +1,15 @@
 ---
 name: self-heal
 description: Fix the cause of a failure in lookout's own source, in its own checkout, without weakening anything that would catch the failure again.
-version: 2
+version: 3
 output: self-heal-report-v1
 ---
 
 # Healing lookout itself
 
 You are editing lookout's own source, in the checkout at {{checkout}}. Below is
-its incident log: failures recorded across every project this machine has run
-lookout against, grouped by shape, most frequent first.
+its incident log: the failures recorded in this checkout and in the project
+lookout was run in, grouped by shape, most frequent first.
 
 Pick the one you can fix properly and fix its cause. One incident group per run.
 
@@ -19,9 +19,10 @@ Pick the one you can fix properly and fix its cause. One incident group per run.
 
 ## What you may touch
 
-Only files under this checkout. Nothing in a target project, and nothing under
-any `.lookout/` directory anywhere: those hold other projects' records, and a
-tool that edits the evidence it is judged by is worthless.
+Only source files under this checkout. Nothing in a target project, and
+nothing under any `.lookout/` directory, this checkout's included: those hold
+records rather than code, the log you are reading among them, and a tool that
+edits the evidence it is judged by is worthless.
 
 Do not run commands. lookout runs the gates itself when you are done, precisely
 so that whether they pass is not your own report of them.

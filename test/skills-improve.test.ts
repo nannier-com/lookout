@@ -772,7 +772,7 @@ describe("what an improve consumes and refuses", () => {
     try {
       expect(await run(r, "freeze")).toBe(0);
       expect(await run(r, "improve")).toBe(1);
-      const groups = clusterIncidents(readIncidents());
+      const groups = clusterIncidents(readIncidents(r.projectDir));
       expect(groups.some((g) => g.kind === "skill-rollback")).toBe(true);
     } finally {
       delete process.env.MOCK_AMENDMENT;

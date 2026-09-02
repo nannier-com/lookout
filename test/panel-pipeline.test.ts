@@ -18,6 +18,7 @@ import { loadJudges, type PanelRubric } from "../src/judge/rubric.js";
 import { loadSkill } from "../src/skills/load.js";
 import type { VerifiedFinding } from "../src/judge/verify.js";
 import { tmpProject } from "./tmp-project.js";
+import { incidentsPath } from "../src/skills/incidents.js";
 import { LookoutError, type ResolvedConfig, type ShotRecord } from "../src/types.js";
 import type { CheckScope } from "../src/check/scope.js";
 
@@ -345,7 +346,9 @@ describe("the lane rule", () => {
     // The shot was accounted for by the reply (in findings), but the finding
     // was rejected, so the shot is NOT clean and the pair must not cache.
     expect(pass.rejected).toBeGreaterThan(0);
-    const incidents = readFileSync(join(process.env.LOOKOUT_HOME!, "incidents.jsonl"), "utf8");
+    // The project's own log: this is also what proves the batch threads its
+    // directory all the way down to the reply ingest that writes the entry.
+    const incidents = readFileSync(incidentsPath(r.projectDir), "utf8");
     expect(incidents).toContain("outside the panel-a panel's lane");
     expect(incidents).toContain('"judge":"panel-a"');
   });

@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { buildLearning, learningBadge, learningKey } from "../src/report/learning.js";
 import { improveLockPath } from "../src/verbs/skills.js";
 import { tmpProject } from "./tmp-project.js";
+import { incidentsPath } from "../src/skills/incidents.js";
 
 const HOME = process.env.LOOKOUT_HOME;
 
@@ -97,7 +98,7 @@ describe("what lookout has changed about itself", () => {
   });
 
   test("recurring failures are folded together, newest occurrence kept", async () => {
-    const home = tmpHome();
+    const r = tmpProject();
     // Recent dates: the page shows ACTIVE pressure now (a 30-day window),
     // because an all-time count made a bug fixed months ago outrank the one
     // that broke yesterday. The folding-by-shape intent is unchanged.
@@ -106,7 +107,7 @@ describe("what lookout has changed about itself", () => {
     const first = at(3);
     const second = at(2);
     writeFileSync(
-      join(home, "incidents.jsonl"),
+      incidentsPath(r.projectDir),
       [
         { at: first, kind: "judge-unparseable", message: "the reply at line 12 was not json", verb: "check" },
         { at: second, kind: "judge-unparseable", message: "the reply at line 88 was not json", verb: "check" },
@@ -116,7 +117,7 @@ describe("what lookout has changed about itself", () => {
         .join("\n") + "\n",
     );
 
-    const l = await buildLearning(tmpProject());
+    const l = await buildLearning(r);
     // Line numbers differ between occurrences of one bug; the shape does not.
     expect(l.code.incidents[0]!.count).toBe(2);
     expect(l.code.incidents[0]!.kind).toBe("judge-unparseable");
@@ -126,12 +127,12 @@ describe("what lookout has changed about itself", () => {
   });
 
   test("a month-old flood leaves the page's pressure view", async () => {
-    const home = tmpHome();
+    const r = tmpProject();
     writeFileSync(
-      join(home, "incidents.jsonl"),
+      incidentsPath(r.projectDir),
       JSON.stringify({ at: "2026-01-01T00:00:00.000Z", kind: "crash", message: "ancient", verb: "check" }) + "\n",
     );
-    const l = await buildLearning(tmpProject());
+    const l = await buildLearning(r);
     expect(l.code.incidents).toHaveLength(0);
     expect(learningBadge(l).hot).toBe(0);
   });

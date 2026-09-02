@@ -130,14 +130,21 @@ export async function doctor(parsed: Parsed): Promise<number> {
 
   const requiredFailing = checks.filter((c) => c.required && !c.ok);
 
-  // lookout itself: the machine-wide record of its own failures. Doctor is
-  // the once-per-machine human verb, which makes it where a MANUAL verb's
-  // nudge belongs; nothing here runs anything.
+  // lookout itself: the record of its own failures. Doctor is the human verb,
+  // which makes it where a MANUAL verb's nudge belongs; nothing here runs
+  // anything. Two sources, because doctor is one of the two readers that
+  // legitimately spans projects: the project it was run in, when that is one,
+  // and lookout's own checkout, which holds the failures that happened with no
+  // project in scope.
   const { activeGroups, readHeals } = await import("../skills/heal-select.js");
-  const { readIncidents } = await import("../skills/incidents.js");
-  const groups = activeGroups(readIncidents(), readHeals());
+  const { incidentSources, readIncidentsFrom } = await import("../skills/incidents.js");
+  const { locateConfig } = await import("../config-locate.js");
+  const { ownCheckout } = await import("../checkout.js");
+  const sources = incidentSources(locateConfig(process.cwd())?.projectDir, ownCheckout());
+  const groups = activeGroups(readIncidentsFrom(sources), readHeals());
   const hot = groups.filter((g) => g.recurred || g.count >= 3);
   const self = {
+    sources,
     activeGroups: groups.length,
     hot: hot.length,
     top: groups[0]
@@ -161,6 +168,10 @@ export async function doctor(parsed: Parsed): Promise<number> {
       if (!c.ok && c.fix) console.log(row("", `fix: ${c.fix}`));
     }
     console.log("\nlookout itself");
+    // Which logs were read, so "none active" cannot be mistaken for "nothing
+    // has ever gone wrong": run somewhere lookout has no config and there is
+    // simply no project log to read.
+    console.log(row("  logs", sources.length ? sources.join(", ") : "none here (no configured project, no checkout)"));
     if (groups.length === 0) {
       console.log(row("  incidents", "none active in the last 30 days"));
     } else {

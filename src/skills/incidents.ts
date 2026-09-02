@@ -2,20 +2,29 @@
  * The incident log: what has actually gone wrong with lookout itself.
  *
  * `events.jsonl` cannot serve this. It is narration of one run and every
- * capture truncates it, so the failure that happened yesterday in another
- * project is gone by the time anybody could act on it. Incidents are the
- * opposite: append-only and pooled across every project on this machine,
- * because the thing they describe is lookout, not the app it was looking at.
- * The one writer allowed to rewrite it is self-heal's compaction (entries
- * older than 90 days, only once the log outgrows 2000 lines), under its lock.
+ * capture truncates it, so the failure that happened yesterday is gone by the
+ * time anybody could act on it. Incidents are the opposite: append-only, and
+ * kept where the failure happened, which is the project lookout was pointed
+ * at. The one writer allowed to rewrite the file is self-heal's compaction
+ * (entries older than 90 days, only once a log outgrows 2000 lines), under
+ * its lock.
  *
- * They live under the operator's home rather than in any repository. A failure
- * in someone's project is not that project's business to commit, and lookout's
- * own checkout should not accumulate a log of its bad days either.
+ * A log per project rather than one per machine. It is still never committed,
+ * because `.lookout/` is gitignored, and it is now legible: the failures in
+ * front of you are the failures of the thing in front of you. What that costs
+ * is clustering across projects, so a bug seen once in each of three projects
+ * no longer adds up to a heavy one; `self-heal` answers that by reading every
+ * source it is pointed at rather than by pooling everything in advance.
+ *
+ * Nothing here creates a `.lookout/` where lookout has no config. A failure
+ * with no configured project in scope goes to lookout's own checkout, and on
+ * an installed package, where there is no checkout and no self-heal to read
+ * it, it is dropped.
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { lookoutHome } from "../home.js";
+import { LOOKOUT_DIR, locateConfig } from "../config-locate.js";
+import { ownCheckout } from "../checkout.js";
 
 export type IncidentKind =
   | "crash"
@@ -34,30 +43,73 @@ export interface Incident {
   message: string;
   /** Stack, reply head, or whatever else names the cause. */
   detail?: string;
-  /** Which project it happened in, by directory. */
+  /**
+   * Which project it happened in, by directory. Absolute, and a directory
+   * rather than a display name: it is what decides which log the entry is
+   * appended to, and what `self-heal` reads to find a project that can grade
+   * a replay.
+   */
   project?: string;
   /** Which judge panel was answering, when one was. */
   judge?: string;
   version?: string;
 }
 
-export function incidentsPath(): string {
-  return join(lookoutHome(), "incidents.jsonl");
+export function incidentsPath(projectDir: string): string {
+  return join(projectDir, LOOKOUT_DIR, "incidents.jsonl");
 }
 
 /**
- * Record one incident. Synchronous and swallowing: this runs inside the
- * top-level error handler, and a logger that can throw there would replace the
- * real failure with its own.
+ * Which log an incident belongs in, or null when it belongs in none.
+ *
+ * A configured project first: `locateConfig` climbs to the root that holds a
+ * `lookout.config.*`, so a failure in a subdirectory lands in the project's
+ * own log rather than beside whatever the operator happened to `cd` into.
+ * Failing that, lookout's own checkout, which is where a failure of `doctor`
+ * or a mistyped verb actually belongs. Failing that, nowhere: writing into an
+ * arbitrary directory would leave an un-ignored `.lookout/` in it.
+ */
+export function incidentLogDir(where: string | undefined): string | null {
+  const configured = where ? locateConfig(where)?.projectDir : null;
+  return configured ?? ownCheckout();
+}
+
+/**
+ * Record one incident, in the log of the project it happened in.
+ *
+ * Synchronous and swallowing: this runs inside the top-level error handler,
+ * and a logger that can throw there would replace the real failure with its
+ * own.
  */
 export function recordIncident(incident: Incident): void {
   try {
-    const p = incidentsPath();
+    const dir = incidentLogDir(incident.project);
+    if (!dir) return;
+    const p = incidentsPath(dir);
     mkdirSync(dirname(p), { recursive: true });
     appendFileSync(p, JSON.stringify(incident) + "\n");
   } catch {
     // A log that cannot be written is not worth failing the run over.
   }
+}
+
+/**
+ * Every log a run should read, deduped, in the order given.
+ *
+ * `self-heal` and `doctor` are the two readers that legitimately span more
+ * than one project: what they report on is lookout, and lookout's failures
+ * are spread across the projects it was pointed at plus its own checkout.
+ * Nulls are accepted so a caller can pass `ownCheckout()` without guarding.
+ */
+export function incidentSources(...dirs: (string | null | undefined)[]): string[] {
+  return [...new Set(dirs.filter((d): d is string => !!d))];
+}
+
+/** Those logs read as one, oldest first, so clustering sees every occurrence. */
+export function readIncidentsFrom(dirs: string[], limit = 2000): Incident[] {
+  return dirs
+    .flatMap((d) => readIncidents(d, limit))
+    .sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
 }
 
 /** The shape of a failure: numbers and paths stripped, so occurrences group. */
@@ -71,8 +123,8 @@ export function shapeOf(message: string): string {
  * clustering: an old high-frequency bug aged out of the read window while
  * still dominating a person's mental model of what keeps breaking.
  */
-export function readIncidents(limit = 2000): Incident[] {
-  const p = incidentsPath();
+export function readIncidents(projectDir: string, limit = 2000): Incident[] {
+  const p = incidentsPath(projectDir);
   if (!existsSync(p)) return [];
   try {
     const lines = readFileSync(p, "utf8").trim().split("\n").filter(Boolean);

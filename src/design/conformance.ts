@@ -219,7 +219,7 @@ export async function readConformance(
         .slice(0, 5)
         .map((r) => r.reason)
         .join("; "),
-      project: resolved.project,
+      project: resolved.projectDir,
     });
   }
   return result;

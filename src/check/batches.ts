@@ -226,6 +226,7 @@ export async function judgeInBatches(args: {
         let res: Awaited<ReturnType<typeof judgeBatch>>;
         try {
           res = await judgeBatch(item.panel.text, resolved.project, job.shots, evDir, plan.model, {
+            projectDir: resolved.projectDir,
             handoff: item.panel.handoff,
             // Priors travel per lane: an out-of-lane prior instructs the judge
             // to re-file it, which the lane rule would then reject.
@@ -247,7 +248,7 @@ export async function judgeInBatches(args: {
             kind: "crash",
             verb: "check",
             message: `judge batch failed: ${message}`,
-            project: resolved.project,
+            project: resolved.projectDir,
             judge: panelName,
           });
           log(`  batch ${i + 1}/${jobs.length}: ${panelName} FAILED (${message})`);
@@ -291,7 +292,7 @@ export async function judgeInBatches(args: {
         jobFindings = fresh.map((f) => ({ ...f, verified: false }));
       } else {
         try {
-          const v = await verifyFindings(plan.refute.text, fresh, shotsById, evDir, plan.model);
+          const v = await verifyFindings(plan.refute.text, fresh, shotsById, evDir, plan.model, resolved.projectDir);
           jobFindings = v.confirmed;
           repaired.push(...v.repaired);
           droppedCriteria.push(...v.droppedCriteria);
