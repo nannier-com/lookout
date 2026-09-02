@@ -34,7 +34,44 @@ export function paintSettings(): void {
       (t.up ? "reachable" : "not responding" + (t.status ? " (HTTP " + t.status + ")" : "")) +
       "</span></div>").join("");
   }
+  paintNav();
   paintPlay();
+}
+
+/**
+ * The calls-to-action consent, under the cog.
+ *
+ * On, the next run clicks this project's own buttons and links and photographs
+ * what they open, so the judge sees the menus, drawers and dialogs no shot of a
+ * route at rest can reach. It belongs in this panel rather than in a config
+ * file because it is a decision about one repository that somebody has to make
+ * knowingly: everything planned gets actuated, destructive controls included,
+ * and ordering the clicks by risk is not the same as declining to make them.
+ * So the row says which of the two runs play will spend, in words, rather than
+ * leaving it to the state of an icon.
+ *
+ * Off is the state a project starts in, and pointing the page at a different
+ * project puts it back there, because the consent is stored against the
+ * directory it was given for.
+ */
+export function paintNav(): void {
+  const btn = el("navToggle") as HTMLButtonElement;
+  const on = page.config.navigation;
+  const ready = !!page.project.configured;
+  btn.disabled = !ready;
+  btn.classList.toggle("on", on);
+  btn.textContent = on ? "Turn off" : "Turn on";
+  btn.setAttribute("aria-pressed", String(on));
+  btn.setAttribute("aria-label", on ? "Calls to action will be clicked" : "Click the calls to action");
+  btn.title = ready ? "" : "Choose a project first";
+  const state = el("setNavState");
+  state.textContent = !ready ? "choose a project first" : on ? "On for this project" : "Off";
+  state.classList.toggle("on", ready && on);
+  el("setNavHint").textContent = on
+    ? "The next run clicks this project's buttons and links and photographs what they open, "
+      + "destructive controls included. Remembered for this project only."
+    : "Runs photograph each route at rest. Turn this on to have a run click this project's "
+      + "buttons and links, destructive controls included, and judge what they open.";
 }
 
 export async function loadConfigState(): Promise<void> {

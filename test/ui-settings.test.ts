@@ -1,7 +1,7 @@
 // What the page remembers between runs, and the one comparison that decides
 // whether the run it starts will click the application's own controls.
 //
-// The toggle beside play and the spawn that honours it are in different
+// The consent under the cog and the spawn that honours it are in different
 // modules and must never disagree, so the comparison is a function and this is
 // the test of it.
 import { afterAll, describe, expect, test } from "bun:test";

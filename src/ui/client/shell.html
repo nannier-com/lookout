@@ -37,11 +37,6 @@
     <span class="spacer"></span>
     <span class="where" id="where"></span>
     <div class="acts">
-    <button type="button" class="cta" id="navToggle" aria-pressed="false"
-      aria-label="Click the calls to action"><svg viewBox="0 0 24 24" width="13" height="13"
-      aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9"
-      stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 3.8v12.4l3.2-3.1 1.9 4.6
-      2.2-.9-1.9-4.5 4.4-.2Z"/></svg></button>
     <button type="button" class="findfix" id="findfix" aria-label="Find and fix"></button>
     <button type="button" class="cog" id="cog" aria-label="Settings" aria-expanded="false"
       title="Settings"><svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"
@@ -64,6 +59,16 @@
     <p class="shint">Overrides where the targets live. The config still supplies
       the routes, viewports, state recipes and sign-in hook.</p>
     <div class="targets" id="setTargets"></div>
+    <!-- Not a <label>, unlike the rows above: a label forwards a click anywhere
+         in the row to its control, and this one is a consent to click the
+         application's own destructive controls. It should take a press on the
+         button and nothing else. -->
+    <div class="srow">
+      <span>Calls to action</span>
+      <span class="val" id="setNavState"></span>
+      <button type="button" class="mini" id="navToggle" aria-pressed="false">Turn on</button>
+    </div>
+    <p class="shint" id="setNavHint"></p>
   </div>
 </header>
 <main>

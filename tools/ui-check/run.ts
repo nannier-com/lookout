@@ -232,23 +232,38 @@ async function drive(): Promise<number> {
   check("settings panel opens", await page.locator("#settings").isVisible());
   check("settings names the project", ((await page.locator("#setProject").textContent()) ?? "").includes("project"));
   check("settings probes targets", (await page.locator("#setTargets .tgt").count()) > 0);
-  await page.click("#cog");
 
-  // The calls-to-action toggle. What it has to do is agree with the server:
-  // it is consent to click the application's own controls, so a page showing
-  // it on while the server has it off would authorize a run nobody asked for,
-  // and one showing it off while the server has it on would hide one.
+  // The calls-to-action consent, which lives in this panel. What it has to do
+  // is agree with the server: it is consent to click the application's own
+  // controls, so a page showing it on while the server has it off would
+  // authorize a run nobody asked for, and one showing it off while the server
+  // has it on would hide one.
   const nav = page.locator("#navToggle");
-  check("the CTA toggle starts off", (await nav.getAttribute("aria-pressed")) === "false");
+  const navState = page.locator("#setNavState");
+  check("the CTA consent is in the settings panel", await nav.isVisible());
+  check("the CTA consent starts off", (await nav.getAttribute("aria-pressed")) === "false");
+  check("and says so in words", ((await navState.textContent()) ?? "").toLowerCase().includes("off"));
   await nav.click();
   await page.waitForTimeout(900);
   check("clicking it turns it on", (await nav.getAttribute("aria-pressed")) === "true");
+  check("the row says it is on", ((await navState.textContent()) ?? "").toLowerCase().includes("on"));
+  // What play is about to spend is readable from play itself, which is the one
+  // control still on screen once this panel is shut.
+  check(
+    "play says the run will click things",
+    ((await page.locator("#findfix").getAttribute("title")) ?? "").includes("Calls to action are ON"),
+  );
   const consent = await page.request.get(URL + "api/settings");
   check(
     "the server agrees it is on",
     ((await consent.json()) as { navigation?: boolean }).navigation === true,
   );
   await page.reload({ waitUntil: "networkidle" });
+  await page.waitForTimeout(900);
+  // The panel is shut again after a reload, so the consent has to be found the
+  // way a person finds it.
+  check("the CTA consent is not on the page until the cog is opened", !(await nav.isVisible()));
+  await page.click("#cog");
   await page.waitForTimeout(900);
   check("consent outlives a reload", (await nav.getAttribute("aria-pressed")) === "true");
   await nav.click();
@@ -259,6 +274,7 @@ async function drive(): Promise<number> {
     ((await (await page.request.get(URL + "api/settings")).json()) as { navigation?: boolean })
       .navigation === false,
   );
+  await page.click("#cog");
 
   // The fold. What it has to actually do is give the width back: a column that
   // narrows while the board keeps its old padding is a stripe of empty page,

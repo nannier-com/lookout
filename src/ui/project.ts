@@ -60,7 +60,7 @@ export interface SettingsView {
    *
    * Resolved here rather than handed over raw, because what is stored is the
    * directory consent was given for: the page should not have to compare two
-   * paths to know whether the control beside play is on.
+   * paths to know whether the consent under the cog is on.
    */
   navigation: boolean;
   targets: { name: string; url: string; routes: number; up: boolean; status: number | null }[];

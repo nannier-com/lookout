@@ -148,24 +148,10 @@ flex:0 0 auto;transition:transform .12s ease,filter .12s ease;position:relative}
 .findfix.unset{background:var(--sunk);color:var(--faint);
 box-shadow:inset 0 0 0 1px var(--line)}
 .findfix.unset:hover{filter:none;transform:none}
-/* The three controls travel together. The header wraps, and with the toggle
-   added as a fourth loose child the wrap fell between it and play: the control
-   that says what play will do ended up on the line above it, beside the path.
-   Grouped, they wrap as one thing or not at all, and play keeps a satellite
-   the same distance away on either side. */
+/* Play and the cog travel together. The header wraps, and as loose children the
+   wrap fell between them: the control that configures a run ended up on the line
+   above the one that starts it. Grouped, they wrap as one thing or not at all. */
 .acts{display:flex;align-items:center;gap:12px;flex:0 0 auto}
-/* The calls-to-action toggle sits to the LEFT of play, because it changes what
-   play does and is therefore read on the way to it. Off, it is as quiet as the
-   cog; on, it takes the accent, because a run that clicks the application's own
-   controls is not the same run and should not look like it. */
-.cta{width:26px;height:26px;padding:0;margin-right:8px;border-radius:50%;
-border:1px solid var(--line);background:var(--panel);color:var(--dim);cursor:pointer;
-display:flex;align-items:center;justify-content:center;flex:0 0 auto}
-.cta svg{display:block}
-.cta:hover{color:var(--ink);border-color:var(--dim)}
-.cta.on{color:var(--accent);border-color:var(--accent);background:var(--sunk)}
-.cta[disabled]{cursor:default;opacity:.45}
-.cta[disabled]:hover{color:var(--dim);border-color:var(--line)}
 /* The cog sits to the right of play: configuring is the rarer act, so it is the
    quieter control, and it never moves once the run starts. */
 .cog{width:26px;height:26px;padding:0;margin-left:8px;border-radius:50%;
@@ -180,9 +166,13 @@ flex-direction:column;gap:8px;background:var(--sunk)}
    the panel has to opt back out explicitly or it is never actually hidden. */
 .settings[hidden]{display:none}
 .srow{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--dim)}
-.srow>span:first-child{width:72px;flex:0 0 auto;color:var(--faint)}
+.srow>span:first-child{width:96px;flex:0 0 auto;color:var(--faint)}
 .srow .val{font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--ink);
 overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto}
+/* A consent that is switched on says so in the accent, because a run that
+   clicks the application's own controls is not the same run and should not
+   read like the default. */
+.srow .val.on{color:var(--accent);font-weight:600}
 .srow input{flex:1 1 auto;min-width:0;padding:5px 8px;border-radius:6px;
 border:1px solid var(--line);background:var(--panel);color:var(--ink);
 font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}
@@ -190,8 +180,8 @@ font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}
 .mini{padding:5px 10px;border-radius:6px;border:1px solid var(--line);
 background:var(--panel);color:var(--ink);font-size:11px;cursor:pointer;flex:0 0 auto}
 .mini:hover{border-color:var(--dim)}
-.shint{margin:0 0 0 82px;font-size:11px;color:var(--faint);max-width:70ch}
-.targets{margin-left:82px;display:flex;flex-direction:column;gap:3px}
+.shint{margin:0 0 0 106px;font-size:11px;color:var(--faint);max-width:70ch}
+.targets{margin-left:106px;display:flex;flex-direction:column;gap:3px}
 .tgt{font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dim)}
 .tgt b{font-weight:600;color:var(--ink)}
 .tgt .up{color:var(--ok)}
