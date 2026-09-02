@@ -1,54 +1,20 @@
 /**
- * Where lookout is pointed, and whether it can see anything there.
+ * What the settings panel shows, and the one change it can make.
  *
- * The page is where a project gets chosen now, which is why this is a module
- * rather than a line in the router: choosing means asking the operating system
- * for a directory, re-resolving the config under it, and saying honestly when
- * there is no config to resolve. The probe belongs here too, because "which
- * targets answer right now" is the only question that makes the settings panel
- * worth opening.
+ * The page used to choose the project too, with a native folder picker and a
+ * remembered answer; `lookout ui` serves the directory it was started in now,
+ * so what is left here is the base URL, which re-resolves the config, and the
+ * probe. The probe is what makes the panel worth opening: "which targets
+ * answer right now" shows a wrong port before a run is spent on it.
  */
 import { loadConfig } from "../config.js";
 import { preflight, resolveTargets } from "../targets.js";
 import { deviceLines, preflightDevices } from "../capture/native-preflight.js";
 import { detectProjectKind } from "../project-kind.js";
-import { currentProject, currentProjectOrNull, session, setCurrentProject } from "./session.js";
+import { currentProjectOrNull, session, setCurrentProject } from "./session.js";
 import { forgetNarration } from "./narration.js";
 import { forgetBoard } from "./payload.js";
 import { navigationConsented } from "./stored-settings.js";
-import { execFileAsync } from "../util.js";
-
-/**
- * Ask the operating system for a directory.
- *
- * A browser cannot hand back a real filesystem path, so the server asks
- * instead. lookout is already a local process the user started, so putting a
- * native picker in front of them is no more privileged than the terminal they
- * launched it from.
- */
-export async function pickFolder(): Promise<string | null> {
-  if (process.platform !== "darwin") return null;
-  try {
-    const { stdout } = await execFileAsync("osascript", [
-      "-e",
-      'POSIX path of (choose folder with prompt "Choose the repository lookout should check")',
-    ]);
-    const dir = stdout.trim().replace(/\/$/, "");
-    return dir || null;
-  } catch {
-    // The user cancelled, which is not an error.
-    return null;
-  }
-}
-
-/** What the page is told after being pointed somewhere. */
-export interface ProjectView {
-  project?: string;
-  projectDir: string;
-  configured: boolean;
-  /** Set when there was nothing to point at, and absent otherwise. */
-  error?: string;
-}
 
 /** What the settings panel shows: where lookout is pointed, and what answers. */
 export interface SettingsView {
@@ -74,24 +40,34 @@ export interface SettingsView {
   error: string | null;
 }
 
-/** Point lookout at a directory, reporting honestly when it has no config. */
-export async function useProject(dir: string): Promise<ProjectView> {
+/**
+ * Re-resolve this server's project with the base URL the panel just saved.
+ *
+ * The whole config is loaded again rather than the origin patched in, because
+ * a target's URL is what preflight probes and what a run is spawned against,
+ * and two spellings of "where the app is" is how a panel comes to report on
+ * one origin while Play checks another.
+ */
+export async function applyBaseUrl(): Promise<void> {
+  const current = currentProjectOrNull();
+  if (!current?.configPath) return;
   try {
-    setCurrentProject(await loadConfig({ cwd: dir, baseUrl: session.settings.baseUrl ?? undefined }));
+    setCurrentProject(
+      await loadConfig({
+        configPath: current.configPath,
+        cwd: current.projectDir,
+        baseUrl: session.settings.baseUrl ?? undefined,
+      }),
+    );
   } catch {
-    // No config found up the tree: say so rather than serving an empty board
-    // that looks like a project with nothing wrong with it.
-    return { projectDir: dir, configured: false, error: "no lookout.config.ts found there" };
+    // A config that stopped loading between two requests is the project's
+    // business; the page keeps showing what it last resolved.
+    return;
   }
   forgetBoard();
-  // A different project's judges are a different transcript, and the cursor
-  // into the old one means nothing in the new file.
+  // The judges' transcript is per run, and the cursor into the old one means
+  // nothing once the targets moved.
   forgetNarration();
-  return {
-    project: currentProject().project,
-    projectDir: currentProject().projectDir,
-    configured: currentProject().configPath !== null,
-  };
 }
 
 /**
@@ -127,7 +103,7 @@ export async function settingsView(): Promise<SettingsView> {
       error = (e as Error).message;
     }
   }
-  const dir = session.settings.projectDir ?? project?.projectDir ?? null;
+  const dir = project?.projectDir ?? null;
   return {
     projectDir: dir,
     baseUrl: session.settings.baseUrl,

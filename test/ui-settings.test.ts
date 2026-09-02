@@ -4,9 +4,7 @@
 // The consent under the cog and the spawn that honours it are in different
 // modules and must never disagree, so the comparison is a function and this is
 // the test of it.
-import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import {
   EMPTY_SETTINGS,
@@ -15,42 +13,41 @@ import {
   saveSettings,
   settingsPath,
 } from "../src/ui/stored-settings.js";
-
-/** A throwaway lookout home, so the real one is never read or written. */
-const REAL_HOME = process.env.LOOKOUT_HOME;
-function withHome(): string {
-  const home = mkdtempSync(join(tmpdir(), "lookout-uiset-"));
-  process.env.LOOKOUT_HOME = home;
-  return home;
-}
-afterAll(() => {
-  if (REAL_HOME === undefined) delete process.env.LOOKOUT_HOME;
-  else process.env.LOOKOUT_HOME = REAL_HOME;
-});
+import { tmpProject } from "./tmp-project.js";
 
 describe("stored ui settings", () => {
-  test("consent survives a round trip, and an unwritten file consents to nothing", async () => {
-    const home = withHome();
-    expect(settingsPath().startsWith(home)).toBe(true);
-    expect(await loadSettings()).toEqual({ ...EMPTY_SETTINGS });
+  test("kept in the project they describe, and an unwritten file consents to nothing", async () => {
+    const dir = tmpProject("lookout-uiset-").projectDir;
+    expect(settingsPath(dir)).toBe(join(dir, ".lookout", "ui.json"));
+    expect(await loadSettings(dir)).toEqual({ ...EMPTY_SETTINGS });
 
-    await saveSettings({ projectDir: "/a/project", baseUrl: null, navigationFor: "/a/project" });
-    expect(await loadSettings()).toEqual({
-      projectDir: "/a/project",
-      baseUrl: null,
-      navigationFor: "/a/project",
-    });
+    await saveSettings(dir, { baseUrl: null, navigationFor: dir });
+    expect(await loadSettings(dir)).toEqual({ baseUrl: null, navigationFor: dir });
   });
 
   test("settings written before the field existed load as no consent", async () => {
-    const home = withHome();
-    await Bun.write(join(home, "ui.json"), JSON.stringify({ projectDir: "/a/project", baseUrl: null }));
-    expect((await loadSettings()).navigationFor).toBeNull();
+    const dir = tmpProject("lookout-uiset-").projectDir;
+    await Bun.write(settingsPath(dir), JSON.stringify({ projectDir: "/a/project", baseUrl: null }));
+    expect((await loadSettings(dir)).navigationFor).toBeNull();
+  });
+
+  // Written by a lookout that kept one file for every project. The field named
+  // which project the page was pointed at, a question this file no longer
+  // answers, so it is read past rather than resurrected.
+  test("a projectDir left by an older lookout is ignored, not carried", async () => {
+    const dir = tmpProject("lookout-uiset-").projectDir;
+    await Bun.write(
+      settingsPath(dir),
+      JSON.stringify({ projectDir: "/somewhere/else", baseUrl: "http://127.0.0.1:5173", navigationFor: null }),
+    );
+    const loaded = await loadSettings(dir);
+    expect(loaded).toEqual({ baseUrl: "http://127.0.0.1:5173", navigationFor: null });
+    expect("projectDir" in loaded).toBe(false);
   });
 });
 
 describe("navigationConsented", () => {
-  const on = { projectDir: "/a/project", baseUrl: null, navigationFor: "/a/project" };
+  const on = { baseUrl: null, navigationFor: "/a/project" };
 
   test("holds only for the project the yes was given for", () => {
     expect(navigationConsented(on, "/a/project")).toBe(true);

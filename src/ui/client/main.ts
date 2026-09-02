@@ -23,7 +23,6 @@ import { addNarration } from "./transcript.js";
 import { archive, chooseTool, launch, loadTools } from "./tools.js";
 import { onRefresh, page, type Filter } from "./state.js";
 import { closeShot, openShot, shotBackdrop, shotOpen } from "./shot-view.js";
-import type { ProjectView } from "../project.js";
 import type { NarrationFrame } from "../narration.js";
 import type { StatusPayload } from "../payload.js";
 
@@ -164,17 +163,6 @@ document.addEventListener("click", (e) => {
   }
   if (hit(e, "#cog")) { toggleSettings(); return; }
   if (hit(e, "#streamFold")) { toggleJudge(); return; }
-  if (hit(e, "#pickProject")) {
-    void (async () => {
-      const picked = (await (await fetch("/api/pick", { method: "POST" })).json()) as
-        ProjectView & { cancelled?: boolean };
-      if (picked.cancelled) return;
-      if (picked.error) { say(picked.error); return; }
-      if (!picked.configured) { say("no lookout.config.ts in " + picked.projectDir); return; }
-      await saveConfigState({ projectDir: picked.projectDir });
-    })();
-    return;
-  }
   if (hit(e, "#saveUrl")) {
     void saveConfigState({ baseUrl: (el("setUrl") as HTMLInputElement).value });
     return;

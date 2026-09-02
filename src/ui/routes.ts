@@ -23,7 +23,7 @@ import { serveEvidence, serveThumb } from "./evidence.js";
 import { openLive } from "./live.js";
 import { readNarration } from "../report/narration.js";
 import { learningNow, statusBody } from "./payload.js";
-import { pickFolder, settingsView, useProject } from "./project.js";
+import { applyBaseUrl, settingsView } from "./project.js";
 import { startCheck, stopCheck } from "./run.js";
 import { currentProject, session } from "./session.js";
 import { saveSettings, validBaseUrl } from "./stored-settings.js";
@@ -46,19 +46,6 @@ export async function handle(req: Request, server: Server<undefined>): Promise<R
     return openLive(req, server) ? undefined : text(400, "expected a websocket upgrade");
   }
 
-  if (req.method === "POST" && (url.pathname === "/api/project" || url.pathname === "/api/pick")) {
-    let dir: string | null;
-    if (url.pathname === "/api/pick") {
-      dir = await pickFolder();
-      if (!dir) return json(200, { cancelled: true });
-    } else {
-      const body = await readJson(req);
-      dir = typeof body.dir === "string" ? body.dir : null;
-      if (!dir) return json(400, { error: "no folder given" });
-    }
-    return json(200, await useProject(dir));
-  }
-
   // Configuration is its own act, not something the run does on the way past.
   // GET reports what lookout is pointed at and whether those targets answer;
   // POST changes it and remembers, so the next launch starts configured.
@@ -72,20 +59,20 @@ export async function handle(req: Request, server: Server<undefined>): Promise<R
         }
         session.settings.baseUrl = cleaned ? validBaseUrl(cleaned) : null;
       }
-      if (typeof body.projectDir === "string" && body.projectDir.trim()) {
-        session.settings.projectDir = body.projectDir.trim();
-      }
       // Consent to click this project's calls to action, stored against the
-      // directory it was given for. Read after projectDir above, so a request
-      // that points lookout somewhere new and says yes in the same breath
-      // consents to the new project rather than to the one being left.
+      // directory it was given for, which is the project this server serves.
       if (typeof body.navigation === "boolean") {
-        const dir = session.settings.projectDir ?? resolved.projectDir;
-        session.settings.navigationFor = body.navigation ? dir : null;
+        session.settings.navigationFor = body.navigation ? resolved.projectDir : null;
       }
-      await saveSettings(session.settings);
+      // A server that has no config has nowhere to keep settings and no
+      // targets to apply them to: say so rather than writing a `.lookout/`
+      // into whatever directory it was started in.
+      if (!resolved.configPath) {
+        return json(409, { error: "no lookout.config.ts here; nothing to remember settings for" });
+      }
+      await saveSettings(resolved.projectDir, session.settings);
       // Re-resolve so the new base URL reaches the targets immediately.
-      if (session.settings.projectDir) await useProject(session.settings.projectDir);
+      await applyBaseUrl();
     }
     return json(200, await settingsView());
   }

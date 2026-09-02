@@ -21,7 +21,7 @@ export function paintSettings(): void {
   if (page.config.error) {
     box.innerHTML = '<div class="tgt down">' + esc(page.config.error) + "</div>";
   } else if (!page.config.configured) {
-    box.innerHTML = '<div class="tgt">Choose a folder holding lookout.config.ts.</div>';
+    box.innerHTML = '<div class="tgt">No lookout.config.ts here. Restart lookout ui in the project you want to look at.</div>';
   } else if (!page.config.targets.length) {
     box.innerHTML = '<div class="tgt">That config declares no targets.</div>';
   } else {
@@ -57,9 +57,9 @@ export function paintSettings(): void {
  * So the row says which of the two runs play will spend, in words, rather than
  * leaving it to the state of an icon.
  *
- * Off is the state a project starts in, and pointing the page at a different
- * project puts it back there, because the consent is stored against the
- * directory it was given for.
+ * Off is the state a project starts in, and the yes is stored against the
+ * directory it was given for, so a `.lookout/` copied into another checkout
+ * does not carry permission to click that one's buttons.
  */
 export function paintNav(): void {
   const btn = el("navToggle") as HTMLButtonElement;
@@ -70,9 +70,9 @@ export function paintNav(): void {
   btn.textContent = on ? "Turn off" : "Turn on";
   btn.setAttribute("aria-pressed", String(on));
   btn.setAttribute("aria-label", on ? "Calls to action will be clicked" : "Click the calls to action");
-  btn.title = ready ? "" : "Choose a project first";
+  btn.title = ready ? "" : "This directory has no lookout.config.ts";
   const state = el("setNavState");
-  state.textContent = !ready ? "choose a project first" : on ? "On for this project" : "Off";
+  state.textContent = !ready ? "no config here" : on ? "On for this project" : "Off";
   state.classList.toggle("on", ready && on);
   el("setNavHint").textContent = on
     ? "The next run clicks this project's buttons and links and photographs what they open, "

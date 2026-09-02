@@ -26,19 +26,21 @@
  *   ui/watch.ts      noticing a run wrote something, so the socket can say so
  *   ui/evidence.ts   screenshots and thumbnails of them
  *   ui/run.ts        the check the play button starts, and stops
- *   ui/project.ts    where lookout is pointed, and whether its targets answer
+ *   ui/project.ts    what the settings panel shows, and whether targets answer
  *   ui/session.ts    the state one server process carries between requests
  *   ui/page.ts       the page itself
  */
-import { evidenceDir, loadConfig } from "../config.js";
+import { lookoutDir, loadConfig } from "../config.js";
+import { locateConfig, nearestProjectRoot } from "../config-locate.js";
+import { createConfig, ensureIgnored } from "../config-write.js";
 import { live } from "../ui/live.js";
 import { handle } from "../ui/routes.js";
 import { stopCheck } from "../ui/run.js";
 import { session, setCurrentProject } from "../ui/session.js";
 import { startWatching, stopWatching } from "../ui/watch.js";
-import { loadSettings } from "../ui/stored-settings.js";
+import { EMPTY_SETTINGS, loadSettings } from "../ui/stored-settings.js";
 import { execFileAsync, num, str, type Parsed } from "../util.js";
-import type { ResolvedConfig } from "../types.js";
+import { LookoutError, type ResolvedConfig } from "../types.js";
 
 // Re-exported because the page's own test reads it, and because `lookout ui`
 // is the name of this thing however its parts are arranged.
@@ -66,30 +68,61 @@ export { pageHtml } from "../ui/page.js";
  */
 export const HTTP_IDLE_SECONDS = 255;
 
+/**
+ * The project this server serves, and its config, written when there is none.
+ *
+ * `lookout ui` is a verb like any other now: it looks at the directory it was
+ * started in. It used to be re-pointable at runtime and to remember where it
+ * had been pointed, which is what put its settings in the operator's home;
+ * with the settings inside the project, a page that could be re-pointed would
+ * have to move its own storage mid-session for no gain over starting it in the
+ * other directory.
+ *
+ * A project with no config gets one, rather than the refusal `ensureProjectConfig`
+ * gives a verb that is about to go and look at something: this is the screen a
+ * person configures a project ON, so stopping here to ask them to edit a file
+ * and re-run is the wrong shape. A directory that is no project at all is
+ * refused instead of littered.
+ */
+export async function projectToServe(parsed: Parsed): Promise<string | null> {
+  if (str(parsed.flags.config) ?? str(parsed.flags.url)) return null;
+  const cwd = process.cwd();
+  const located = locateConfig(cwd);
+  if (located) return located.projectDir;
+  const root = nearestProjectRoot(cwd);
+  if (!root) {
+    throw new LookoutError(
+      `no project here: ${cwd} holds no lookout.config.ts and is not a repository`,
+      "run `lookout ui` from a project root, or pass --url for a one-off look",
+    );
+  }
+  const path = await createConfig(root, {});
+  await ensureIgnored(root);
+  console.error(`lookout: wrote ${path}`);
+  console.error("  set the base URL under the cog, or edit the file; the page reads it either way.");
+  return root;
+}
+
 export async function ui(parsed: Parsed): Promise<number> {
-  // The page is where lookout gets configured now, so the server has to be able
-  // to start with nothing configured. It used to refuse, which meant the one
-  // screen that can fix an unconfigured project could not be opened until the
-  // project was already configured.
-  session.settings = await loadSettings();
-  const explicit = str(parsed.flags.config) ?? str(parsed.flags.url);
+  const root = await projectToServe(parsed);
+  session.settings = root ? await loadSettings(root) : { ...EMPTY_SETTINGS };
   const baseUrl = str(parsed.flags["base-url"]) ?? session.settings.baseUrl ?? undefined;
-  const startIn = explicit ? undefined : session.settings.projectDir ?? undefined;
   let resolved: ResolvedConfig;
   try {
     resolved = await loadConfig({
       configPath: str(parsed.flags.config),
       url: str(parsed.flags.url),
       baseUrl,
-      ...(startIn ? { cwd: startIn } : {}),
+      ...(root ? { cwd: root } : {}),
     });
-    if (resolved.configPath) session.settings.projectDir = resolved.projectDir;
   } catch {
-    // Nothing to point at yet. Serve the page anyway and let it ask.
+    // A config that will not load: serve the page anyway rather than leaving
+    // the one screen that shows what lookout knows unopenable over a syntax
+    // error in the file it was about to read.
     resolved = {
       config: { targets: [] },
       configPath: null,
-      projectDir: startIn ?? process.cwd(),
+      projectDir: root ?? process.cwd(),
       project: "lookout",
     };
   }
@@ -115,7 +148,7 @@ export async function ui(parsed: Parsed): Promise<number> {
 
   const href = `http://127.0.0.1:${port}/`;
   console.log(`lookout ui: ${href}`);
-  console.log(`  watching ${evidenceDir(resolved)}`);
+  console.log(`  watching ${lookoutDir(resolved)}`);
   console.log("  it reads the backlog, so it shows every open issue, run or no run.");
   console.log("  findings appear as they land, pushed over a socket, not polled.");
   console.log("  Ctrl-C to stop.");

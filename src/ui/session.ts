@@ -90,7 +90,7 @@ export const session: {
    */
   lastFailure: { code: number | null; message: string } | null;
 } = {
-  settings: { projectDir: null, baseUrl: null, navigationFor: null },
+  settings: { baseUrl: null, navigationFor: null },
   running: null,
   lastFailure: null,
 };

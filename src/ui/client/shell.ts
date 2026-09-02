@@ -86,7 +86,7 @@ export function paintPlay(): void {
       ? "Stop the run: it is checking " + where + ". This also stops the judge it started."
       : ready
         ? "Find and fix: one check of " + where + ", stopping at the first issue." + willClick()
-        : "Open settings (the cog) and choose a project first";
+        : "No lookout.config.ts here: restart lookout ui in the project you want to look at";
 }
 
 /**

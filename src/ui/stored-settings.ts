@@ -7,18 +7,19 @@
  * from running it, and the answer is worth keeping, so it lives here rather
  * than in the run.
  *
- * Stored under the lookout home (shared with incidents), not in any project:
- * it describes which project the viewer is looking at, so it cannot live inside
- * one of them.
+ * Stored in the project it describes, `<project>/.lookout/ui.json`. It used to
+ * live in the operator's home because it named which project the page was
+ * pointed at, and a pointer cannot live inside the thing it points to. The
+ * page is not pointed any more: `lookout ui` serves the project it was started
+ * in, the way every other verb does, so what is left to remember is that
+ * project's own base URL and its calls-to-action consent.
  */
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { lookoutHome } from "../home.js";
+import { LOOKOUT_DIR } from "../config-locate.js";
 
 export interface UiSettings {
-  /** Project root holding the lookout.config.ts to drive. */
-  projectDir: string | null;
   /**
    * Where the app actually is, when it is not where the config says.
    *
@@ -30,28 +31,31 @@ export interface UiSettings {
   /**
    * The project directory whose calls to action may be clicked, or null.
    *
-   * Consent is stored WITH the directory it was given for rather than as a
-   * bare boolean, so pointing the page at a second project does not carry the
-   * first one's yes across. Navigation discovery actuates what it plans,
-   * destructive controls included, and that is a promise about one repository
-   * on one dev stack, not a preference about the reader.
+   * Still the directory rather than a bare boolean, even though the file now
+   * lives inside that directory: `.lookout/` gets copied, and worktree tooling
+   * copies it wholesale. A `true` would carry one checkout's yes into another,
+   * and navigation discovery actuates what it plans, destructive controls
+   * included. That is a promise about one repository on one dev stack, not a
+   * preference about the reader.
    */
   navigationFor: string | null;
 }
 
-export const EMPTY_SETTINGS: UiSettings = { projectDir: null, baseUrl: null, navigationFor: null };
+export const EMPTY_SETTINGS: UiSettings = { baseUrl: null, navigationFor: null };
 
-export function settingsPath(): string {
-  return join(lookoutHome(), "ui.json");
+export function settingsPath(projectDir: string): string {
+  return join(projectDir, LOOKOUT_DIR, "ui.json");
 }
 
-export async function loadSettings(): Promise<UiSettings> {
-  const p = settingsPath();
+export async function loadSettings(projectDir: string): Promise<UiSettings> {
+  const p = settingsPath(projectDir);
   if (!existsSync(p)) return { ...EMPTY_SETTINGS };
   try {
+    // `projectDir` is deliberately not read back: a file written by an older
+    // lookout carries one, and it named the project the page was pointed at,
+    // which is a question this file no longer answers.
     const raw = JSON.parse(await readFile(p, "utf8")) as Partial<UiSettings>;
     return {
-      projectDir: typeof raw.projectDir === "string" ? raw.projectDir : null,
       baseUrl: typeof raw.baseUrl === "string" && raw.baseUrl.trim() ? raw.baseUrl.trim() : null,
       navigationFor:
         typeof raw.navigationFor === "string" && raw.navigationFor.trim() ? raw.navigationFor.trim() : null,
@@ -63,9 +67,9 @@ export async function loadSettings(): Promise<UiSettings> {
   }
 }
 
-export async function saveSettings(s: UiSettings): Promise<void> {
-  const p = settingsPath();
-  await mkdir(lookoutHome(), { recursive: true });
+export async function saveSettings(projectDir: string, s: UiSettings): Promise<void> {
+  const p = settingsPath(projectDir);
+  await mkdir(join(projectDir, LOOKOUT_DIR), { recursive: true });
   const tmp = `${p}.tmp`;
   await writeFile(tmp, JSON.stringify(s, null, 2));
   await rename(tmp, p);
