@@ -63,7 +63,10 @@ async function view(
     window.scrollTo(0, 0);
   });
   await page.waitForTimeout(400);
-  await page.screenshot({ path: join(out, `${name}.png`), fullPage: true });
+  // A card mid-verify pulses its pill and blinks a cursor on its feed. Those
+  // are infinite animations, and two captures of one would differ by whatever
+  // frame each happened to land on. Playwright parks them at a fixed state.
+  await page.screenshot({ path: join(out, `${name}.png`), fullPage: true, animations: "disabled" });
   await ctx.close();
 }
 
