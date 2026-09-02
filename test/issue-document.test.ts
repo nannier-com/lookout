@@ -637,3 +637,35 @@ describe("what the check recorded, and what the verifier said", () => {
     expect(md).not.toContain("**What the check recorded**");
   });
 });
+
+describe("what capture recorded about the view wins over the config", () => {
+  test("url, viewport, scale, scheme, element and the state's affordance come from the finding when the workspace is gone", async () => {
+    const { r, backlog, id } = await withBacklog([
+      finding({
+        state: "menu-open",
+        view: {
+          url: "http://127.0.0.1:5999/dash?theme=dark",
+          finalUrl: "http://127.0.0.1:5999/dash?theme=dark#top",
+          viewport: { width: 412, height: 915 },
+          dpr: 3,
+          schemeMechanism: "url-param",
+          element: "main",
+          stateDescription: "the navigation drawer open",
+          stateAffordance: { selector: "header button", role: "button", name: "Menu", href: null, outcome: "overlay" },
+          design: "/abs/design.png",
+          designHash: "d9",
+        },
+      } as Partial<BacklogFinding>),
+    ]);
+    // A config that says something else, to prove it is not consulted.
+    r.config = { targets: [{ name: "app", url: "http://elsewhere:1", routes: ["/dash"] }], viewports: { phone: { width: 100, height: 100 } } } as ResolvedConfig["config"];
+    const md = await render(r, backlog, id);
+    expect(md).toContain("- url: http://127.0.0.1:5999/dash?theme=dark, which landed on http://127.0.0.1:5999/dash?theme=dark#top");
+    expect(md).toContain("- viewport: 412×915 css px at 3× (the screenshot is 1236 px wide)");
+    expect(md).not.toContain("412×915 css px at 3× (the screenshot is 1236 px wide) (per the current config)");
+    expect(md).toContain("- scheme via: the url parameter, already in the url above");
+    expect(md).toContain("- element: only `main` was photographed, not the whole page");
+    expect(md).toContain('- state `menu-open`: the navigation drawer open; reached by clicking button "Menu" (`header button`), expecting overlay');
+    expect(md).toContain("- design hand-off: /abs/design.png (sha256 d9)");
+  });
+});

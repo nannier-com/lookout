@@ -55,6 +55,8 @@ export interface SynthesizedStates {
   sessionDestructive: Set<string>;
   /** Navigation-outcome names: their shots show another page, so the route's design reference must not ride along. */
   suppressDesign: Set<string>;
+  /** What was clicked to reach each state, and what was expected, for the shot record. */
+  affordances: Map<string, { selector: string; role: string; name: string; href: string | null; outcome: string }>;
 }
 
 export function synthStates(args: {
@@ -78,10 +80,18 @@ export function synthStates(args: {
     states: [],
     sessionDestructive: new Set(),
     suppressDesign: new Set(),
+    affordances: new Map(),
   };
   for (const { planned, live } of survivors) {
     if (planned.risk === "session-destructive") out.sessionDestructive.add(planned.name);
     if (planned.outcome === "navigation") out.suppressDesign.add(planned.name);
+    out.affordances.set(planned.name, {
+      selector: live.selector,
+      role: live.role,
+      name: live.name,
+      href: live.href,
+      outcome: planned.outcome,
+    });
     out.states.push([
       planned.name,
       {
@@ -159,7 +169,7 @@ export async function runNavChecks(args: {
     .filter((c) => sameOrigin(c.live.href, args.routeUrl))
     .slice(0, cap);
 
-  for (const { live } of checks) {
+  for (const { check, live } of checks) {
     let status: number | null = null;
     const onResponse = (r: { status(): number; request(): { isNavigationRequest(): boolean } }) => {
       if (r.request().isNavigationRequest()) status = r.status();
@@ -178,14 +188,17 @@ export async function runNavChecks(args: {
           type: "dead-interaction",
           severity: "warning",
           message: `"${live.name}" (${live.href ?? live.selector}) did nothing when clicked`,
-          meta: { name: live.name, href: live.href },
+          // The selector as well as the name: a control found by its
+          // accessible name alone may not be findable in the source.
+          meta: { name: live.name, href: live.href, selector: live.selector, role: live.role,
+            ...(check.expectedPath ? { expectedPath: check.expectedPath } : {}) },
         });
       } else if (status !== null && status >= 400) {
         findings.push({
           type: "request-failed",
           severity: "warning",
           message: `"${live.name}" led to HTTP ${status} at ${after}`,
-          meta: { name: live.name, status, url: after },
+          meta: { name: live.name, status, url: after, method: "GET", resourceType: "document" },
         });
       }
       if (after !== before) {

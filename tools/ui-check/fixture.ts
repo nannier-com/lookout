@@ -292,6 +292,16 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
       "The drawer lists the same routes as the header navigation",
       "The drawer closes again on escape",
     ],
+    // What capture recorded about the view: the document prints these ahead
+    // of anything it would reconstruct from the config.
+    view: {
+      url: "http://127.0.0.1:5999/",
+      viewport: { width: 1440, height: 900 },
+      dpr: 2,
+      schemeMechanism: "emulate",
+      stateDescription: "the navigation drawer open",
+      stateAffordance: { selector: "header button[aria-label=\"Menu\"]", role: "button", name: "Menu", href: null, outcome: "overlay" },
+    },
     evidence: [
       { shotId: "web/app/root/menu-open/desktop/dark", path: "web/app/root/menu-open--desktop-dark.png", hash: "h5", at: AT },
     ],

@@ -162,6 +162,9 @@ export function selectorsOf(f: DeterministicFinding): string[] {
   if (f.type === "horizontal-overflow" && typeof f.meta?.offenderPath === "string") {
     return f.meta.offenderPath ? [f.meta.offenderPath] : [];
   }
+  if (f.type === "dead-interaction" && typeof f.meta?.selector === "string") {
+    return f.meta.selector ? [f.meta.selector] : [];
+  }
   return [];
 }
 

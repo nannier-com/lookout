@@ -240,3 +240,12 @@ describe("the sidecar on disk", () => {
     expect(parseSidecar("not json")).toBeNull();
   });
 });
+
+describe("a dead control offers its selector to the join", () => {
+  test("so the element that did nothing can be named in the source", () => {
+    expect(
+      selectorsOf({ type: "dead-interaction", severity: "warning", message: "x", meta: { name: "Menu", href: null, selector: "header button" } }),
+    ).toEqual(["header button"]);
+    expect(selectorsOf({ type: "dead-interaction", severity: "warning", message: "x", meta: { name: "Menu", href: null } })).toEqual([]);
+  });
+});

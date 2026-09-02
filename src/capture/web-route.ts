@@ -29,6 +29,7 @@ import { harvestRoute } from "../navigate/harvest.js";
 import { NavSkip, runNavChecks, synthStates, type SynthesizedStates } from "../navigate/execute.js";
 import { routeKey, type RouteHarvest } from "../navigate/store.js";
 import { nowIso, sha256 } from "../util.js";
+import { DEVICE_SCALE_FACTOR } from "../types.js";
 
 export interface RouteCtx extends WebCaptureOptions {
   formFactors: FormFactor[];
@@ -155,7 +156,8 @@ export async function captureRoute(
           ? await element.screenshot({ animations: "disabled" })
           : await page.screenshot({ fullPage: true, animations: "disabled" });
 
-        findings.push(...checkOffOrigin(page.url(), target.def.url));
+        const landed = page.url();
+        findings.push(...checkOffOrigin(landed, target.def.url));
         findings.push(...(await blankShotGuard(png)));
         findings.push(...(await checkHorizontalOverflow(page, element)));
         const axeHere =
@@ -221,6 +223,18 @@ export async function captureRoute(
           // design-parity would judge the wrong screen against it.
           design: synth?.suppressDesign.has(stateName) ? undefined : route.design,
           ...(designHash && !synth?.suppressDesign.has(stateName) ? { designHash } : {}),
+          // How this view was photographed, for whoever has to put the same
+          // screen in front of themselves: none of it was recorded before, and
+          // a document could only reconstruct it from a config that may have
+          // changed since.
+          url: schemeUrl(resolved, route.url, scheme),
+          ...(landed !== schemeUrl(resolved, route.url, scheme) ? { finalUrl: landed } : {}),
+          viewport: ctx.viewports[formFactor],
+          dpr: DEVICE_SCALE_FACTOR,
+          schemeMechanism: resolved.config.scheme?.mode ?? "emulate",
+          ...(elementSel ? { element: elementSel } : {}),
+          ...(recipe?.description ? { stateDescription: recipe.description } : {}),
+          ...(synth?.affordances.get(stateName) ? { stateAffordance: synth.affordances.get(stateName) } : {}),
           capturedAt,
           runId: ctx.runId,
           deterministicFindings: findings,
