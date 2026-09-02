@@ -96,6 +96,7 @@ export async function runCapture(parsed: Parsed): Promise<{
     states: parsed.flags["no-states"] ? "off" : "all",
     headless: !parsed.flags.headed,
     provenance: resolved.config.provenance !== false && !parsed.flags["no-provenance"],
+    edgeClip: !parsed.flags["no-edge-clip"],
     runId: runId("web"),
     onProgress: (line) => {
       if (!quiet) console.log(line);

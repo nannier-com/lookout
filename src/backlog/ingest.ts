@@ -35,6 +35,10 @@ const DETERMINISTIC_MAP: Record<
   "page-error": { category: "render-failure", attribute: "page-error" },
   "request-failed": { category: "render-failure", attribute: "request-failed" },
   "horizontal-overflow": { category: "layout-overflow", attribute: "horizontal-scroll" },
+  // Refined per clipper below: content lost to the viewport and content lost
+  // inside a box that hides its overflow are different fixes, so they must not
+  // share a fingerprint.
+  "edge-clipped": { category: "layout-overflow", attribute: "edge-clipped" },
   "axe-violation": { category: "a11y", attribute: "axe" },
   "blank-shot": { category: "render-failure", attribute: "blank" },
   "capture-error": { category: "render-failure", attribute: "capture-error" },
@@ -86,15 +90,43 @@ export function deterministicToFindings(
       const attribute =
         df.type === "axe-violation" && df.meta && typeof df.meta.ruleId === "string"
           ? `axe-${df.meta.ruleId}`
-          : map.attribute;
+          : df.type === "edge-clipped" && df.meta && typeof df.meta.clipper === "string"
+            ? `edge-clipped-${df.meta.clipper}`
+            : map.attribute;
       // There is no judge on this channel, but axe reports the violating
       // nodes' selector paths, and a node literally inside <nav>, <header> or
       // <footer> is chrome by the only definition capture can check.
-      const region =
+      // The same reasoning for the clip check: it names the elements it
+      // measured, and one literally inside <nav>, <header> or <footer> is
+      // chrome by the only definition capture can check. A clipped header
+      // control is one defect for the whole application, not one per route.
+      const selectors =
         df.type === "axe-violation" && df.meta && Array.isArray(df.meta.targets)
+          ? (df.meta.targets as unknown[]).filter((t): t is string => typeof t === "string")
+          : df.type === "edge-clipped" && df.meta && Array.isArray(df.meta.offenders)
+            ? (df.meta.offenders as unknown[])
+                .map((o) => {
+                  // The clipping box leads, because it is usually the more
+                  // telling half: a path stops at the first id it meets, so a
+                  // clipped element carrying one reports "#acct" and says
+                  // nothing about its ancestry, while the box that clipped it
+                  // is often the landmark itself.
+                  const r = (o ?? {}) as { path?: unknown; clipperPath?: unknown };
+                  const path = typeof r.path === "string" ? r.path : "";
+                  const clipper = typeof r.clipperPath === "string" ? r.clipperPath : "";
+                  return clipper ? `${clipper} > ${path}` : path;
+                })
+                .filter((p) => p !== "")
+            : [];
+      const region =
+        selectors.length > 0
           ? regionFromSelectors(
-              (df.meta.targets as unknown[]).filter((t): t is string => typeof t === "string"),
-              typeof df.meta.nodeCount === "number" ? df.meta.nodeCount : 0,
+              selectors,
+              typeof df.meta?.nodeCount === "number"
+                ? df.meta.nodeCount
+                : typeof df.meta?.clipped === "number"
+                  ? df.meta.clipped
+                  : selectors.length,
             )
           : undefined;
       out.push({

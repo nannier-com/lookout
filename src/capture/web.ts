@@ -42,6 +42,12 @@ export interface WebCaptureOptions {
   headless: boolean;
   /** Per-shot rendering-provenance sidecars; on unless config or flag opts out. */
   provenance: boolean;
+  /**
+   * The clipped-content measurement. On unless --no-edge-clip says otherwise:
+   * it costs one page.evaluate and no model money, and what it measures is the
+   * kind of defect a judge can only guess at.
+   */
+  edgeClip: boolean;
   runId: string;
   onProgress?: (line: string) => void;
   /**

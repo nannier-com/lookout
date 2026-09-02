@@ -5,6 +5,7 @@
 // ticket came to print its own heading as the whole of what was wrong.
 import { describe, expect, test } from "bun:test";
 import { explainDeterministic } from "../src/backlog/explain.js";
+import { DETERMINISTIC_TYPES } from "../src/backlog/ingest.js";
 import type { DeterministicFinding } from "../src/types.js";
 
 const axe = (meta: Record<string, unknown>): DeterministicFinding => ({
@@ -170,8 +171,17 @@ describe("every check has a title that is not its message", () => {
     { type: "stale-frame", severity: "warning", message: "two samples differed" },
     { type: "off-origin", severity: "error", message: "capture landed on http://accounts.example", meta: { landed: "http://accounts.example", expected: "http://127.0.0.1:5999" } },
     { type: "dead-interaction", severity: "warning", message: '"Menu" (header button) did nothing when clicked', meta: { name: "Menu", href: null } },
+    { type: "edge-clipped", severity: "error", message: '"Account" extends 43px past the right edge of the viewport and the page does not scroll to reach it', meta: { clipper: "viewport", offenderPath: "header > button:nth-of-type(2)", clipped: 2, offenders: [{ path: "header > button:nth-of-type(2)", tag: "button", text: "Account", overRight: 43, overBottom: 0 }] } },
+    { type: "edge-clipped", severity: "error", message: '"Last seen" extends 88px past the right edge of an ancestor that hides its overflow', meta: { clipper: "ancestor", offenderPath: "table > thead > tr > th:nth-of-type(5)", clipped: 1, offenders: [{ path: "table > thead > tr > th:nth-of-type(5)", tag: "th", text: "Last seen", overRight: 88, overBottom: 0 }] } },
     axe({}),
   ];
+
+  // The list above is hand-written, so a check type added later would get no
+  // prose and nothing would say so: every assertion here would keep passing
+  // over a type it never saw. This is the assertion that fails instead.
+  test("the list covers every check lookout can file", () => {
+    expect([...new Set(every.map((df) => df.type))].sort()).toEqual([...DETERMINISTIC_TYPES].sort());
+  });
 
   test("no title leads with a rule id, and none is the raw message", () => {
     for (const df of every) {
@@ -190,7 +200,11 @@ describe("every check has a title that is not its message", () => {
     expect(t(6)).toBe('lookout could not open the "menu-open" state to photograph it');
     expect(t(9)).toBe("The capture landed on http://accounts.example instead of the application");
     expect(t(10)).toBe('"Menu" did nothing when clicked');
-    expect(t(11)).toBe("Heading levels should only increase by one");
+    // Named by the words on screen, not by the selector: the point of the clip
+    // check is that a person can go and look at the thing it names.
+    expect(t(11)).toBe('"Account" is cut off at the edge of the screen with no way to scroll to it (and 1 more)');
+    expect(t(12)).toBe('"Last seen" is cut off by the area that holds it');
+    expect(t(13)).toBe("Heading levels should only increase by one");
   });
 
   test("observed carries the record's detail; expected is the fixed state", () => {

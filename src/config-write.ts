@@ -98,6 +98,12 @@ ${startHint}      routes: ["/"],
   // Project-specific judging rules, relative to this file.
   // rubric: "./rubric.md",
   // neverFile: ["the marketing hero intentionally overflows on phone"],
+
+  // Knobs for the checks that lookout MEASURES, as opposed to the rules above,
+  // which are written for the judges. A measurement is never suppressed by a
+  // neverFile line, so anything that renders outside its box on purpose (a
+  // carousel track, a marquee) is named here instead.
+  // checks: { edgeClip: { ignore: [".carousel__track"] } },
 };
 
 export default config;

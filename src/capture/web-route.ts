@@ -22,6 +22,7 @@ import {
   detectAnimated,
 } from "./checks.js";
 import { runAxe } from "./axe.js";
+import { checkEdgeClipping, type ScrollerNote } from "./check-clip.js";
 import { shotId, writeShotFile, writeShotSidecar, type ShotAxes } from "./store.js";
 import { attachProvenance, buildSidecar, collectProvenanceInPage, selectorsOf } from "./provenance.js";
 import { resolveElement, schemeUrl, setScheme, settle } from "./web-page.js";
@@ -160,6 +161,25 @@ export async function captureRoute(
         findings.push(...checkOffOrigin(landed, target.def.url));
         findings.push(...(await blankShotGuard(png)));
         findings.push(...(await checkHorizontalOverflow(page, element)));
+        // Content clipped where nothing scrolls, which the page-scroll check
+        // above measures and throws away. Runs after it on purpose: when the
+        // document DOES scroll sideways that check owns the defect, and this
+        // one stays silent rather than filing the same thing twice.
+        let scrollers: ScrollerNote[] = [];
+        if (ctx.edgeClip) {
+          try {
+            const clip = await checkEdgeClipping(page, element, {
+              ignore: resolved.config.checks?.edgeClip?.ignore ?? [],
+              elementSelector: elementSel ?? null,
+            });
+            findings.push(...clip.findings);
+            scrollers = clip.scrollers;
+          } catch (e) {
+            // A measurement that cannot be taken costs the measurement, never
+            // the shot: the same stance the provenance walk takes.
+            ctx.progress(`clip check failed on ${shotId(axes)}: ${(e as Error).message.slice(0, 120)}`);
+          }
+        }
         const axeHere =
           ctx.axe === "all" || (ctx.axe === "route" && formFactor === ctx.formFactors[0]);
         if (axeHere && stateName === "rest") {
@@ -217,6 +237,7 @@ export async function captureRoute(
           width: meta.width ?? 0,
           height: meta.height ?? 0,
           animated,
+          ...(scrollers.length > 0 ? { scrollers } : {}),
           ...(provenanceRel ? { provenance: provenanceRel } : {}),
           // A navigation state's pixels show another page; the route's design
           // reference describes its rest render, so it must not ride along or

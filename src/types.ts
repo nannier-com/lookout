@@ -231,6 +231,24 @@ export interface LookoutConfig {
   /** Navigation discovery; see NavigationConfig for the click-everything warning. */
   navigation?: NavigationConfig;
   /**
+   * Knobs for the deterministic checks that need one.
+   *
+   * Only the checks that can be wrong about a project belong here. Most cannot
+   * be: a console error is a console error. The clip check can, because a
+   * project may deliberately render outside a box (a carousel track, a marquee)
+   * and no measurement can tell that from a defect.
+   *
+   * NOT the same thing as `neverFile`, which speaks to the judges. These select
+   * what is measured; a measurement lookout does take is never suppressed by a
+   * rule written for a model.
+   */
+  checks?: {
+    edgeClip?: {
+      /** CSS selectors whose subtrees are exempt from the clip measurement. */
+      ignore?: string[];
+    };
+  };
+  /**
    * Per-shot rendering-provenance sidecars (which elements rendered where,
    * and which components and source files produced them, where the page's
    * dev tooling says). Default TRUE, a conscious departure from the
@@ -292,6 +310,7 @@ export interface DeterministicFinding {
     | "page-error"
     | "request-failed"
     | "horizontal-overflow"
+    | "edge-clipped"
     | "axe-violation"
     | "blank-shot"
     | "capture-error"
@@ -323,6 +342,17 @@ export interface ShotRecord {
   height: number;
   /** True when two samples 400ms apart differed (hash caching unreliable). */
   animated: boolean;
+  /**
+   * Horizontal scrollers in this frame, and how much of each is off screen.
+   *
+   * Context, never a finding: content inside one is reachable, and without
+   * knowing that, a judge reading a table whose last column is cut off at the
+   * frame's edge cannot tell a defect from a scroll. Deliberately NOT part of
+   * the group hash, the same rule `animated` follows: it describes how the
+   * page is built, not what it looks like, so it must never re-judge anything
+   * on its own.
+   */
+  scrollers?: { path: string; tag: string; width: number; hiddenWidth: number }[];
   /** Absolute path of this route's design hand-off image, when one is configured. */
   design?: string;
   /**

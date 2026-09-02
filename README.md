@@ -41,7 +41,7 @@ lookout targets               # resolve + probe the configured targets
 
 | verb      | what it does |
 | --------- | ------------ |
-| `capture` | screenshots + deterministic findings (console errors, overflow, axe), no AI |
+| `capture` | screenshots + deterministic findings (console errors, overflow, clipped content, axe), no AI |
 | `check`   | capture + AI judge against the base rubric plus the project rubric; findings merge into `.lookout/backlog.json` |
 | `verify-fix` | rule on a claimed fix: re-capture and re-judge one issue's routes, then close it or leave it open with a note on what the judge still sees |
 | `verify`  | judge the app against acceptance criteria (`--criteria ticket.md` or inline text); per-criterion pass / fail / not-visually-verifiable with evidence |
@@ -387,6 +387,12 @@ const config: LookoutConfig = {
   // project does on purpose.
   neverFile: ["the marketing hero intentionally overflows on phone"],
 
+  // Knobs for the checks lookout MEASURES, as opposed to neverFile above,
+  // which speaks to the judges. A measurement is never suppressed by a rule
+  // written for a model, so anything that renders outside its box on purpose
+  // is named here instead.
+  checks: { edgeClip: { ignore: [".carousel__track"] } },
+
   // Native apps (capture with --platforms ios,android). Both schemes on a
   // device need appearanceParam: the app must read the scheme from the deep
   // link, because OS-level appearance flips cannot reach apps that manage
@@ -501,6 +507,18 @@ the deviation is visible without looking for it, and never quotes a pixel value
 it did not read off the screen. And it is told not to rule on anything a still
 image cannot show, such as focus order, which is what the deterministic axe pass
 and the console checks are for.
+
+Where a defect IS a measurement, lookout takes it rather than asking. The
+horizontal-overflow check owns content that makes the page scroll sideways, and
+the clip check owns content drawn outside the box that holds it where nothing
+scrolls to reach it: a control pushed past a header with hidden overflow, a
+table column cut off by its panel. Both arrive already verified, name the
+elements they measured, and reach the judges as `signals:` lines the rubric
+tells them not to restate. The clip check stays silent about content inside a
+horizontal scroller (it is reachable), a label truncated with an ellipsis, and
+anything hidden on purpose; a project can exempt more with
+`checks.edgeClip.ignore`, and `--no-edge-clip` turns the whole check off for a
+run (`verify-fix` refuses that flag, for the same reason it refuses `--axe off`).
 
 ### Skills that improve themselves
 

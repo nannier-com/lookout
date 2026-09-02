@@ -116,6 +116,15 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
   if (str(parsed.flags.axe) === "off") {
     throw new LookoutError("verify-fix cannot rule with --axe off", "every accessibility criterion would be met without the check running; drop the flag");
   }
+  // Same reasoning: a clipped-content criterion is ruled by whether the check
+  // fires on the fresh capture, so silencing the check would rule every one of
+  // them met without measuring anything.
+  if (parsed.flags["no-edge-clip"]) {
+    throw new LookoutError(
+      "verify-fix cannot rule with --no-edge-clip",
+      "every clipped-content criterion would be met without the check running; drop the flag",
+    );
+  }
 
   const preResolved = await loadConfig({
     configPath: str(parsed.flags.config),

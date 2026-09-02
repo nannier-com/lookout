@@ -99,6 +99,48 @@ describe("fingerprints and deterministic mapping", () => {
       "render-failure/blank/critical",
     ]);
   });
+
+  test("a clip keeps the kind of box that clipped it, and its region when every offender agrees", () => {
+    const clip = (offenders: { path: string; clipperPath: string }[], clipper = "ancestor") => ({
+      type: "edge-clipped" as const,
+      severity: "error" as const,
+      message: "content is cut off",
+      meta: { clipper, clipped: offenders.length, offenderPath: offenders[0]!.path, offenders },
+    });
+    // Two clips of the same kind on one shot are one finding by construction
+    // (the check files one per kind), so what varies here is only the region.
+    const inHeader = deterministicToFindings(
+      report([shot("web/app/home/rest/phone/dark", [clip([{ path: "#acct", clipperPath: "header" }])])]),
+    );
+    // The offender's own path stops at its id and says nothing about ancestry;
+    // the box that clipped it is the header, and that is what decides.
+    expect(inHeader[0]!.attribute).toBe("edge-clipped-ancestor");
+    expect(inHeader[0]!.category).toBe("layout-overflow");
+    expect(inHeader[0]!.region).toBe("shell-header");
+
+    // A viewport clip keeps its own attribute: content lost to the window and
+    // content lost inside a box are different fixes.
+    const atViewport = deterministicToFindings(
+      report([shot("web/app/home/rest/phone/dark", [clip([{ path: "main > div", clipperPath: "" }], "viewport")])]),
+    );
+    expect(atViewport[0]!.attribute).toBe("edge-clipped-viewport");
+    expect(atViewport[0]!.region).toBeUndefined();
+
+    // Offenders in different places name no single region, and the safe answer
+    // is none: a shell region is identity, and there is no judge here to
+    // overrule a wrong one.
+    const mixed = deterministicToFindings(
+      report([
+        shot("web/app/home/rest/phone/dark", [
+          clip([
+            { path: "#acct", clipperPath: "header" },
+            { path: "div:nth-of-type(3) > p", clipperPath: "div:nth-of-type(3)" },
+          ]),
+        ]),
+      ]),
+    );
+    expect(mixed[0]!.region).toBeUndefined();
+  });
 });
 
 describe("merge state machine", () => {

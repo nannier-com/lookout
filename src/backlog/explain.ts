@@ -210,6 +210,10 @@ const CONSEQUENCE: Partial<Record<DeterministicFinding["type"], string>> = {
   "horizontal-overflow":
     "Content runs off the side of the screen. On a narrow viewport that means a reader has to scroll " +
     "sideways to finish a line, or simply never sees the part that is off the edge.",
+  "edge-clipped":
+    "Content is drawn outside the box that is meant to hold it, and that box hides whatever leaves it. " +
+    "Nothing scrolls to bring it back, so the part that is outside is not merely awkward to reach: it " +
+    "is gone for anybody at this window size, however long they look.",
   "dead-interaction":
     "Something a person would click did nothing when it was clicked. To a user this reads as the " +
     "application being broken or frozen, with no feedback saying otherwise.",
@@ -252,6 +256,15 @@ const ABOUT_CAPTURE: ReadonlySet<DeterministicFinding["type"]> = new Set([
   "off-origin",
 ]);
 
+/** The clip check's offender list, as much of it as a title needs. */
+function offenders(v: unknown): { tag: string; text: string }[] {
+  if (!Array.isArray(v)) return [];
+  return v.map((o) => {
+    const r = (o ?? {}) as Record<string, unknown>;
+    return { tag: str(r.tag), text: str(r.text) };
+  });
+}
+
 /** One line naming the defect, from the check's record rather than its message. */
 function titleOf(df: DeterministicFinding): string {
   const m = df.meta ?? {};
@@ -267,6 +280,16 @@ function titleOf(df: DeterministicFinding): string {
       return num(m.worst) > 0
         ? `Content runs ${num(m.worst)}px off the side of the screen${str(m.offender) ? ` (${str(m.offender)})` : ""}`
         : `The page scrolls ${num(m.delta)}px sideways at ${num(m.viewport)}px wide`;
+    case "edge-clipped": {
+      // Named by what a person would look for, not by the selector: the first
+      // offender's own text is the best label the page gave us.
+      const first = offenders(m.offenders)[0];
+      const what = first?.text ? `"${head(first.text, 40)}"` : first?.tag ? `A ${first.tag}` : "Content";
+      const many = num(m.clipped) > 1 ? ` (and ${num(m.clipped) - 1} more)` : "";
+      return str(m.clipper) === "viewport"
+        ? `${what} is cut off at the edge of the screen with no way to scroll to it${many}`
+        : `${what} is cut off by the area that holds it${many}`;
+    }
     case "blank-shot":
       return "lookout photographed this screen before it had painted";
     case "capture-error":
@@ -301,6 +324,14 @@ function expectation(df: DeterministicFinding): { expected: string; observed: st
     case "horizontal-overflow":
       return {
         expected: "Nothing on the page extends past the viewport's edge, and the page does not scroll sideways.",
+        observed: `${df.message}${at(str(m.offenderPath))}`,
+      };
+    case "edge-clipped":
+      return {
+        expected:
+          str(m.clipper) === "viewport"
+            ? "Every element is fully inside the screen at this width, or the page scrolls so a reader can reach it."
+            : "Every element is fully inside the area that holds it, or that area scrolls so a reader can reach it.",
         observed: `${df.message}${at(str(m.offenderPath))}`,
       };
     case "blank-shot":

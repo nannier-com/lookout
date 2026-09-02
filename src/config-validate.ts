@@ -182,6 +182,20 @@ export function validateConfig(raw: unknown, path: string): LookoutConfig {
     navigation = n as LookoutConfig["navigation"];
   }
 
+  let checks: LookoutConfig["checks"];
+  if (raw.checks !== undefined) {
+    if (!isRecord(raw.checks)) fail(path, "checks must be an object");
+    const c = raw.checks;
+    if (c.edgeClip !== undefined) {
+      if (!isRecord(c.edgeClip)) fail(path, "checks.edgeClip must be an object");
+      const v = (c.edgeClip as Record<string, unknown>).ignore;
+      if (v !== undefined && (!Array.isArray(v) || v.some((x) => typeof x !== "string"))) {
+        fail(path, "checks.edgeClip.ignore must be an array of strings");
+      }
+    }
+    checks = c as LookoutConfig["checks"];
+  }
+
   let learn: LookoutConfig["learn"];
   if (raw.learn !== undefined) {
     if (!isRecord(raw.learn)) fail(path, "learn must be an object");
@@ -247,6 +261,7 @@ export function validateConfig(raw: unknown, path: string): LookoutConfig {
     native: raw.native as LookoutConfig["native"],
     learn,
     navigation,
+    checks,
     provenance: raw.provenance as boolean | undefined,
   };
 }

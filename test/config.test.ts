@@ -102,6 +102,28 @@ describe("validateConfig", () => {
       ),
     ).toThrow(/form factor/);
   });
+
+  test("the checks knob is validated and carried through", () => {
+    const ok = validateConfig(
+      {
+        targets: [{ name: "a", url: "http://localhost:1" }],
+        checks: { edgeClip: { ignore: [".carousel__track"] } },
+      },
+      "t",
+    );
+    expect(ok.checks?.edgeClip?.ignore).toEqual([".carousel__track"]);
+    // A knob shaped wrongly fails loudly: silently ignoring it would mean a
+    // project believing it had exempted something that was still measured.
+    expect(() =>
+      validateConfig({ targets: [{ name: "a", url: "http://localhost:1" }], checks: "yes" }, "t"),
+    ).toThrow(/checks/);
+    expect(() =>
+      validateConfig(
+        { targets: [{ name: "a", url: "http://localhost:1" }], checks: { edgeClip: { ignore: "one" } } },
+        "t",
+      ),
+    ).toThrow(/edgeClip\.ignore/);
+  });
 });
 
 describe("design hand-off references", () => {
