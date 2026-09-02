@@ -79,10 +79,10 @@ practical notes that are easier to hit than to work out.
   running that pass again over the same file, which costs a model call per
   `verify-fix`. Fixing the file is what closes them; nothing else does.
 - A fixed issue keeps both sides of its fix: the frame lookout filed it against
-  and the frame that cleared it, under `.lookout/evidence/fix-frames/<id>/`. If
-  you need to show somebody what changed, those are the two files, and they are
-  the only copy of the before: the evidence store overwrote the original the
-  moment the fix was verified.
+  and the frame that cleared it, under `.lookout/issues/<id>/img/pre/` and
+  `img/post/`, with `frames.json` beside them. If you need to show somebody what
+  changed, those are the two files, and they are the only copy of the before:
+  the evidence store overwrote the original the moment the fix was verified.
 - The commit that cleared an issue is on the card and in `Issue.md`, linked to
   the repository's own forge. Report it accurately when you claim a fix
   (`verify-fix --commit <sha>`): that sha is what the link is built from.

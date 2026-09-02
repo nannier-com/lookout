@@ -234,9 +234,17 @@ lookout verify-fix --issue <id> --commit <sha> --note "<root cause>"
 That re-captures and re-judges only that issue's routes. Exit `0` means the
 defect is gone and the backlog is adjudicated to `fixed` with the commit. Exit
 `1` means it is not: the finding stays open, with a note on what the judge
-sees now. Exit `3` means the issue exhausted `--max-attempts` (default 2) and
-is recorded as `blocked` with a reason. A fix session never grades its own
-work.
+sees now. Exit `2` means lookout could not rule, and no attempt was spent.
+Exit `3` means the issue exhausted `--max-attempts` (default 2) and is
+recorded as `blocked` with a reason. `--commit` may be left out (HEAD is
+read); `--note` is recorded with the attempt verbatim and printed in the
+issue's `Issue.md` for whoever tries next, beside what lookout observed in the
+repository and what the judge saw. A fix session never grades its own work.
+
+Each screenshot is compared against the capture of the previous ruling, or
+against the frame frozen when the issue was filed: a `check` or `capture` run
+between the edit and the ruling does not move that baseline, so a real fix is
+never ruled "nothing changed" because the workspace already held it.
 
 ### Pre and post fix, on every issue
 
@@ -250,9 +258,11 @@ by the save that files the finding, which is the last moment the store still
 holds the pixels the judge ruled on, and it is written once: a third fix attempt
 still compares against the defect as filed rather than as the last attempt left
 it. The **post-fix** frame is copied when `verify-fix` rules a fix passed, which
-is the only moment lookout will say the screen is fixed. They live under
-`evidence/fix-frames/<id>/`, which no capture writes into, and the card pairs
-them per view, saying which half is missing while an issue is still open.
+is the only moment lookout will say the screen is fixed. They live in the
+issue's own folder, under `issues/<id>/img/pre/` and `img/post/`, with
+`frames.json` beside them saying what each is a picture of; no capture writes
+there. The card pairs them per view, saying which half is missing while an
+issue is still open.
 
 An issue that has already spent a fix attempt is never backfilled: something has
 claimed to change that screen since it was filed, so its store frames are of
@@ -587,10 +597,10 @@ lookout.config.ts  the project's targets and recipes (at the root, in git)
   design-system.json  what the project is built from, cached
   conformance.json    the source reading pass, cached
   issues/<id>/     one folder per issue, named by its six-digit id:
-                     Issue.json, Issue.md, state.json, img/pre/, img/post/
+                     Issue.md, Issue.json, state.json, frames.json, img/pre/,
+                     img/post/ (the frames either side of a fix, frozen when
+                     the issue is filed and when a fix is ruled)
   issues/archive/<id>/  issues filed away, same folder, moved whole
-  evidence/fix-frames/<id>/  the frames either side of a fix, frozen when the
-                     issue is filed and when a fix is ruled
   skills/          this project's layer over lookout's shipped skills,
                      plus signals-seen.json, the learned-from watermark
   evidence/        screenshots + capture-report.json + judge-report.json
@@ -602,12 +612,15 @@ lookout never edits code. The loop it is built for:
 
 1. `lookout check` in the target repo: findings merge into the backlog.
 2. Fix the code in that repo, per that repo's own conventions.
-3. `lookout check --targets x --routes /y` to re-capture and re-judge just
-   the affected scope; unchanged pixels stay ledger-cached.
+3. Optionally, `lookout check --targets x --routes /y` to see what the judge
+   says now; unchanged pixels stay ledger-cached. This does not move what the
+   ruling in the next step is measured against.
 4. `lookout verify-fix --issue <id> --commit <sha> --note "<root cause>"` is
    the only thing that closes a finding. It rules on that issue alone: a fix
    that clears the defect and causes another one passes, and the new defect is
    filed as its own numbered issue with a note saying which fix surfaced it.
+   A ruling that does not pass spends an attempt; what it saw is printed and
+   written into the issue's `Issue.md` under "What has been tried".
 5. `lookout backlog set <fingerprint> --status fixed --commit <sha>`; use
    `--status by-design --reason "..."` for intended behavior (suppressed in
    every later merge) and `--status blocked --reason "..."` after repeated
