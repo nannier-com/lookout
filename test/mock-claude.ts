@@ -306,6 +306,9 @@ if (mode === "placement") {
         index: i,
         verdict: i === 0 ? "confirmed" : "refuted",
         note: i === 0 ? "plainly visible" : "not visible in evidence",
+        // MOCK_VERIFY_PLAIN supplies the plain half for the confirmed finding,
+        // so the adoption path is reachable without a hand-written reply.
+        ...(i === 0 && process.env.MOCK_VERIFY_PLAIN ? { plain: process.env.MOCK_VERIFY_PLAIN } : {}),
       })),
     }) +
     "\n```";

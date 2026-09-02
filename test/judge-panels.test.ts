@@ -6,9 +6,9 @@
 // every category exactly once. The refuter names categories too, in its two
 // bands, so it is held to the same vocabulary.
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { loadSkill } from "../src/skills/load.js";
+import { loadSkill, sharedSkillDir } from "../src/skills/load.js";
 import { CATEGORIES, loadJudges, loadRubric } from "../src/judge/rubric.js";
 import { applicablePanels, isJudgeFamily, licensedSkills, panelOf, PANELS } from "../src/judge/panels.js";
 import { tmpProject } from "./tmp-project.js";
@@ -153,5 +153,13 @@ describe("the composed rubric", () => {
     expect(rubric.text.indexOf("Learned: the dashboard hero")).toBeLessThan(
       rubric.text.indexOf("## Region vocabulary"),
     );
+  });
+});
+
+describe("the shared panel paragraph", () => {
+  test("carries no category bullets, since it is spliced into the vocabulary section", () => {
+    const shared = readFileSync(join(sharedSkillDir(), "panel-audience.md"), "utf8");
+    expect(shared).toContain("for both readers");
+    for (const line of shared.split("\n")) expect({ line, bullet: /^- [a-z0-9-]+:/.test(line) }).toEqual({ line, bullet: false });
   });
 });

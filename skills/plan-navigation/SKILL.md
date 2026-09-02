@@ -1,7 +1,7 @@
 ---
 name: plan-navigation
 description: Curate which of a route's interactive affordances lookout should actuate and photograph, naming each captured state, classifying its risk, and routing already-covered link clicks to verification.
-version: 2
+version: 3
 output: navigation-plan-v1
 ---
 
@@ -89,7 +89,7 @@ from the list above. Every planned affordance id must come from that list.
 {
   "states": [
     { "affordance": "a1", "name": "menu-open", "outcome": "overlay",
-      "risk": "safe", "why": "one line on what the judges gain" }
+      "risk": "safe", "why": "one line a person reading the ticket would understand: what this state shows that the rest screenshot cannot" }
   ],
   "checks": [
     { "affordance": "a4", "expectedPath": "/pricing" }

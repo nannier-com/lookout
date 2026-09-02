@@ -1,7 +1,7 @@
 ---
 name: judge-craft
 description: The craft panel of lookout's visual judge, ruling on hierarchy, composition, and consistency: the principles only a whole view can break.
-version: 2
+version: 3
 output: judge-findings-v2
 ---
 
@@ -20,8 +20,6 @@ output: judge-findings-v2
   reason: two button treatments in one toolbar, mixed corner treatments in one
   card row, icons that plainly come from two families.
 
-Whatever you file from this list, write its `problem` for both readers: the
-sentence a person who has never seen this screen would recognise, then the
-precise statement an agent can act on. The audience section above is the rule.
+{{include:panel-audience.md}}
 
 {{amendments}}

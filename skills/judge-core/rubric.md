@@ -188,10 +188,10 @@ Reply with ONLY one fenced json block, no prose before or after:
       "attribute": "<kebab-case aspect>",
       "region": "content | shell-nav | shell-header | shell-footer",
       "severity": "critical | high | medium | low",
-      "title": "<one line naming the defect>",
+      "title": "<one line a person would recognise the defect by: what is wrong and where, no rule ids or tokens>",
       "problem": "<two parts in one field, plain sentence first then the precise statement; see below>",
       "expected": "<what correct looks like, per this rubric or visual comparison>",
-      "observed": "<what the shot shows>",
+      "observed": "<what the shot shows, as the sentence lookout will quote back as its verdict>",
       "confidence": "high | medium | low",
       "acceptance": ["<what would prove this defect gone>"]
     }
@@ -233,6 +233,21 @@ The first half is what makes the ticket usable by a person. The second half is
 what makes it actionable. A `problem` that is the title again, or that names
 the rule and stops, has done neither and will be sent back.
 
+## The other prose fields
+
+- `title` is printed on its own: on a card, in a list, in a commit message.
+  Name what a person sees and where they see it. "The 'Recent activity'
+  heading is no bigger than the rows under it" is a title; "heading-order" is
+  a label, and "hierarchy defect in the activity table" is a category with a
+  location. No rule ids, no category or attribute tokens, no backticks.
+- `observed` is quoted back to a person, word for word, as lookout's verdict
+  when a fix is verified and the defect is still there. Write it as that
+  sentence: what this shot shows, in words that make sense to somebody who
+  has not read the rest of the finding.
+- `expected` is the fixed state as a sentence, and it is the fallback
+  acceptance criterion for a finding filed without any, so it has to be
+  checkable from the pixels too.
+
 ## Acceptance criteria
 
 Every finding carries an `acceptance` array: the checks that would prove this
@@ -244,6 +259,13 @@ single-valued.
 - Decidable from a screenshot of this view. "The nav surface is darker than the
   page behind it" is decidable; "the theme provider is configured correctly" is
   not, and belongs in `problem` instead.
+- Readable on its own. Each criterion is printed as a checkbox on the issue's
+  card and in its document, away from the problem text, so it names the
+  element and the view in words: "The 'Recent activity' heading is visibly
+  larger or heavier than the table rows beneath it at desktop width", not
+  "hierarchy is fixed" and not "the h5 is an h2". Decidability comes first;
+  where the two pull apart, keep it decidable and add the words a person
+  needs.
 - Stated as the fixed state, not as the defect. "Body text is legible against
   the card background at desktop width", not "the text is unreadable".
 - Name where it applies when the view matters: route or shell region, form

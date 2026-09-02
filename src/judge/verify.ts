@@ -24,6 +24,7 @@ import {
   type AiFinding,
 } from "./engine.js";
 import { recordIncident } from "../skills/incidents.js";
+import { problemLapses, withPlainHalf } from "../backlog/prose.js";
 import { closeCall, narrating, openCall, say } from "../report/narration.js";
 
 /**
@@ -52,8 +53,20 @@ export interface VerifiedFinding extends AiFinding {
   verifierNote?: string;
 }
 
+/** A confirmed finding whose problem the refuter opened with a sentence a person can follow. */
+export interface RepairedFinding {
+  shotId: string;
+  category: string;
+  attribute: string;
+  title: string;
+  judge?: string;
+  plain: string;
+}
+
 export interface VerifyResult {
   confirmed: VerifiedFinding[];
+  /** The plain halves the refuter supplied, so the panel that skipped them can learn. */
+  repaired: RepairedFinding[];
   refuted: (AiFinding & { verifierNote: string })[];
   costUsd?: number;
 }
@@ -110,7 +123,7 @@ export async function verifyFindings(
     .filter((f) => !needsRefuting(f))
     .map((f) => ({ ...f, verified: false }));
   if (serious.length === 0) {
-    return { confirmed: rest, refuted: [] };
+    return { confirmed: rest, refuted: [], repaired: [] };
   }
 
   const prompt = buildRefutePrompt(skillText, serious, shotsById, evidenceDir);
@@ -119,7 +132,7 @@ export async function verifyFindings(
   // is still answering, and one that fails twice is recorded rather than
   // silently shrugged off. The refuter used to have neither, so the judge's
   // failure was an incident and the refuter's was invisible.
-  let verdicts: { index: number; verdict: string; note?: string }[] = [];
+  let verdicts: { index: number; verdict: string; note?: string; plain?: string }[] = [];
   let costUsd = 0;
   let parsedOk = false;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -141,7 +154,7 @@ export async function verifyFindings(
     try {
       const parsed = extractJson(res.text) as { verdicts?: unknown };
       if (Array.isArray(parsed.verdicts)) {
-        verdicts = parsed.verdicts as { index: number; verdict: string; note?: string }[];
+        verdicts = parsed.verdicts as { index: number; verdict: string; note?: string; plain?: string }[];
       }
       parsedOk = true;
       break;
@@ -163,12 +176,14 @@ export async function verifyFindings(
     return {
       confirmed: [...serious.map((f) => ({ ...f, verified: false })), ...rest],
       refuted: [],
+      repaired: [],
       costUsd,
     };
   }
 
   const confirmed: VerifiedFinding[] = [...rest];
   const refuted: (AiFinding & { verifierNote: string })[] = [];
+  const repaired: RepairedFinding[] = [];
   serious.forEach((f, i) => {
     const v = verdicts.find((x) => x.index === i);
     if (v && v.verdict === "refuted") {
@@ -179,7 +194,20 @@ export async function verifyFindings(
     // verifier hedged, a word not in the contract, or no row at all, means the
     // finding stands but nothing checked it, and `verified` is the field that
     // says which of those happened.
-    confirmed.push({ ...f, verified: v?.verdict === "confirmed", verifierNote: v?.note });
+    const verified = v?.verdict === "confirmed";
+    // The refuter's plain sentence goes above the judge's text, and only when
+    // the judge's text needed one: a finding whose problem already opens with
+    // a sentence a person can follow keeps it as written, and a sentence that
+    // fails the same bar is not adopted. Never in place of the judge's words.
+    let problem = f.problem;
+    if (verified && typeof v?.plain === "string" && problemLapses(f).length > 0) {
+      const composed = withPlainHalf(f.problem, v.plain, f.title, f.attribute);
+      if (composed) {
+        problem = composed;
+        repaired.push({ shotId: f.shotId, category: f.category, attribute: f.attribute, title: f.title, ...(f.judge ? { judge: f.judge } : {}), plain: v.plain.trim() });
+      }
+    }
+    confirmed.push({ ...f, problem, verified, verifierNote: v?.note });
   });
-  return { confirmed, refuted, costUsd };
+  return { confirmed, refuted, repaired, costUsd };
 }

@@ -1,7 +1,7 @@
 ---
 name: design-placement
 description: Work out where a visual defect should be fixed in a project that has a design system: in the kit's component, in the application's use of it, or in the tokens.
-version: 3
+version: 4
 output: placement-verdict-v1
 ---
 
@@ -132,9 +132,9 @@ Reply with ONLY a fenced json block:
   "placement": "kit-component" | "app-composition" | "tokens" | "kit-gap" | "unclear",
   "primaryPath": "<absolute path of the file to change, or null when unclear>",
   "symbol": "<the component or export to change, or null>",
-  "reason": "<one or two sentences: why there and not the other place>",
+  "reason": "<one or two sentences somebody who has not opened the file can follow: why there and not the other place>",
   "otherCallers": <integer count of other places using this component, or null if not checked>,
-  "blastRadius": "<one line: what else this change moves>",
+  "blastRadius": "<one line: what else this change moves, said as screens or components a person would recognise, with the caller count if you checked>",
   "alsoRead": ["<absolute paths worth reading before editing>"],
   "notes": "<anything you could not settle, or an empty string>"
 }

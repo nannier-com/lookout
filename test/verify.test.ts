@@ -209,3 +209,56 @@ describe("the refuter's retry", () => {
     }
   });
 });
+
+describe("the refuter's plain half", () => {
+  const detail = "The h5 and the body text sit at the same step of the type ramp with no weight difference between them.";
+  const plain = "Nothing on this screen reads as its title: the heading above the table is no bigger than the rows under it.";
+  const shots = new Map([["web/app/x/rest/desktop/dark", shot("web/app/x/rest/desktop/dark")]]);
+  const arm = (value?: string) => {
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    process.env.MOCK_MODE = "verify";
+    if (value === undefined) delete process.env.MOCK_VERIFY_PLAIN;
+    else process.env.MOCK_VERIFY_PLAIN = value;
+  };
+  afterEach(() => {
+    delete process.env.MOCK_VERIFY_PLAIN;
+  });
+
+  test("is put above a one-part problem, and the repair names the panel", async () => {
+    arm(plain);
+    const dir = mkdtempSync(join(tmpdir(), "lookout-plain-"));
+    const r = await verifyFindings(refute.text, [finding({ problem: detail, judge: "judge-text" } as Partial<AiFinding>)], shots, dir, "m");
+    expect(r.confirmed[0]!.problem).toBe(`${plain}\n\n${detail}`);
+    expect(r.repaired).toEqual([{ shotId: "web/app/x/rest/desktop/dark", category: "color-scheme", attribute: "dark-surface", title: "t", judge: "judge-text", plain }]);
+  });
+
+  test("is not adopted when the judge's text already opens with one", async () => {
+    arm("Another sentence a person could follow about the same screen and the same heading.");
+    const dir = mkdtempSync(join(tmpdir(), "lookout-plain-"));
+    const twoPart = `${plain}\n\n${detail}`;
+    const r = await verifyFindings(refute.text, [finding({ problem: twoPart })], shots, dir, "m");
+    expect(r.confirmed[0]!.problem).toBe(twoPart);
+    expect(r.repaired).toEqual([]);
+  });
+
+  test("is dropped when it fails the bar, and the finding stands as written", async () => {
+    arm("The `h5` is wrong.");
+    const dir = mkdtempSync(join(tmpdir(), "lookout-plain-"));
+    const r = await verifyFindings(refute.text, [finding({ problem: detail })], shots, dir, "m");
+    expect(r.confirmed[0]!.problem).toBe(detail);
+    expect(r.confirmed[0]!.verified).toBe(true);
+    expect(r.repaired).toEqual([]);
+  });
+
+  test("a refuted finding never takes one", async () => {
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    process.env.MOCK_MODE = "verify";
+    process.env.MOCK_VERIFY = JSON.stringify({ verdicts: [{ index: 0, verdict: "refuted", note: "not there", plain }] });
+    const dir = mkdtempSync(join(tmpdir(), "lookout-plain-"));
+    const r = await verifyFindings(refute.text, [finding({ problem: detail })], shots, dir, "m");
+    delete process.env.MOCK_VERIFY;
+    expect(r.confirmed).toEqual([]);
+    expect(r.refuted[0]!.problem).toBe(detail);
+    expect(r.repaired).toEqual([]);
+  });
+});

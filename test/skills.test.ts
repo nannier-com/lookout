@@ -11,6 +11,8 @@ import {
   loadSkill,
   projectSkillDir,
   renderSkill,
+  sharedSkillDir,
+  shippedSkillDir,
   writeLayer,
 } from "../src/skills/load.js";
 import { SKILL_NAMES } from "../src/verbs/skills.js";
@@ -242,5 +244,18 @@ describe("loadRubric composes the judge prompt", () => {
     expect(rubric.text.indexOf("Learned: ignore the loader.")).toBeLessThan(
       rubric.text.indexOf("Hand-written: ignore the footer."),
     );
+  });
+});
+
+describe("the panels' pointer to the audience rule is one shared file", () => {
+  // Six hand-copied paragraphs were the drift the shared directory exists to
+  // prevent. Each panel includes the file; none carries the sentence itself.
+  test("every panel includes panel-audience.md and pastes nothing", () => {
+    for (const p of PANELS) {
+      const raw = readFileSync(join(shippedSkillDir(p.name), "SKILL.md"), "utf8");
+      expect({ panel: p.name, includes: raw.includes("{{include:panel-audience.md}}") }).toEqual({ panel: p.name, includes: true });
+      expect({ panel: p.name, pasted: raw.includes("The audience section above is the rule") }).toEqual({ panel: p.name, pasted: false });
+    }
+    expect(existsSync(join(sharedSkillDir(), "panel-audience.md"))).toBe(true);
   });
 });

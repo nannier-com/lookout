@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { evidenceDir } from "../config.js";
 import { groupShots } from "../judge/engine.js";
 import { groupHash, pruneLedger, recordVerdicts, saveLedger } from "../judge/ledger.js";
-import type { VerifiedFinding } from "../judge/verify.js";
+import type { RepairedFinding, VerifiedFinding } from "../judge/verify.js";
 import { LookoutError, type ResolvedConfig, type ShotRecord } from "../types.js";
 import { runId } from "../util.js";
 import { workKey, type JudgePass } from "./batches.js";
@@ -29,6 +29,8 @@ export interface CheckOutcome {
   cached: number;
   findings: (VerifiedFinding & { cached?: boolean })[];
   refuted: { title: string; shotId: string; verifierNote: string; judge?: string }[];
+  /** Confirmed findings whose plain sentence the refuter had to supply. */
+  repaired: RepairedFinding[];
   rejected: number;
   /**
    * Shots this run could not vouch for: a panel call that failed, or a reply
@@ -156,6 +158,7 @@ export async function recordOutcome(args: {
       // Which panel filed the killed claim, so the lesson lands on its skill.
       judge: r.judge,
     })),
+    repaired: pass.repaired,
     rejected: pass.rejected,
     unjudged: unjudgedIds.size,
     failedBatches: pass.failedBatches,

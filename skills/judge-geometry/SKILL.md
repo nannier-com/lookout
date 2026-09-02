@@ -1,7 +1,7 @@
 ---
 name: judge-geometry
 description: The geometry panel of lookout's visual judge, ruling on overflow, alignment, spacing rhythm, and responsive adaptation.
-version: 2
+version: 3
 output: judge-findings-v2
 ---
 
@@ -18,8 +18,6 @@ output: judge-findings-v2
   has (not by design), squeezed columns, controls stacked into ambiguity,
   layouts that did not adapt at all.
 
-Whatever you file from this list, write its `problem` for both readers: the
-sentence a person who has never seen this screen would recognise, then the
-precise statement an agent can act on. The audience section above is the rule.
+{{include:panel-audience.md}}
 
 {{amendments}}

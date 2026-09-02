@@ -20,7 +20,7 @@ import { join } from "node:path";
 import { evidenceDir } from "../config.js";
 import { judgeBatch, type AiFinding } from "../judge/engine.js";
 import { groupHash } from "../judge/ledger.js";
-import { verifyFindings, type VerifiedFinding } from "../judge/verify.js";
+import { verifyFindings, type RepairedFinding, type VerifiedFinding } from "../judge/verify.js";
 import { recordIncident } from "../skills/incidents.js";
 import { emit } from "../report/events.js";
 import type { JudgePlan, PanelWork } from "./plan.js";
@@ -58,6 +58,8 @@ export interface JudgePass {
   costUsd: number;
   /** Planned panel calls, which is what makes "all of them failed" decidable. */
   batchCount: number;
+  /** Findings whose plain half the refuter supplied, with the panel that skipped it. */
+  repaired: RepairedFinding[];
   /**
    * Each successful panel call's reply, whole, as a file under the capture
    * workspace, keyed like `uncacheable`. The ledger entry for the verdict
@@ -137,6 +139,7 @@ export async function judgeInBatches(args: {
   const refuted: (AiFinding & { verifierNote: string })[] = [];
   const uncacheable = new Set<string>();
   const replies = new Map<string, string>();
+  const repaired: RepairedFinding[] = [];
   const failedBatches: { panel: string; shots: number; message: string }[] = [];
   let rejectedCount = 0;
   let costUsd = 0;
@@ -237,6 +240,7 @@ export async function judgeInBatches(args: {
         try {
           const v = await verifyFindings(plan.refute.text, fresh, shotsById, evDir, plan.model);
           jobFindings = v.confirmed;
+          repaired.push(...v.repaired);
           refuted.push(...v.refuted);
           costUsd += v.costUsd ?? 0;
         } catch (e) {
@@ -314,5 +318,6 @@ export async function judgeInBatches(args: {
     costUsd,
     batchCount: plan.toJudge.length,
     replies,
+    repaired,
   };
 }

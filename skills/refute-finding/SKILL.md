@@ -1,8 +1,8 @@
 ---
 name: refute-finding
 description: Adversarially re-read the evidence behind a filed finding and try to refute it, so a false defect never survives into the backlog.
-version: 3
-output: refute-verdicts-v1
+version: 4
+output: refute-verdicts-v2
 ---
 
 # Adversarial verifier
@@ -42,6 +42,20 @@ about the comparison, and you can only confirm or refute it by looking at both
 sides. Do not refute such a finding for lack of evidence when the evidence is
 listed right there.
 
+When you confirm a finding, read its `problem` once more as the person who
+will open the ticket. It should open with a sentence they can follow before
+any rule id, token or measurement appears. If it does not, write that
+sentence yourself in `plain`: one or two sentences saying what looks wrong,
+where on the screen, and who runs into it, in words that need no label
+explained. lookout prints it above the judge's text and never in place of it.
+Leave `plain` out when the problem already opens that way, and never write one
+for a finding you refuted.
+
+`note` is read by a person. On a refuted finding it is the lesson lookout
+learns from; on a confirmed one it is kept beside the finding as a second,
+independent account of the defect. Say what in the image decided you, not
+which rule.
+
 {{include:audience.md}}
 
 {{amendments}}
@@ -53,5 +67,7 @@ listed right there.
 Reply with ONLY a fenced json block:
 
 ```json
-{ "verdicts": [ { "index": 0, "verdict": "confirmed" | "refuted", "note": "<one line>" } ] }
+{ "verdicts": [ { "index": 0, "verdict": "confirmed" | "refuted",
+                  "note": "<one line: what in the image settled it>",
+                  "plain": "<only when the problem opens with nothing a person could follow; omit otherwise>" } ] }
 ```

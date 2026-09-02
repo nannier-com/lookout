@@ -1,7 +1,7 @@
 ---
 name: verify-acceptance
 description: Extract the checkable criteria from a ticket and rule on each one strictly from captured screenshots, never on faith.
-version: 3
+version: 4
 output: criteria-verdicts-v1
 ---
 
@@ -49,7 +49,7 @@ Reply with ONLY a fenced json block:
 {
   "criteria": [
     { "id": 1, "text": "<criterion>", "verdict": "pass | fail | not-verifiable",
-      "reasoning": "<what the evidence shows>", "evidence": ["<shotId>"],
+      "reasoning": "<what the evidence shows, written to be printed beside the criterion on the card: name the shot and what in it decided you>", "evidence": ["<shotId>"],
       "suggestion": "<optional one-liner>" }
   ],
   "summary": "<one sentence: N pass, N fail, N not verifiable>"
