@@ -23,6 +23,7 @@ import {
 } from "./checks.js";
 import { runAxe, runTargetSize } from "./axe.js";
 import { checkEdgeClipping, type ScrollerNote } from "./check-clip.js";
+import { checkCollisions } from "./checks-collide.js";
 import { shotId, writeShotFile, writeShotSidecar, type ShotAxes } from "./store.js";
 import { attachProvenance, buildSidecar, collectProvenanceInPage, selectorsOf } from "./provenance.js";
 import { resolveElement, schemeUrl, setScheme, settle } from "./web-page.js";
@@ -174,6 +175,10 @@ export async function captureRoute(
             });
             findings.push(...clip.findings);
             scrollers = clip.scrollers;
+            // Under the same switch: both answer "is content where a reader
+            // can read it", both are measurements, and a project turning one
+            // off is saying it does not want lookout comparing boxes.
+            findings.push(...(await checkCollisions(page, element, { elementSelector: elementSel ?? null })));
           } catch (e) {
             // A measurement that cannot be taken costs the measurement, never
             // the shot: the same stance the provenance walk takes.

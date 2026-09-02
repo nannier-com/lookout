@@ -214,6 +214,10 @@ const CONSEQUENCE: Partial<Record<DeterministicFinding["type"], string>> = {
     "Content is drawn outside the box that is meant to hold it, and that box hides whatever leaves it. " +
     "Nothing scrolls to bring it back, so the part that is outside is not merely awkward to reach: it " +
     "is gone for anybody at this window size, however long they look.",
+  "box-collision":
+    "Two things that are not meant to be layered are occupying the same pixels, so whatever is " +
+    "underneath is partly unreadable. Neither element is positioned as an overlay, which is what " +
+    "separates this from a menu or a dialog doing its job.",
   "dead-interaction":
     "Something a person would click did nothing when it was clicked. To a user this reads as the " +
     "application being broken or frozen, with no feedback saying otherwise.",
@@ -256,6 +260,15 @@ const ABOUT_CAPTURE: ReadonlySet<DeterministicFinding["type"]> = new Set([
   "off-origin",
 ]);
 
+/** The collision check's pairs, as much of them as a title needs. */
+function pairs(v: unknown): { topText: string; underText: string }[] {
+  if (!Array.isArray(v)) return [];
+  return v.map((o) => {
+    const r = (o ?? {}) as Record<string, unknown>;
+    return { topText: str(r.topText), underText: str(r.underText) };
+  });
+}
+
 /** The clip check's offender list, as much of it as a title needs. */
 function offenders(v: unknown): { tag: string; text: string }[] {
   if (!Array.isArray(v)) return [];
@@ -280,6 +293,13 @@ function titleOf(df: DeterministicFinding): string {
       return num(m.worst) > 0
         ? `Content runs ${num(m.worst)}px off the side of the screen${str(m.offender) ? ` (${str(m.offender)})` : ""}`
         : `The page scrolls ${num(m.delta)}px sideways at ${num(m.viewport)}px wide`;
+    case "box-collision": {
+      const p = pairs(m.pairs)[0];
+      const over = p?.underText ? `"${head(p.underText, 30)}"` : "content beside it";
+      const what = p?.topText ? `"${head(p.topText, 30)}"` : "Something";
+      const many = num(m.collisions) > 1 ? ` (and ${num(m.collisions) - 1} more)` : "";
+      return `${what} is drawn on top of ${over}${many}`;
+    }
     case "edge-clipped": {
       // Named by what a person would look for, not by the selector: the first
       // offender's own text is the best label the page gave us.
@@ -324,6 +344,11 @@ function expectation(df: DeterministicFinding): { expected: string; observed: st
     case "horizontal-overflow":
       return {
         expected: "Nothing on the page extends past the viewport's edge, and the page does not scroll sideways.",
+        observed: `${df.message}${at(str(m.offenderPath))}`,
+      };
+    case "box-collision":
+      return {
+        expected: "Nothing on this screen is drawn on top of anything else that is not an overlay.",
         observed: `${df.message}${at(str(m.offenderPath))}`,
       };
     case "edge-clipped":

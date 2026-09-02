@@ -173,6 +173,7 @@ describe("every check has a title that is not its message", () => {
     { type: "dead-interaction", severity: "warning", message: '"Menu" (header button) did nothing when clicked', meta: { name: "Menu", href: null } },
     { type: "edge-clipped", severity: "error", message: '"Account" extends 43px past the right edge of the viewport and the page does not scroll to reach it', meta: { clipper: "viewport", offenderPath: "header > button:nth-of-type(2)", clipped: 2, offenders: [{ path: "header > button:nth-of-type(2)", tag: "button", text: "Account", overRight: 43, overBottom: 0 }] } },
     { type: "edge-clipped", severity: "error", message: '"Last seen" extends 88px past the right edge of an ancestor that hides its overflow', meta: { clipper: "ancestor", offenderPath: "table > thead > tr > th:nth-of-type(5)", clipped: 1, offenders: [{ path: "table > thead > tr > th:nth-of-type(5)", tag: "th", text: "Last seen", overRight: 88, overBottom: 0 }] } },
+    { type: "box-collision", severity: "warning", message: '"Person" is drawn over "Bobby Nannier", covering 34% of it', meta: { offenderPath: "span.chip", collisions: 8, pairs: [{ topPath: "span.chip", topText: "Person", underPath: "td > a", underText: "Bobby Nannier", share: 0.34 }] } },
     axe({}),
   ];
 
@@ -204,7 +205,8 @@ describe("every check has a title that is not its message", () => {
     // check is that a person can go and look at the thing it names.
     expect(t(11)).toBe('"Account" is cut off at the edge of the screen with no way to scroll to it (and 1 more)');
     expect(t(12)).toBe('"Last seen" is cut off by the area that holds it');
-    expect(t(13)).toBe("Heading levels should only increase by one");
+    expect(t(13)).toBe('"Person" is drawn on top of "Bobby Nannier" (and 7 more)');
+    expect(t(14)).toBe("Heading levels should only increase by one");
   });
 
   test("observed carries the record's detail; expected is the fixed state", () => {

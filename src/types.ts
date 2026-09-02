@@ -311,6 +311,7 @@ export interface DeterministicFinding {
     | "request-failed"
     | "horizontal-overflow"
     | "edge-clipped"
+    | "box-collision"
     | "axe-violation"
     | "blank-shot"
     | "capture-error"

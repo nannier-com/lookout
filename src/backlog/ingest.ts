@@ -39,6 +39,9 @@ const DETERMINISTIC_MAP: Record<
   // inside a box that hides its overflow are different fixes, so they must not
   // share a fingerprint.
   "edge-clipped": { category: "layout-overflow", attribute: "edge-clipped" },
+  // Content over content is the same family of defect as content past an edge:
+  // in both, something a reader needs is not where it can be read.
+  "box-collision": { category: "layout-overflow", attribute: "collision" },
   "axe-violation": { category: "a11y", attribute: "axe" },
   "blank-shot": { category: "render-failure", attribute: "blank" },
   "capture-error": { category: "render-failure", attribute: "capture-error" },

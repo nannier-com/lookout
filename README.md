@@ -528,6 +528,15 @@ runs at phone width on every rest shot, files under `a11y` as
 than at axe's own severity: the measurement is the element's box, which is not
 always its hit area, and nothing refutes a deterministic finding.
 
+A third measurement compares elements with each other rather than with their
+container: `box-collision` finds content painted over other content, a chip
+across the name beside it, a control covering a table row. Overlap alone means
+nothing, since a page is layers, so it counts only two ordinary siblings in
+normal flow whose overlap the browser confirms at the intersection. Anything
+positioned out of flow is excluded, along with everything inside it, because
+that is how an overlay, a dropdown and a sticky bar are built, and covering
+something is their job.
+
 ### Skills that improve themselves
 
 ```bash
