@@ -3,12 +3,16 @@
  *
  * Deliberately flat and self-contained: someone reading `Issue.json` should
  * not need the backlog open beside it. It is generated with the document from
- * the same inputs, and it is the document's twin rather than its summary: a
- * fact the markdown states belongs in here too.
+ * the same context, and it is the document's twin rather than its summary: a
+ * fact the markdown states belongs in here too, in the shape it had before it
+ * was turned into a sentence.
  */
+import { join } from "node:path";
 import type { BacklogFinding, IssueRecord } from "../backlog/lib.js";
-import type { FixCluster } from "../fix/cluster.js";
+import type { AttemptRecord, RulingBaseline } from "../fix/state.js";
 import { clusterLabel } from "../fix/brief.js";
+import { filingRunOf, shotOf, type IssueContext } from "./context.js";
+import { artifactsOf, scopeOf, siblingsOf, type ArtifactFact, type ScopeFacts, type SiblingFact } from "./facts.js";
 
 /** Which side of the fix a dossier picture is of. */
 export type ShotSide = "pre" | "post";
@@ -25,6 +29,11 @@ export interface IssueShot {
   state: string;
 }
 
+/** A member finding, whole, with its evidence made absolute. */
+export type IssueMember = Omit<BacklogFinding, "evidence"> & {
+  evidence: { shotId: string; path: string; absPath: string; hash: string; runId: string; capturedAt?: string }[];
+};
+
 export interface IssueDocument {
   generated: string;
   id: string;
@@ -33,17 +42,33 @@ export interface IssueDocument {
   label: string;
   severity: string;
   category: string;
+  attribute: string;
   status: "open" | "blocked" | "fixed" | "archived";
   channel: string;
   verified: boolean;
+  confidence: string;
+  region: string[];
   routes: string[];
+  seenRoutes: string[];
   defects: { attribute: string; severity: string; title: string; problem: string }[];
+  expected: string;
+  observed: string;
   fingerprints: string[];
   shots: IssueShot[];
   acceptance: IssueRecord["acceptance"];
   attemptsSpent: number;
   createdAt: string;
   causedBy?: IssueRecord["causedBy"];
+  placement?: IssueRecord["placement"];
+  archived?: IssueRecord["archived"];
+  members: IssueMember[];
+  attempts: AttemptRecord[];
+  baseline?: RulingBaseline;
+  scope: ScopeFacts | null;
+  siblings: SiblingFact[];
+  artifacts: ArtifactFact[];
+  /** The capture that filed the newest evidence, when the workspace still holds it. */
+  run?: { id: string; finishedAt: string; flags: Record<string, unknown> };
 }
 
 const GENERATED =
@@ -60,10 +85,12 @@ export function statusOf(members: BacklogFinding[]): IssueDocument["status"] {
 }
 
 export function buildIssueDocument(
-  cluster: FixCluster,
+  ctx: IssueContext,
   record: IssueRecord,
   shots: IssueShot[],
 ): IssueDocument {
+  const { cluster, evDir, state } = ctx;
+  const run = filingRunOf(ctx);
   return {
     generated: GENERATED,
     id: record.id,
@@ -72,16 +99,37 @@ export function buildIssueDocument(
     label: clusterLabel(cluster),
     severity: cluster.severity,
     category: cluster.category,
+    attribute: cluster.attribute,
     status: statusOf(cluster.members),
     channel: cluster.channel,
     verified: cluster.verified,
+    confidence: cluster.members[0]?.confidence ?? "high",
+    region: [...new Set(cluster.members.map((m) => m.region).filter((r): r is NonNullable<typeof r> => !!r))],
     routes: cluster.routes,
+    seenRoutes: [...new Set([...cluster.routes, ...cluster.members.flatMap((m) => m.seenRoutes ?? [])])].sort(),
     defects: cluster.defects,
+    expected: cluster.expected,
+    observed: cluster.observed,
     fingerprints: cluster.fingerprints,
     shots,
     acceptance: record.acceptance ?? [],
     attemptsSpent: cluster.attemptsSpent,
     createdAt: record.createdAt,
     ...(record.causedBy ? { causedBy: record.causedBy } : {}),
+    ...(record.placement ? { placement: record.placement } : {}),
+    ...(record.archived ? { archived: record.archived } : {}),
+    members: cluster.members.map((m) => ({
+      ...m,
+      evidence: m.evidence.map((e) => {
+        const shot = shotOf(ctx, e.shotId);
+        return { ...e, absPath: join(evDir, e.path), ...(shot ? { capturedAt: shot.capturedAt } : {}) };
+      }),
+    })),
+    attempts: state.attempts,
+    ...(state.baseline ? { baseline: state.baseline } : {}),
+    scope: scopeOf(ctx),
+    siblings: siblingsOf(ctx),
+    artifacts: artifactsOf(ctx),
+    ...(run ? { run: { id: run.id, finishedAt: run.finishedAt, flags: run.flags ?? {} } } : {}),
   };
 }

@@ -9,18 +9,10 @@
  * issue's next ruling will count as.
  */
 import { existsSync } from "node:fs";
-import { join } from "node:path";
-import { lookoutDir } from "../config.js";
-import { reportPath } from "../capture/store.js";
-import { ledgerPath } from "../judge/ledger.js";
-import { navigationPath } from "../navigate/store.js";
-import { eventsPath } from "../report/events.js";
 import { attemptSentences } from "../fix/attempts.js";
-import { clusterScope, configuredRoutesOf, SHELL_MAX_ROUTES, SHELL_MIN_ROUTES } from "../fix/cluster.js";
+import { SHELL_MAX_ROUTES, SHELL_MIN_ROUTES } from "../fix/cluster.js";
 import { DEFAULT_MAX_ATTEMPTS } from "../fix/rule.js";
-import { isShellRegion } from "../backlog/lib.js";
-import { panelOf } from "../judge/panels.js";
-import { DEFAULT_VIEWPORTS } from "../types.js";
+import { artifactsOf, scopeOf } from "./facts.js";
 import type { AttemptRecord } from "../fix/state.js";
 import { baselineSaid } from "../verify/outcome-report.js";
 import { filingRunOf, type IssueContext } from "./context.js";
@@ -127,17 +119,14 @@ export function attemptsSection(ctx: IssueContext, lookoutCmd: string): string[]
  * failing for a reason nothing had told them; this says it first.
  */
 export function scopeSection(ctx: IssueContext): string[] {
-  const { cluster, resolved } = ctx;
-  if (cluster.channel === "code") return [];
-  const target = resolved.config.targets?.find((t) => t.name === cluster.target);
-  const configured = configuredRoutesOf(resolved.config, cluster.target);
-  const scope = clusterScope(cluster, configured);
-  const added = scope.routes.filter((r) => !cluster.routes.includes(r));
-  const shell = cluster.members.some((m) => isShellRegion(m.region));
+  const { cluster } = ctx;
+  const scope = scopeOf(ctx);
+  if (!scope) return [];
+  const { added, shell } = scope;
   const l: string[] = ["## Scope of verification", ""];
 
   l.push(
-    `\`verify-fix\` photographs target \`${cluster.target}\`${target ? ` at ${target.url}` : ""} on` +
+    `\`verify-fix\` photographs target \`${cluster.target}\`${scope.url ? ` at ${scope.url}` : ""} on` +
       ` ${scope.routes.map((r) => `\`${r}\``).join(", ")}` +
       (added.length > 0
         ? `. ${added.map((r) => `\`${r}\``).join(", ")} ${added.length === 1 ? "is" : "are"} not where this was filed:` +
@@ -148,19 +137,18 @@ export function scopeSection(ctx: IssueContext): string[] {
           : "."),
     "",
   );
-  const formFactors = Object.keys(DEFAULT_VIEWPORTS).join(", ");
   l.push(
-    `Each route is captured at ${formFactors} in dark and light, at rest and in every`,
+    `Each route is captured at ${scope.formFactors.join(", ")} in ${scope.schemes.join(" and ")}, at rest and in every`,
     "navigation state lookout has planned for it, unless the flags below narrow that." +
-      (cluster.channel === "ai"
-        ? ` The views are re-judged by \`${panelOf(cluster.category).name}\`, the panel that filed this.`
+      (scope.panel
+        ? ` The views are re-judged by \`${scope.panel}\`, the panel that filed this.`
         : " The views are re-run through lookout's own checks; no judge is involved."),
     "",
   );
   l.push(
     "lookout rules on what that URL serves at that moment. It never starts, rebuilds",
     "or restarts anything: a fix that is not built and served is not photographed." +
-      (target?.startHint ? ` The config says the application is started with \`${target.startHint}\`.` : ""),
+      (scope.startHint ? ` The config says the application is started with \`${scope.startHint}\`.` : ""),
     "",
   );
 
@@ -215,27 +203,14 @@ export function scopeSection(ctx: IssueContext): string[] {
  * a wrong answer, not a pointer.
  */
 export function artifactsSection(ctx: IssueContext): string[] {
-  const { cluster, resolved, evDir } = ctx;
-  const lk = lookoutDir(resolved);
-  const rows: [string, string, boolean][] = [
-    ["config", resolved.configPath ?? join(resolved.projectDir, "lookout.config.ts"), true],
-    ["backlog", join(lk, "backlog.json"), false],
-    ["judge ledger", ledgerPath(resolved), false],
-    ["navigation plan", navigationPath(resolved), false],
-    ["capture report", reportPath(resolved), false],
-    ["judge report", join(evDir, "judge-report.json"), false],
-    ["run log", eventsPath(resolved), false],
-    ["contact sheet of the last check", join(evDir, "contact-sheet.png"), false],
-    ["contact sheet of the last verify-fix of this issue", join(evDir, `verify-${cluster.id}.png`), false],
-  ];
   const l: string[] = ["## Artifacts", ""];
   l.push(
     "Where everything lookout wrote about this lives. The files under the project's",
     "`.lookout/` are durable; the capture workspace is rebuilt by every capture.",
     "",
   );
-  for (const [name, path, always] of rows) {
-    if (always || existsSync(path)) l.push(`- ${name}: ${path}`);
+  for (const a of artifactsOf(ctx)) {
+    if (a.name === "config" || a.exists) l.push(`- ${a.name}: ${a.path}`);
   }
   l.push("");
   return l;

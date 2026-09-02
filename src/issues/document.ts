@@ -16,7 +16,7 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { issueDir } from "./paths.js";
-import { loadIssueContext, type IssueExtras, type IssueRecordView } from "./context.js";
+import { loadIssueContext, type IssueContext, type IssueExtras, type IssueRecordView } from "./context.js";
 import { acceptanceSection, placementSection, whatIsWrongSection } from "./doc-defects.js";
 import { evidenceSection, rendersSection, siblingsSection } from "./doc-evidence.js";
 import { artifactsSection, attemptsSection, scopeSection } from "./doc-attempts.js";
@@ -60,7 +60,12 @@ export async function renderIssueDocument(
   record?: IssueRecordView,
   extras: IssueExtras = {},
 ): Promise<{ markdown: string; label: string }> {
-  const ctx = await loadIssueContext(resolved, cluster, record, extras);
+  return renderIssueDocumentFrom(await loadIssueContext(resolved, cluster, record, extras));
+}
+
+/** The document from a context already loaded, so the JSON twin can share it. */
+export async function renderIssueDocumentFrom(ctx: IssueContext): Promise<{ markdown: string; label: string }> {
+  const { resolved, cluster, record } = ctx;
   const label = clusterLabel(cluster);
   const lookoutCmd = await invocation();
   const l: string[] = [];

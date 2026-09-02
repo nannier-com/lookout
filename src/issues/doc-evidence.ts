@@ -5,8 +5,7 @@
 import { existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { frameAbsPath } from "./frames.js";
-import { issueIdsByKey } from "./registry.js";
-import { clusterKeyOf } from "../fix/cluster.js";
+import { siblingsOf } from "./facts.js";
 import { provenanceBrief } from "../design/provenance-brief.js";
 import type { IssueContext } from "./context.js";
 
@@ -123,24 +122,9 @@ export function rendersSection(ctx: IssueContext): string[] {
  * two documents never mention each other.
  */
 export function siblingsSection(ctx: IssueContext): string[] {
-  const { cluster, backlog } = ctx;
-  if (!backlog || cluster.channel === "code") return [];
-  const mine = new Set(cluster.fingerprints);
-  const shotIds = new Set(cluster.members.flatMap((m) => m.evidence.map((e) => e.shotId)));
-  const ids = issueIdsByKey(backlog);
-  const rows = new Map<string, string>();
-  for (const f of Object.values(backlog.findings)) {
-    if (mine.has(f.fingerprint)) continue;
-    if (f.status !== "open" && f.status !== "blocked") continue;
-    if (!f.evidence.some((e) => shotIds.has(e.shotId))) continue;
-    const id = ids[clusterKeyOf(f)] ?? "not yet numbered";
-    // One line per issue and defect, however many screenshots they share.
-    const key = `${id}|${f.attribute}`;
-    if (rows.has(key)) continue;
-    rows.set(key, `- issue ${id} (${f.severity}, ${f.category}/${f.attribute}): ${f.title}`);
-  }
-  if (rows.size === 0) return [];
-  const all = [...rows.values()].sort();
+  const rows = siblingsOf(ctx).map((f) => `- issue ${f.id} (${f.severity}, ${f.category}/${f.attribute}): ${f.title}`);
+  if (rows.length === 0) return [];
+  const all = rows;
   const shown = all.slice(0, SIBLING_CAP);
   return [
     "## Also on this screenshot",

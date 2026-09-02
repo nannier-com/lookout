@@ -13,7 +13,8 @@ import { issueDir, issueImgDir } from "../src/issues/paths.js";
 import { frameAbsPath, freezeFrames, loadFrames } from "../src/issues/frames.js";
 import { evidenceDir } from "../src/config.js";
 import { loadBacklog, saveBacklog } from "../src/verbs/backlog.js";
-import { emptyBacklog, type Backlog, type BacklogFinding } from "../src/backlog/lib.js";
+import { emptyBacklog, type Backlog, type BacklogFinding, type IssueRecord } from "../src/backlog/lib.js";
+import { saveState } from "../src/fix/state.js";
 import { tmpProject } from "./tmp-project.js";
 import { LookoutError, type ResolvedConfig } from "../src/types.js";
 
@@ -431,5 +432,49 @@ describe("`backlog check` guards the registry", () => {
     const key = Object.values(b.issues)[0]!.key;
     b.issues["222222"] = { id: "222222", key, createdAt: "t" };
     expect(checkBacklog(b, clean).some((p) => p.message.includes("two issues claim"))).toBe(true);
+  });
+});
+
+describe("Issue.json is the document's twin", () => {
+  test("it carries what the markdown states, in the shape it had before it was a sentence", async () => {
+    const r = tmpProject("lookout-issues-");
+    writeShot(r, "web/app/dash/rest--desktop-dark.png");
+    const b = backlogOf([finding()]);
+    await saveBacklog(r, b);
+    const id = Object.keys(b.issues)[0]!;
+    b.issues[id]!.placement = {
+      kind: "kit-component", kit: "@acme/kit", primaryPath: "/abs/Button.tsx", symbol: "Button", reason: "made once",
+      otherCallers: 3, blastRadius: "every button", alsoRead: [], notes: "", kitEditable: true, at: "t",
+    } as IssueRecord["placement"];
+    await saveState(r, { id, attempts: [{ n: 1, dispatchedAt: "2026-08-29T10:00:00.000Z", reported: { commit: "deadbee" }, verdict: "still-open", judgeNote: "still there" }] });
+    await saveBacklog(r, b);
+
+    const doc = JSON.parse(readFileSync(join(issueDir(r, id), "Issue.json"), "utf8")) as Record<string, unknown>;
+    // The members whole, with their evidence resolved to a path somebody can open.
+    const members = doc.members as { fingerprint: string; problem: string; evidence: { absPath: string; path: string }[] }[];
+    expect(members).toHaveLength(1);
+    expect(members[0]!.evidence[0]!.absPath).toBe(join(evidenceDir(r), "web/app/dash/rest--desktop-dark.png"));
+    expect(members[0]!.evidence[0]!.absPath.startsWith("/")).toBe(true);
+    // The attempts as state.json keeps them, the placement, and the derivations the document prints.
+    expect((doc.attempts as { n: number; judgeNote: string }[])[0]).toMatchObject({ n: 1, judgeNote: "still there" });
+    expect((doc.placement as { kit: string }).kit).toBe("@acme/kit");
+    expect((doc.scope as { routes: string[]; panel: string | null }).routes).toEqual(["/dash"]);
+    expect(doc.siblings).toEqual([]);
+    const artifacts = doc.artifacts as { name: string; path: string; exists: boolean }[];
+    expect(artifacts.find((a) => a.name === "config")!.path).toBe(r.configPath);
+    expect(artifacts.find((a) => a.name === "backlog")).toMatchObject({ exists: true });
+    expect(artifacts.find((a) => a.name === "capture report")).toMatchObject({ exists: false });
+    expect(doc.attribute).toBe("theme-not-switching");
+    expect(doc.confidence).toBe("high");
+    expect(doc.seenRoutes).toEqual(["/dash"]);
+  });
+
+  test("the folder still holds exactly the four things it always has", async () => {
+    const r = tmpProject("lookout-issues-");
+    writeShot(r, "web/app/dash/rest--desktop-dark.png");
+    const b = backlogOf([finding()]);
+    await saveBacklog(r, b);
+    const id = Object.keys(b.issues)[0]!;
+    expect(readdirSync(issueDir(r, id)).sort()).toEqual(["Issue.json", "Issue.md", "frames.json", "img"]);
   });
 });

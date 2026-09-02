@@ -39,8 +39,8 @@ import {
   ISSUE_DOC_FILE,
   ISSUE_RECORD_FILE,
 } from "./paths.js";
-import { renderIssueDocument } from "./document.js";
-import type { IssueExtras } from "./context.js";
+import { renderIssueDocumentFrom } from "./document.js";
+import { loadIssueContext, type IssueExtras } from "./context.js";
 import { ensureBeforeFrames, type Frame, type FrameSet } from "./frames.js";
 import type { ResolvedConfig } from "../types.js";
 
@@ -219,10 +219,13 @@ export async function materializeIssue(
   const frames = await ensureBeforeFrames(resolved, cluster);
   const shots = await syncShots(resolved, record.id, cluster, frames);
 
-  const doc = buildIssueDocument(cluster, record, shots);
+  // One context for both projections: the record is the document's twin,
+  // and a fact either reaches both or neither.
+  const ctx = await loadIssueContext(resolved, cluster, record, extras);
+  const doc = buildIssueDocument(ctx, record, shots);
   await writeAtomic(join(dir, ISSUE_RECORD_FILE), JSON.stringify(doc, null, 2));
 
-  const { markdown } = await renderIssueDocument(resolved, cluster, record, extras);
+  const { markdown } = await renderIssueDocumentFrom(ctx);
   await writeAtomic(join(dir, ISSUE_DOC_FILE), markdown);
   return dir;
 }
