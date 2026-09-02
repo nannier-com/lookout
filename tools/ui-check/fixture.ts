@@ -343,6 +343,7 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
               "measured: TypeError: Cannot read properties of undefined (reading 'items')",
             expected: "",
             observed: "",
+            check: { type: "page-error" },
           }),
           "app.root.rest.desktop.dark.contrast.body-text": finding({
             fingerprint: "app.root.rest.desktop.dark.contrast.body-text",
@@ -392,6 +393,18 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
               "`main section > h5`.",
             expected: "The page satisfies the accessibility rule `heading-order`.",
             observed: "2 elements on this screen fail it.",
+            check: {
+              type: "axe-violation",
+              meta: {
+                ruleId: "heading-order",
+                impact: "moderate",
+                nodeCount: 2,
+                targets: ["#root > div > h4", "main section > h5"],
+                helpUrl: "https://dequeuniversity.com/rules/axe/4.10/heading-order",
+                description: "Ensures the order of headings is semantically correct",
+                failureSummary: ["Fix any of the following: Heading order invalid"],
+              },
+            },
           }),
           "app.root.rest.desktop.dark.a11y.axe-region": finding({
             fingerprint: "app.root.rest.desktop.dark.a11y.axe-region",

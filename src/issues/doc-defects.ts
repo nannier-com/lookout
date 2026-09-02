@@ -64,18 +64,47 @@ export function placementSection(ctx: IssueContext): string[] {
   return l;
 }
 
+/** A recorded value as one line: scalars as they are, lists joined, anything nested as JSON. */
+function said(v: unknown): string {
+  if (Array.isArray(v)) return v.map((x) => (typeof x === "object" && x !== null ? JSON.stringify(x) : String(x))).join(", ");
+  if (typeof v === "object" && v !== null) return JSON.stringify(v);
+  return String(v);
+}
+
+/**
+ * What the check recorded, key by key: every element a rule fired on, the
+ * error's location, the offending path. The prose above was written from
+ * these once; an agent wants the record itself.
+ */
+function checkRecordLines(check: NonNullable<IssueContext["cluster"]["members"][number]["check"]>): string[] {
+  const l: string[] = ["**What the check recorded**", "", `- type: ${check.type}`];
+  for (const [k, v] of Object.entries(check.meta ?? {})) {
+    if (v === undefined || v === null || v === "") continue;
+    l.push(`- ${k}: ${said(v)}`);
+  }
+  l.push("");
+  return l;
+}
+
 export function whatIsWrongSection(ctx: IssueContext): string[] {
   const { cluster } = ctx;
   const l: string[] = [];
   l.push("## What is wrong", "");
   for (const d of cluster.defects) {
+    const member = cluster.members.find((m) => m.attribute === d.attribute);
     l.push(`### ${d.title}`, "");
-    l.push(`- **severity** ${d.severity}`, `- **rule** ${cluster.category}/${d.attribute}`, "");
+    l.push(`- **severity** ${d.severity}`, `- **rule** ${cluster.category}/${d.attribute}`);
+    // The verifier's account is a second description of the defect,
+    // independent of the judge's, and the one a fixer who doubts the first
+    // reads next.
+    if (member?.verifierNote) l.push(`- **the verifier said** ${member.verifierNote}`);
+    l.push("");
     // A finding filed before lookout explained its own checks carries a problem
     // that is its title again, and printing it made this section the same
     // sentence three times over. The next capture replaces it with the real
     // explanation; until then, saying it once is the honest rendering.
     if (d.problem && d.problem.trim() !== d.title.trim()) l.push(d.problem, "");
+    if (member?.check) l.push(...checkRecordLines(member.check));
   }
   if (cluster.expected) l.push("**Expected**", "", cluster.expected, "");
   if (cluster.observed) l.push("**Observed**", "", cluster.observed, "");

@@ -604,3 +604,36 @@ describe("what a ruling is measured against", () => {
     r.config = { targets: [{ name: "app", url: "http://127.0.0.1:5999", routes: ["/dash"] }] } as ResolvedConfig["config"];
   }
 });
+
+describe("what the check recorded, and what the verifier said", () => {
+  test("a deterministic defect lists the check's record key by key", async () => {
+    const { r, backlog, id } = await withBacklog([
+      finding({
+        fingerprint: "app./dash.rest.phone.dark.a11y.axe-heading-order",
+        category: "a11y",
+        attribute: "axe-heading-order",
+        channel: "deterministic",
+        title: "heading-order: Heading levels should only increase by one",
+        problem: "Plain half.\n\nDetail half.",
+        acceptance: [],
+        check: { type: "axe-violation", meta: { ruleId: "heading-order", impact: "moderate", nodeCount: 2, targets: ["#root > div > h4", "main h5"], helpUrl: "https://dequeuniversity.com/rules/axe/4.10/heading-order", failureSummary: ["Fix any of the following: Heading order invalid"] } },
+      } as Partial<BacklogFinding>),
+    ]);
+    const md = await render(r, backlog, id);
+    expect(md).toContain("**What the check recorded**");
+    expect(md).toContain("- type: axe-violation");
+    expect(md).toContain("- ruleId: heading-order");
+    expect(md).toContain("- nodeCount: 2");
+    expect(md).toContain("- targets: #root > div > h4, main h5");
+    expect(md).toContain("- failureSummary: Fix any of the following: Heading order invalid");
+    expect(md).toContain("- helpUrl: https://dequeuniversity.com/rules/axe/4.10/heading-order");
+    expect(md.indexOf("Detail half.")).toBeLessThan(md.indexOf("**What the check recorded**"));
+  });
+
+  test("a judged defect carries the verifier's own account", async () => {
+    const { r, backlog, id } = await withBacklog([finding({ verifierNote: "The badge covers the R; confirmed from the phone shot." } as Partial<BacklogFinding>)]);
+    const md = await render(r, backlog, id);
+    expect(md).toContain("- **the verifier said** The badge covers the R; confirmed from the phone shot.");
+    expect(md).not.toContain("**What the check recorded**");
+  });
+});

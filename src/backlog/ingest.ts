@@ -7,6 +7,7 @@
  * mapped here, and nowhere else, so the backlog only ever sees one shape and
  * the fingerprint means the same thing whichever channel produced it.
  */
+import { checkRecordOf, viewOf } from "./check-record.js";
 import { explainDeterministic } from "./explain.js";
 import { fingerprintOf, sourceFingerprintOf } from "./fingerprint.js";
 import { regionFromSelectors } from "./region.js";
@@ -126,6 +127,10 @@ export function deterministicToFindings(
         ...(Array.isArray(df.meta?.provenance) && df.meta.provenance[0]
           ? { renderedBy: df.meta.provenance[0] as RenderedBy }
           : {}),
+        // What the check recorded and how the view was photographed, kept so
+        // the document can list them and the prose can be rewritten offline.
+        check: checkRecordOf(df),
+        ...viewOf(shot),
         evidence: [{ shotId: shot.id, path: shot.path, hash: shot.hash, runId: shot.runId }],
       });
     }
@@ -133,9 +138,12 @@ export function deterministicToFindings(
   return out;
 }
 
+/** Every deterministic type ingestion knows, for the backlog's own check. */
+export const DETERMINISTIC_TYPES = Object.keys(DETERMINISTIC_MAP) as DeterministicFinding["type"][];
+
 /** AI findings (from a check run) joined with their shots. */
 export function aiToFindings(
-  findings: (AiFinding & { verified?: boolean })[],
+  findings: (AiFinding & { verified?: boolean; verifierNote?: string })[],
   shotsById: Map<string, ShotRecord>,
   opts: {
     /**
@@ -176,7 +184,12 @@ export function aiToFindings(
       confidence: f.confidence,
       verified: !!f.verified,
       ...(f.judge ? { judge: f.judge } : {}),
+      // The verifier's own account of why this stood: a second description
+      // of the defect, independent of the judge's, and the sentence a fixer
+      // who doubts the first one reads.
+      ...(f.verifierNote ? { verifierNote: f.verifierNote.slice(0, 300) } : {}),
       acceptance: f.acceptance ?? [],
+      ...viewOf(shot),
       evidence: [{ shotId: shot.id, path: shot.path, hash: shot.hash, runId: shot.runId }],
     });
   }

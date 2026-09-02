@@ -7,6 +7,7 @@
  * kept. Each of those is a problem this reports rather than a crash somewhere
  * later, which is the whole point of `lookout backlog check`.
  */
+import { DETERMINISTIC_TYPES } from "./ingest.js";
 import { CATEGORIES } from "../judge/rubric.js";
 import { panelOf } from "../judge/panels.js";
 import { clusterKeyOf } from "../fix/cluster.js";
@@ -80,6 +81,9 @@ export function checkBacklog(
     // never orphans an old backlog's stamps.
     if (f.judge !== undefined && (typeof f.judge !== "string" || f.judge.length === 0)) {
       problems.push({ kind: "schema", fingerprint: fp, message: "judge must be a non-empty string when present" });
+    }
+    if (f.check !== undefined && !(DETERMINISTIC_TYPES as string[]).includes(f.check.type)) {
+      problems.push({ kind: "schema", fingerprint: fp, message: `unknown check type "${String(f.check.type)}"` });
     }
   }
 

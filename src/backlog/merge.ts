@@ -86,6 +86,13 @@ export function mergeFindings(
     if (f.judge) existing.judge = f.judge;
     // So does the rendering join: the newest capture knows the current DOM.
     if (f.renderedBy) existing.renderedBy = f.renderedBy;
+    // And what the check recorded, how the view was photographed, and what
+    // the verifier said: refreshed when the newest sighting carries them,
+    // never cleared, since a --no-verify re-sighting carries no note and must
+    // not erase the one the refuter wrote.
+    if (f.check) existing.check = f.check;
+    if (f.view) existing.view = f.view;
+    if (f.verifierNote) existing.verifierNote = f.verifierNote;
     for (const ev of f.evidence) {
       if (!existing.evidence.some((e) => e.hash === ev.hash)) {
         existing.evidence.push(ev);

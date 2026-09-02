@@ -339,6 +339,22 @@ export interface ShotRecord {
    * fingerprint, so its presence or absence never re-judges anything.
    */
   provenance?: string;
+  /**
+   * How the view was photographed, for whoever has to put the same screen in
+   * front of themselves. Recorded by web capture; older reports carry none.
+   */
+  url?: string;
+  /** Where the page actually landed, when it differs from `url`. */
+  finalUrl?: string;
+  viewport?: Viewport;
+  dpr?: number;
+  schemeMechanism?: "emulate" | "url-param" | "recipe";
+  /** The selector that was framed, when the shot is of one element. */
+  element?: string;
+  /** What a state other than rest is, in the words of whoever planned it. */
+  stateDescription?: string;
+  /** What was clicked to reach a synthesized state, and what was expected. */
+  stateAffordance?: { selector: string; role: string; name: string; href: string | null; outcome?: string };
   capturedAt: string;
   runId: string;
   deterministicFindings: DeterministicFinding[];

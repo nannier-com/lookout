@@ -9,7 +9,7 @@
  */
 import type { Category } from "../judge/rubric.js";
 import type { Region } from "./region.js";
-import type { FormFactor, PlatformKind, Scheme, Severity } from "../types.js";
+import type { DeterministicFinding, FormFactor, PlatformKind, Scheme, Severity } from "../types.js";
 import type { AcceptanceCriterion } from "../issues/acceptance.js";
 
 export type FindingStatus = "open" | "fixed" | "by-design" | "blocked";
@@ -58,6 +58,37 @@ export interface SourceRef {
   foundBy?: "scan" | "skill";
   /** The conformance skill's account of the component, when a skill found it. */
   note?: string;
+}
+
+/**
+ * What the check that filed a deterministic finding recorded, bounded. The
+ * prose in `problem` is written from this at ingestion; keeping the record
+ * itself is what lets the document list every element a rule fired on and
+ * lets the prose be rewritten later without a re-capture.
+ */
+export interface CheckRecord {
+  type: DeterministicFinding["type"];
+  meta?: Record<string, unknown>;
+}
+
+/**
+ * How the view was photographed, as capture recorded it: what a fixer needs
+ * to put the same screen in front of themselves. Constant per finding, since
+ * the fingerprint fixes the view; refreshed on re-sighting. Every field is
+ * optional because older captures recorded none of them.
+ */
+export interface ViewFacts {
+  url?: string;
+  finalUrl?: string;
+  viewport?: { width: number; height: number };
+  dpr?: number;
+  schemeMechanism?: string;
+  element?: string;
+  stateDescription?: string;
+  stateAffordance?: { selector: string; role: string; name: string; href: string | null; outcome?: string };
+  design?: string;
+  designHash?: string;
+  provenance?: string;
 }
 
 export interface BacklogFinding {
@@ -132,6 +163,16 @@ export interface BacklogFinding {
    * derive theirs instead, so this is empty for them.
    */
   acceptance?: string[];
+  /** Deterministic channel only: what the check recorded, bounded. */
+  check?: CheckRecord;
+  /** Photographed findings only: how the view was captured. */
+  view?: ViewFacts;
+  /**
+   * AI channel only: the adversarial verifier's own account of why the
+   * finding stood, in its words. A second, independent description of the
+   * defect, and the sentence a fixer who doubts the first one reads.
+   */
+  verifierNote?: string;
   evidence: EvidenceRef[];
   firstSeen: string; // runId
   lastSeen: string; // runId
