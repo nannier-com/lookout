@@ -138,7 +138,9 @@ export function scopeSection(ctx: IssueContext): string[] {
     "",
   );
   l.push(
-    `Each route is captured at ${scope.formFactors.join(", ")} in ${scope.schemes.join(" and ")}, at rest and in every`,
+    scope.platform === "web"
+      ? `Each route is captured at ${scope.formFactors.join(", ")} in ${scope.schemes.join(" and ")}, at rest and in every`
+      : `Each route is captured on ${scope.platform} (${scope.formFactors.join(", ")}) in ${scope.schemes.join(" and ")}, at rest and in every`,
     "navigation state lookout has planned for it, unless the flags below narrow that." +
       (scope.panel
         ? ` The views are re-judged by \`${scope.panel}\`, the panel that filed this.`

@@ -60,6 +60,34 @@ function stateLine(ctx: IssueContext, rec: ViewFacts, target: string, route: str
   return `- state \`${state}\`: a recipe named in the config; lookout drives the page into it before photographing`;
 }
 
+/**
+ * How a device view is reached: the deep link with the scheme in it, the
+ * device it was opened on, and the commands lookout used, per platform.
+ */
+function deviceLines(ctx: IssueContext, platform: string, rec: ViewFacts, route: string, scheme: Scheme): string[] {
+  const app = platform === "ios" || platform === "android" ? ctx.resolved.config.native?.[platform] : undefined;
+  const l: string[] = [];
+  if (rec.url) l.push(`- deep link: ${rec.url}`);
+  else if (app) {
+    const url = new URL(`${app.deepLinkScheme}:///${route.replace(/^\//, "")}`);
+    if (app.appearanceParam) url.searchParams.set(app.appearanceParam, scheme);
+    l.push(`- deep link: ${url.toString()} ${DERIVED}`);
+  }
+  if (rec.device) l.push(`- device: ${rec.device.name} (${platform}, id ${rec.device.id})`);
+  else l.push(`- device: whichever ${platform} simulator or emulator of this kind is booted; lookout addresses it by its own id`);
+  l.push(
+    app?.appearanceParam
+      ? `- scheme via: the \`${app.appearanceParam}\` query parameter on the deep link, which the app reads`
+      : `- scheme via: the device's own appearance; the app names no appearanceParam, so only what the device shows is captured`,
+  );
+  l.push(
+    platform === "ios"
+      ? `- how lookout opened it: \`xcrun simctl terminate <id> ${app?.bundleId ?? "<bundleId>"}\`, then \`xcrun simctl openurl <id> <deep link>\`, waited, and took \`xcrun simctl io <id> screenshot\``
+      : `- how lookout opened it: \`adb -s <id> shell am force-stop ${app?.bundleId ?? "<bundleId>"}\`, then \`adb -s <id> shell am start -a android.intent.action.VIEW -d <deep link>\`, waited, and took \`adb -s <id> exec-out screencap -p\``,
+  );
+  return l;
+}
+
 export function howToSeeSection(ctx: IssueContext): string[] {
   const { cluster, resolved, evDir } = ctx;
   if (cluster.channel === "code") return [];
@@ -82,17 +110,26 @@ export function howToSeeSection(ctx: IssueContext): string[] {
     const ff = m.formFactor as FormFactor;
     const vp = rec.viewport ?? resolved.config.viewports?.[ff] ?? DEFAULT_VIEWPORTS[ff];
     const dpr = rec.dpr ?? DEVICE_SCALE_FACTOR;
+    const platform = m.platform ?? shot?.platform ?? "web";
 
-    l.push(`### ${m.route}, ${m.formFactor}, ${m.scheme} scheme, state ${m.state}`, "");
-    if (rec.url) l.push(`- url: ${rec.url}${rec.finalUrl && rec.finalUrl !== rec.url ? `, which landed on ${rec.finalUrl}` : ""}`);
-    else if (route) l.push(`- url: ${schemeUrl(resolved, route.url, m.scheme as Scheme)} ${DERIVED}`);
-    else if (target) l.push(`- url: ${target.url}${m.route === "/" ? "" : m.route} ${DERIVED}; the route is no longer in the config`);
-    if (vp) {
-      l.push(
-        `- viewport: ${vp.width}×${vp.height} css px at ${dpr}× (the screenshot is ${vp.width * dpr} px wide)${rec.viewport ? "" : ` ${DERIVED}`}`,
-      );
+    if (platform !== "web") {
+      // A device view: the deep link lookout opened, on which simulator or
+      // emulator, and how, so a fixer can put the same screen in front of
+      // themselves. There is no viewport to state; the device is the viewport.
+      l.push(`### ${m.route} on ${platform}, ${m.formFactor}, ${m.scheme} scheme, state ${m.state}`, "");
+      l.push(...deviceLines(ctx, platform, rec, m.route, m.scheme as Scheme));
+    } else {
+      l.push(`### ${m.route}, ${m.formFactor}, ${m.scheme} scheme, state ${m.state}`, "");
+      if (rec.url) l.push(`- url: ${rec.url}${rec.finalUrl && rec.finalUrl !== rec.url ? `, which landed on ${rec.finalUrl}` : ""}`);
+      else if (route) l.push(`- url: ${schemeUrl(resolved, route.url, m.scheme as Scheme)} ${DERIVED}`);
+      else if (target) l.push(`- url: ${target.url}${m.route === "/" ? "" : m.route} ${DERIVED}; the route is no longer in the config`);
+      if (vp) {
+        l.push(
+          `- viewport: ${vp.width}×${vp.height} css px at ${dpr}× (the screenshot is ${vp.width * dpr} px wide)${rec.viewport ? "" : ` ${DERIVED}`}`,
+        );
+      }
+      l.push(`- scheme via: ${schemeVia(rec.schemeMechanism, ctx)}`);
     }
-    l.push(`- scheme via: ${schemeVia(rec.schemeMechanism, ctx)}`);
     const element = rec.element ?? route?.element;
     if (element) l.push(`- element: only \`${element}\` was photographed, not the whole page${rec.element ? "" : ` ${DERIVED}`}`);
     const state = stateLine(ctx, rec, cluster.target, m.route, m.state);

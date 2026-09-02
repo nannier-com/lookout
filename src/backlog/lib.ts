@@ -80,6 +80,8 @@ export interface CheckRecord {
 export interface ViewFacts {
   url?: string;
   finalUrl?: string;
+  /** The simulator or emulator a device shot was taken on. */
+  device?: { id: string; name: string };
   viewport?: { width: number; height: number };
   dpr?: number;
   schemeMechanism?: string;

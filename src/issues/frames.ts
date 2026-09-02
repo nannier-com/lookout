@@ -50,6 +50,8 @@ export interface Frame {
   /** Relative to the issue's folder, e.g. `img/pre/web-app-root--dark.png`. */
   path: string;
   route: string;
+  /** "web", or the device platform. Absent on frames frozen before devices were recorded. */
+  platform?: string;
   formFactor: string;
   scheme: string;
   state?: string;
@@ -227,6 +229,7 @@ export async function freezeFrames(
     frames.push({
       path: rel,
       route: m.route,
+      ...(m.platform ? { platform: m.platform } : {}),
       formFactor: m.formFactor ?? "",
       scheme: m.scheme ?? "",
       ...(m.state ? { state: m.state } : {}),

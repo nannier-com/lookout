@@ -250,6 +250,23 @@ describe("the log only marks what is in flight", () => {
   });
 });
 
+describe("a device tile says its platform", () => {
+  test("the board shot carries the platform, and a web shot carries it too for the label to skip", async () => {
+    const { shotsOf } = await import("../src/report/board-durable.js");
+    const web = finding({ route: "/", attribute: "web-one" });
+    const ios = { ...finding({ route: "/", attribute: "ios-one", formFactor: "phone" }), platform: "ios" as const,
+      fingerprint: "app./.rest.ios.phone.dark.a11y.ios-one",
+      evidence: [{ shotId: "ios/app/root/rest/phone/dark", path: "ios/app/root/rest--phone-dark.png", hash: "h", runId: "r1" }] };
+    const cluster = (members: typeof web[]): Parameters<typeof shotsOf>[1] =>
+      ({ id: "1", key: "k", target: "app", platform: members[0]!.platform ?? "web", category: "a11y", attribute: "x", defects: [],
+        severity: "high", title: "t", problem: "p", expected: "e", observed: "o", routes: ["/"], fingerprints: [], members,
+        shotCount: members.length, findingCount: members.length, attemptsSpent: 0, verified: false, channel: "deterministic" });
+    const r = project();
+    expect(shotsOf(r, cluster([web]))[0]!.platform).toBe("web");
+    expect(shotsOf(r, cluster([ios]))[0]!.platform).toBe("ios");
+  });
+});
+
 describe("an issue carries its own defects and its own severity", () => {
   // These used to be asserted over a separate findings list. That list showed
   // the same screenshot and the same severity next to a pointer back to the

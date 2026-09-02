@@ -426,6 +426,32 @@ describe("how to see it", () => {
     expect(md).toContain(`- workspace screenshot: ${join(evidenceDir(r), "web/app/dash/rest--phone-dark.png")}; overwritten by every capture`);
   });
 
+  test("a device view names the deep link, the device and how lookout opened it, not a viewport", async () => {
+    const { r, backlog, id } = await withBacklog([
+      finding({
+        fingerprint: "app./dash.rest.ios.tablet.dark.layout-overflow.header-icon-overlap",
+        platform: "ios",
+        formFactor: "tablet",
+        evidence: [{ shotId: "ios/app/dash/rest/tablet/dark", path: "ios/app/dash/rest--tablet-dark.png", hash: "h1", runId: "r1" }],
+        view: { url: "acme:///dash?scheme=dark", device: { id: "AAAA-1111", name: "iPad Pro 11-inch (M4)" } },
+      }),
+    ]);
+    r.config = {
+      targets: [{ name: "app", url: "http://127.0.0.1:5999", routes: ["/dash"] }],
+      native: { ios: { deepLinkScheme: "acme", bundleId: "com.acme.app", appearanceParam: "scheme" } },
+    } as ResolvedConfig["config"];
+    const md = await render(r, backlog, id);
+    expect(md).toContain("### /dash on ios, tablet, dark scheme, state rest");
+    expect(md).toContain("- deep link: acme:///dash?scheme=dark");
+    expect(md).toContain("- device: iPad Pro 11-inch (M4) (ios, id AAAA-1111)");
+    expect(md).toContain("- scheme via: the `scheme` query parameter on the deep link, which the app reads");
+    expect(md).toContain("- how lookout opened it: `xcrun simctl terminate <id> com.acme.app`, then `xcrun simctl openurl <id> <deep link>`");
+    expect(md).not.toContain("- viewport:");
+    expect(md).not.toContain("- url:");
+    // The scope of verification says the fold and its device kinds.
+    expect(md).toContain("Each route is captured on ios (phone, tablet when booted) in dark and light");
+  });
+
   test("a state other than rest says what it is and what was clicked to reach it", async () => {
     const { r, backlog, id } = await withBacklog([finding({ state: "menu-open" })]);
     withConfig(r);

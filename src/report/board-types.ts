@@ -57,6 +57,8 @@ export interface BoardShot {
   path: string;
   absPath: string;
   route: string;
+  /** "web", or the device platform; a tile says the platform when it is not the web. */
+  platform?: string;
   formFactor: string;
   scheme: string;
   state?: string;

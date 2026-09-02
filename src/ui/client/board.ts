@@ -12,8 +12,13 @@ import { toolLabel, toolMark } from "./tools.js";
 import type { BoardEntry, BoardShot } from "../../report/board.js";
 
 /** The inspector's handle on a tile: which shot, which sidecar, what to call it. */
+/** The device platform, when the shot is not of the web: "ios" beside "phone" says which phone. */
+function platformOf(s: BoardShot): string {
+  return s.platform && s.platform !== "web" ? s.platform : "";
+}
+
 function shotData(s: BoardShot): string {
-  const label = [s.route, s.formFactor, s.scheme, s.state].filter(Boolean).join(" \u00b7 ");
+  const label = [s.route, platformOf(s), s.formFactor, s.scheme, s.state].filter(Boolean).join(" \u00b7 ");
   return ' data-shot="' + esc(s.path) + '" data-label="' + esc(label) + '"'
     + (s.provenance ? ' data-prov="' + esc(s.provenance) + '"' : "");
 }
@@ -23,7 +28,7 @@ function tile(s: BoardShot, w: number): string {
   return '<a class="tile" href="/evidence/' + enc(s.path) + '" target="_blank"'
     + ' title="' + esc(s.absPath + hint) + '"' + shotData(s) + '>'
     + '<img loading="lazy" src="/thumb/' + enc(s.path) + '?w=' + w + '" alt=""/>'
-    + '<span>' + esc([s.formFactor, s.scheme].filter(Boolean).join(" \u00b7 ") || s.route) + '</span></a>';
+    + '<span>' + esc([platformOf(s), s.formFactor, s.scheme].filter(Boolean).join(" \u00b7 ") || s.route) + '</span></a>';
 }
 function strip(label: string, shots: BoardShot[]): string {
   const tiles = shots.map((s) => tile(s, 264)).join("");
@@ -74,7 +79,7 @@ function fixStrip(b: BoardEntry): string {
   const body = pairs.map(([bf, af]) => {
     // One side is always present: a pair is only made from a frame that exists.
     const s = (bf ?? af)!;
-    const label = [s.formFactor, s.scheme].filter(Boolean).join(" \u00b7 ") || s.route;
+    const label = [platformOf(s), s.formFactor, s.scheme].filter(Boolean).join(" \u00b7 ") || s.route;
     return '<div class="pair"><div class="frames">' + half(bf, "pre") + half(af, "post")
       + '</div><div class="lbl">' + esc(label) + '</div></div>';
   }).join("");

@@ -64,6 +64,9 @@ export interface ScopeFacts {
   shell: boolean;
   /** The judge panel that re-judges, or null when lookout's own checks rule. */
   panel: string | null;
+  /** "web", or the device platform the cluster was photographed on. */
+  platform: string;
+  /** Web: the three form factors. Device: the kinds a run must have, then the ones taken when booted. */
   formFactors: string[];
   schemes: string[];
 }
@@ -82,9 +85,17 @@ export function scopeOf(ctx: IssueContext): ScopeFacts | null {
     added: scope.routes.filter((r) => !cluster.routes.includes(r)),
     shell: cluster.members.some((m) => isShellRegion(m.region)),
     panel: cluster.channel === "ai" ? panelOf(cluster.category).name : null,
-    formFactors: [...FORM_FACTORS],
+    platform: cluster.platform,
+    formFactors: cluster.platform === "web" ? [...FORM_FACTORS] : deviceKindsOf(resolved, cluster.platform),
     schemes: [...SCHEMES],
   };
+}
+
+/** The device kinds a ruling walks on a platform: the required ones first, the optional one after. */
+function deviceKindsOf(resolved: IssueContext["resolved"], platform: string): string[] {
+  const app = platform === "ios" || platform === "android" ? resolved.config.native?.[platform] : undefined;
+  const required = app?.devices ?? ["phone"];
+  return [...required, ...["phone", "tablet"].filter((k) => !required.includes(k as "phone" | "tablet")).map((k) => `${k} when booted`)];
 }
 
 export interface ArtifactFact {

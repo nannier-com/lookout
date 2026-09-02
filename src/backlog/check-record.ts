@@ -55,6 +55,7 @@ export function checkRecordOf(df: DeterministicFinding): CheckRecord {
 const VIEW_KEYS: (keyof ViewFacts)[] = [
   "url",
   "finalUrl",
+  "device",
   "viewport",
   "dpr",
   "schemeMechanism",
