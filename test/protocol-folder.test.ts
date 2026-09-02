@@ -24,7 +24,8 @@ describe("the protocol names what is on disk", () => {
   });
 
   test("what a ruling costs and what it is measured against, without giving orders", () => {
-    expect(text).toContain("spends one of the issue's attempts");
+    // The text is wrapped at 76 columns, so phrases are matched within one line.
+    expect(text).toContain("A ruling that does not pass spends one of the issue's");
     expect(text).toContain("does not");
     expect(text).toContain("move that baseline");
     expect(text).toContain("--status open");
