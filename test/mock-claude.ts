@@ -265,7 +265,9 @@ if (mode === "placement") {
               region: process.env.MOCK_JUDGE_REGION ?? "content",
               severity: "high",
               title: "Mock finding for plumbing tests",
-              problem: "A person looking at this screen would notice something off about it at a glance, and this is the mock saying so.\n\nmock",
+              // MOCK_JUDGE_PROBLEM replaces the problem text, so the path a thin
+              // problem takes (counted, never rejected) is reachable from a real run.
+              problem: process.env.MOCK_JUDGE_PROBLEM ?? "A person looking at this screen would notice something off about it at a glance, and this is the mock saying so.\n\nmock",
               expected: "mock",
               observed: "mock",
               acceptance: ["Body text is legible against the card background."],
@@ -277,7 +279,9 @@ if (mode === "placement") {
               attribute: "x",
               severity: "high",
               title: "Must be rejected by vocabulary enforcement",
-              problem: "A person looking at this screen would notice something off about it at a glance, and this is the mock saying so.\n\nmock",
+              // MOCK_JUDGE_PROBLEM replaces the problem text, so the path a thin
+              // problem takes (counted, never rejected) is reachable from a real run.
+              problem: process.env.MOCK_JUDGE_PROBLEM ?? "A person looking at this screen would notice something off about it at a glance, and this is the mock saying so.\n\nmock",
               expected: "mock",
               observed: "mock",
               acceptance: ["Body text is legible against the card background."],

@@ -376,10 +376,8 @@ export async function backlog(parsed: Parsed): Promise<number> {
       for (const p of problems) {
         console.log(`  [${p.kind}]${p.level === "warning" ? " warning" : ""} ${p.fingerprint ?? ""} ${p.message}`);
       }
-      console.log(
-        `\n${problems.length - warnings} problem(s), ${warnings} warning(s)` +
-          (warnings > 0 && !strict ? " (warnings do not fail the check; --strict makes them)." : "."),
-      );
+      const tail = warnings === 0 ? "." : strict ? " (--strict: warnings fail the check)." : " (warnings do not fail the check; --strict makes them).";
+      console.log(`\n${problems.length - warnings} problem(s), ${warnings} warning(s)${tail}`);
     }
     return fails.length === 0 ? 0 : 1;
   }
