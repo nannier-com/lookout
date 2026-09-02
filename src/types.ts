@@ -28,6 +28,23 @@ export const DEFAULT_VIEWPORTS: Record<FormFactor, Viewport> = {
  */
 export const DEVICE_SCALE_FACTOR = 2;
 
+/**
+ * The form factors a web capture walks, in walk order: widest first, so the
+ * judge, the accessibility scan and the navigation harvest see the full
+ * layout before its scaled-down variants, and a run narrowed with
+ * `--viewports` keeps the same relative order whatever order the flag listed.
+ * `DEFAULT_VIEWPORTS` sizes them; a project can resize a form factor but never
+ * add or remove one. The one list every default is read from: a second copy
+ * anywhere is a bug.
+ */
+export const FORM_FACTORS: readonly FormFactor[] = ["desktop", "tablet", "phone"];
+
+/** The colour schemes a capture walks, dark first, matching the judge's manifest order. */
+export const SCHEMES: readonly Scheme[] = ["dark", "light"];
+
+/** Every platform lookout can photograph, web first because it needs no device. */
+export const PLATFORMS: readonly PlatformKind[] = ["web", "ios", "android"];
+
 export interface RouteDef {
   /** Path under the target's base URL, e.g. "/settings". */
   path: string;
@@ -169,6 +186,14 @@ export interface LookoutConfig {
   project?: string;
   targets: TargetDef[];
   viewports?: Partial<Record<FormFactor, Viewport>>;
+  /**
+   * Which fold this project is judged in: "web" walks the three viewports,
+   * "ios" and "android" walk the booted devices. Left out, lookout reads the
+   * repository and the `native` block to decide (see project-kind.ts); set,
+   * this is the whole answer and detection is not consulted. `--platforms`
+   * still narrows or widens a single run.
+   */
+  platforms?: PlatformKind[];
   scheme?: SchemeConfig;
   /**
    * When the scheme mode is "recipe", the config module must also export

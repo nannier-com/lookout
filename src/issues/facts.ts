@@ -17,7 +17,7 @@ import { panelOf } from "../judge/panels.js";
 import { ledgerPath } from "../judge/ledger.js";
 import { navigationPath } from "../navigate/store.js";
 import { eventsPath } from "../report/events.js";
-import { DEFAULT_VIEWPORTS } from "../types.js";
+import { FORM_FACTORS, SCHEMES } from "../types.js";
 import { issueIdsByKey } from "./registry.js";
 import type { IssueContext } from "./context.js";
 
@@ -82,8 +82,8 @@ export function scopeOf(ctx: IssueContext): ScopeFacts | null {
     added: scope.routes.filter((r) => !cluster.routes.includes(r)),
     shell: cluster.members.some((m) => isShellRegion(m.region)),
     panel: cluster.channel === "ai" ? panelOf(cluster.category).name : null,
-    formFactors: Object.keys(DEFAULT_VIEWPORTS),
-    schemes: ["dark", "light"],
+    formFactors: [...FORM_FACTORS],
+    schemes: [...SCHEMES],
   };
 }
 

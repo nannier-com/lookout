@@ -19,11 +19,11 @@ import {
 import { navigationOn } from "../navigate/consent.js";
 import { buildContactSheet, sheetNote } from "../capture/sheet.js";
 import { emit, EventLog, setCurrentLog } from "../report/events.js";
-import type { FormFactor, Scheme, ShotRecord } from "../types.js";
+import type { ShotRecord } from "../types.js";
 import { LookoutError } from "../types.js";
+import { resolveFormFactors, resolvePlatforms, resolveSchemes } from "../capture/matrix.js";
+import { detectProjectKind } from "../project-kind.js";
 import { list, num, printJson, runId, str, type Parsed } from "../util.js";
-
-const FORM_FACTORS: FormFactor[] = ["desktop", "tablet", "phone"];
 
 /** Narrate one shot the moment it lands, so a live watcher sees it appear. */
 function emitShot(shot: ShotRecord): void {
@@ -37,10 +37,11 @@ function emitShot(shot: ShotRecord): void {
     findings: shot.deterministicFindings.length,
   });
 }
-const SCHEMES: Scheme[] = ["dark", "light"];
 
 export interface CaptureOutcome {
   runId: string;
+  /** The fold this run walked: web, devices, or both. */
+  platforms: string[];
   shots: number;
   findings: { errors: number; warnings: number; infos: number };
   failures: { target: string; route: string; step: string; message: string }[];
@@ -70,16 +71,14 @@ export async function runCapture(parsed: Parsed): Promise<{
   );
   requireUp(await preflight(targets));
 
-  const formFactors = (list(parsed.flags.viewports) as FormFactor[] | undefined) ?? FORM_FACTORS;
-  for (const f of formFactors) {
-    if (!FORM_FACTORS.includes(f)) {
-      throw new LookoutError(`unknown viewport "${f}" (phone | tablet | desktop)`);
-    }
-  }
-  const schemes = (list(parsed.flags.schemes) as Scheme[] | undefined) ?? SCHEMES;
-  for (const s of schemes) {
-    if (!SCHEMES.includes(s)) throw new LookoutError(`unknown scheme "${s}" (dark | light)`);
-  }
+  // The matrix: every form factor and both schemes unless a flag narrows,
+  // and the platforms the project's fold walks unless a flag decides.
+  const formFactors = resolveFormFactors(parsed.flags.viewports);
+  const schemes = resolveSchemes(parsed.flags.schemes);
+  const platforms = resolvePlatforms(
+    parsed.flags.platforms,
+    await detectProjectKind(resolved.projectDir, resolved.config),
+  );
 
   const axeFlag = str(parsed.flags.axe) ?? "route";
   if (!["route", "all", "off"].includes(axeFlag)) {
@@ -116,13 +115,6 @@ export async function runCapture(parsed: Parsed): Promise<{
       plans: new Map(Object.entries(plans.routes)),
       onHarvest: (key, harvest) => harvests.set(key, harvest),
     };
-  }
-
-  const platforms = list(parsed.flags.platforms) ?? ["web"];
-  for (const p of platforms) {
-    if (!["web", "ios", "android"].includes(p)) {
-      throw new LookoutError(`unknown platform "${p}" (web | ios | android)`);
-    }
   }
 
   let run: Awaited<ReturnType<typeof captureWeb>>["run"] | null = null;
@@ -196,6 +188,7 @@ export async function runCapture(parsed: Parsed): Promise<{
   const all = shots.flatMap((s) => s.deterministicFindings);
   const outcome: CaptureOutcome = {
     runId: run.id,
+    platforms,
     // contactSheet is filled in by the verb once the sheet is composited;
     // runCapture itself is shared with `check`, which builds its own sheet with
     // the defect-carrying tiles marked.

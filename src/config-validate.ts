@@ -9,10 +9,13 @@
  */
 import {
   DEFAULT_VIEWPORTS,
+  FORM_FACTORS,
   LookoutError,
+  PLATFORMS,
   type DesignSystemDeclaration,
   type FormFactor,
   type LookoutConfig,
+  type PlatformKind,
   type RouteDef,
   type SchemeConfig,
   type TargetDef,
@@ -124,7 +127,7 @@ export function validateConfig(raw: unknown, path: string): LookoutConfig {
     viewports = {};
     for (const key of Object.keys(raw.viewports)) {
       if (!(key in DEFAULT_VIEWPORTS)) {
-        fail(path, `viewports.${key}: unknown form factor (phone | tablet | desktop)`);
+        fail(path, `viewports.${key}: unknown form factor (${FORM_FACTORS.join(" | ")})`);
       }
       const v = (raw.viewports as Record<string, unknown>)[key];
       if (!isRecord(v) || typeof v.width !== "number" || typeof v.height !== "number") {
@@ -132,6 +135,21 @@ export function validateConfig(raw: unknown, path: string): LookoutConfig {
       }
       viewports[key as FormFactor] = { width: v.width, height: v.height };
     }
+  }
+
+  // The fold, when the project says it. Validated against the platform set,
+  // and a device platform named here still needs its native block to run.
+  let platforms: PlatformKind[] | undefined;
+  if (raw.platforms !== undefined) {
+    if (!Array.isArray(raw.platforms) || raw.platforms.length === 0) {
+      fail(path, "platforms must be a non-empty array of web | ios | android");
+    }
+    for (const p of raw.platforms) {
+      if (!(PLATFORMS as readonly unknown[]).includes(p)) {
+        fail(path, `platforms: unknown platform ${JSON.stringify(p)} (${PLATFORMS.join(" | ")})`);
+      }
+    }
+    platforms = [...new Set(raw.platforms as PlatformKind[])];
   }
 
   if (raw.states !== undefined) {
@@ -249,6 +267,7 @@ export function validateConfig(raw: unknown, path: string): LookoutConfig {
     project: typeof raw.project === "string" ? raw.project : undefined,
     targets: validTargets,
     viewports,
+    platforms,
     scheme,
     states: raw.states as LookoutConfig["states"],
     element: typeof raw.element === "string" ? raw.element : undefined,

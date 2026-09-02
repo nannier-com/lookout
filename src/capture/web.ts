@@ -16,6 +16,7 @@ import { chromium, type Browser } from "playwright";
 import {
   DEFAULT_VIEWPORTS,
   DEVICE_SCALE_FACTOR,
+  FORM_FACTORS,
   type FormFactor,
   type ResolvedConfig,
   type RunRecord,
@@ -86,9 +87,9 @@ export async function captureWeb(
     ...DEFAULT_VIEWPORTS,
     ...(config.viewports ?? {}),
   };
-  // Desktop-first: judge the widest layout before its scaled-down variants.
-  const order: FormFactor[] = ["desktop", "tablet", "phone"];
-  const formFactors = order.filter((f) => opts.formFactors.includes(f));
+  // Walk order, widest first, whatever order the caller listed: the judge sees
+  // the full layout before its scaled-down variants (see FORM_FACTORS).
+  const formFactors = FORM_FACTORS.filter((f) => opts.formFactors.includes(f));
 
   const browser: Browser = await chromium.launch({ headless: opts.headless });
   try {

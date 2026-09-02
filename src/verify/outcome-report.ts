@@ -10,6 +10,7 @@
 import { acceptanceTally, type AcceptanceCriterion } from "../issues/acceptance.js";
 import { sheetNote } from "../capture/sheet.js";
 import { list, printJson } from "../util.js";
+import { FORM_FACTORS, SCHEMES } from "../types.js";
 import type { SheetResult } from "../capture/sheet.js";
 import type { RepoObservation } from "../fix/state.js";
 import type { BaselineDescription } from "./baseline.js";
@@ -45,9 +46,6 @@ export interface FixOutcomeArgs {
   learned?: unknown;
 }
 
-const FORM_FACTORS = ["desktop", "tablet", "phone"];
-const SCHEMES = ["dark", "light"];
-
 function nextOf(a: FixOutcomeArgs): string {
   const head =
     a.verdict === "passed"
@@ -64,8 +62,8 @@ function nextOf(a: FixOutcomeArgs): string {
 
 /** The `--json` payload: the same facts the printed account and the document carry. */
 export function fixPayload(a: FixOutcomeArgs): Record<string, unknown> {
-  const formFactors = list(a.flags.viewports) ?? FORM_FACTORS;
-  const schemes = list(a.flags.schemes) ?? SCHEMES;
+  const formFactors: string[] = list(a.flags.viewports) ?? [...FORM_FACTORS];
+  const schemes: string[] = list(a.flags.schemes) ?? [...SCHEMES];
   return {
     issue: a.issueId,
     verdict: a.verdict,

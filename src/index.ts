@@ -22,7 +22,8 @@ export type {
   RunRecord,
   CaptureReport,
 } from "./types.js";
-export { DEFAULT_VIEWPORTS, LookoutError } from "./types.js";
+export { DEFAULT_VIEWPORTS, FORM_FACTORS, SCHEMES, LookoutError } from "./types.js";
+export { detectProjectKind, describeKind, type ProjectKind } from "./project-kind.js";
 // Configs that write a signIn hook or a state recipe are handed a Playwright
 // Page; re-exported so a consumer types its callbacks without depending on
 // playwright directly.
