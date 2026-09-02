@@ -6,8 +6,9 @@
  * all: `.lookout/issues/418203/Issue.md` answers "what is this" without the
  * tool, the backlog, or this conversation.
  *
- * lookout still does not dispatch work. This names no agent, sets no protocol,
- * and asks for nothing back. It is a document about a defect, sitting where
+ * this document dispatches nothing. It names no agent and sets no protocol.
+ * The one thing lookout asks back for is its own ruling, and it asks in the
+ * handoff prompt rather than here. It is a document about a defect, sitting where
  * anyone who opens the folder will find it.
  *
  * This file is the assembly: the header, the standing rules, and the order the

@@ -15,7 +15,8 @@ import type { AcceptanceCriterion } from "../issues/acceptance.js";
  * Where an issue stands. Every state is one lookout established itself: the
  * backlog says open, blocked, fixed or waived, and `verify-fix` says what it
  * saw last time it was asked to rule. Nothing here tracks who is working on
- * it, because lookout does not dispatch work and cannot know.
+ * it: what has been handed over, and when, is the queue's record rather than
+ * the board's, because the two answer different questions.
  */
 export type IssueStatus =
   | "open"

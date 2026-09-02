@@ -26,6 +26,19 @@ export function isQueued(id: string): boolean {
 }
 
 /**
+ * How many rulings an issue gets, as the server counts them.
+ *
+ * The default is what lookout has always used, and it only matters before the
+ * first payload lands: from then on the number comes from the server, so the
+ * card and the route cannot come to different answers about the same issue.
+ */
+let cap = 2;
+
+export function attemptCap(): number {
+  return cap;
+}
+
+/**
  * What this row is waiting for, in words.
  *
  * Every branch names the thing that would move it along, because a queue whose
@@ -74,6 +87,7 @@ function row(q: QueueItem, entry: BoardEntry | undefined, i: number): string {
 export function paintQueue(d: StatusPayload): void {
   const items = d.status.queue ?? [];
   queued = new Set(items.map((q) => q.issue));
+  if (typeof d.status.attemptCap === "number") cap = d.status.attemptCap;
 
   const byId = new Map(d.status.board.map((b) => [b.id, b]));
   el("queueCount").textContent = items.length ? String(items.length) : "";

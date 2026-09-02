@@ -11,9 +11,10 @@
  * point of the page is to hand an issue to somebody who then has to go and open
  * those files.
  *
- * It starts nothing it was not asked to start, judges nothing and dispatches
- * nothing, which means it can be left open across runs and costs nothing to
- * keep around.
+ * It starts nothing it was not asked to start and judges nothing. It does hand
+ * work over now, one issue at a time, but only issues somebody put in the queue
+ * and only in the order they put them there: the page is still a viewer you can
+ * leave open across runs, not a thing that decides what to work on.
  *
  * No dependencies: bun's own server, and a page assembled under `src/ui`. Bound
  * to the loopback interface, because it serves screenshots of the user's app.

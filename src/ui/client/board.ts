@@ -8,7 +8,7 @@
  */
 import { enc, esc } from "./dom.js";
 import { ruleLine, statusWords, verdictMark, verdictState, verdictWords } from "./card-words.js";
-import { isQueued } from "./queue.js";
+import { attemptCap, isQueued } from "./queue.js";
 import { toolLabel, toolMark } from "./tools.js";
 import type { BoardEntry, BoardShot } from "../../report/board.js";
 
@@ -246,10 +246,11 @@ function cardAction(b: BoardEntry): string {
       + ' data-restore="1" title="Put this issue back on the board">'
       + back + 'Restore</button>';
   }
-  // Nothing to offer on an issue lookout has given up on: queueing it would
-  // hand somebody a fight `verify-fix` answers exit 3 for without looking.
-  // The card still says blocked, and the note says what to do about it.
-  if (b.status === "blocked") return "";
+  // Nothing to offer on an issue lookout is out of attempts for, whether it has
+  // been ruled blocked yet or is one ruling away from it: `verify-fix` answers
+  // exit 3 for both without looking, so the press would only ever be refused.
+  // The card still says where it stands, and the note says how to reopen it.
+  if (b.status === "blocked" || b.attempt >= attemptCap()) return "";
   const on = isQueued(b.id);
   // Queued stays a live control rather than a disabled one: the press that put
   // it in the line is the press that takes it back out, and a disabled button

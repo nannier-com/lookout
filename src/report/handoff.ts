@@ -1,16 +1,17 @@
 /**
  * Handing one issue to whoever is going to fix it.
  *
- * lookout does not dispatch work and does not decide who does what. But when a
+ * lookout does not decide what needs doing or who does it. But when a
  * person reading the UI decides to act on an issue, everything that person's
  * tool needs is already on disk in scattered pieces: the finding prose in the
  * backlog, the pixels in the evidence directory, the ruling in a state file.
  * Collecting those into one document at the moment somebody asks is not
  * dispatch; it is saving them from assembling it by hand.
  *
- * The distinction that matters: this runs because a human clicked, it names no
- * subagent, it sets no protocol, and it asks for nothing back. It is a document
- * about a defect, handed over on request.
+ * The distinction that matters: this runs because a human queued this issue, it
+ * names no subagent, and it sets no protocol. It asks one thing back, and only
+ * one: that lookout be allowed to rule on the result. That is the question
+ * lookout exists to answer, and the queue cannot move without it.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { chmod, writeFile } from "node:fs/promises";

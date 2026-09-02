@@ -17,6 +17,7 @@ import { evidenceDir, lookoutDir } from "../config.js";
 import { readEvents, summarise, type LookoutEvent, type RunStatus } from "../report/events.js";
 import { buildBoard, severityTally, tally, type BoardEntry } from "../report/board.js";
 import { buildLearning, learningBadge, learningKey, type Learning } from "../report/learning.js";
+import { DEFAULT_MAX_ATTEMPTS } from "../fix/rule.js";
 import { checkIsRunning, checkIsStopping, session } from "./session.js";
 import type { QueueItem } from "./queue.js";
 import type { ResolvedConfig } from "../types.js";
@@ -108,6 +109,15 @@ export interface StatusPayload {
      * two by id rather than the server sending each issue twice.
      */
     queue: QueueItem[];
+    /**
+     * How many rulings an issue gets before it is blocked.
+     *
+     * Sent because the card needs it: an issue at its cap is one `verify-fix`
+     * answers exit 3 for without looking, so offering to queue it is offering a
+     * press the server refuses. Better not to draw the button than to draw one
+     * that answers 409.
+     */
+    attemptCap: number;
     findings: ReturnType<typeof severityTally>;
     /** One line about lookout working on lookout, for the rail. */
     learning: ReturnType<typeof learningBadge>;
@@ -180,6 +190,7 @@ export async function statusBody(resolved: ResolvedConfig): Promise<string> {
       checkStopping: checkIsStopping(),
       runKind: session.running ? session.running.kind : null,
       queue: session.queue,
+      attemptCap: DEFAULT_MAX_ATTEMPTS,
       findings: severityTally(outstanding),
       // One line about lookout working on lookout, so the rail can say so
       // from whichever area is open.

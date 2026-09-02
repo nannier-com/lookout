@@ -109,8 +109,9 @@ export function asBoardShot(resolved: ResolvedConfig, id: string, f: Frame): Boa
  * Every state here is something lookout itself established: the backlog says
  * whether the finding is open, blocked, fixed or waived, and `verify-fix` says
  * what happened the last time somebody asked it to rule. Nothing here tracks
- * who is working on it, because lookout does not dispatch work and has no way
- * to know.
+ * who is working on it: the queue knows which issue was handed over and when,
+ * and that is a separate record precisely because it is about lookout's own
+ * doing rather than about where the defect stands.
  */
 export function durableStatus(
   c: FixCluster,
