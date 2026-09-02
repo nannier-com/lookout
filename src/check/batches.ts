@@ -53,6 +53,16 @@ export interface JudgePass {
    * shot. The sibling panels of the same group still cache.
    */
   uncacheable: Set<string>;
+  /**
+   * Shots a panel answered about but ruled on in neither list.
+   *
+   * The count of them has always been reported (as `unjudged`), which says a
+   * verdict is missing without saying whose or about what. A panel that keeps
+   * dropping the same kind of shot is a panel whose instructions are not
+   * landing, and that is a lesson `skills improve` can act on only if the
+   * panel and the shots are written down.
+   */
+  unaccounted: { panel: string; groupId: string; shotIds: string[] }[];
   failedBatches: { panel: string; shots: number; message: string }[];
   rejected: number;
   costUsd: number;
@@ -140,6 +150,7 @@ export async function judgeInBatches(args: {
   const confirmed: VerifiedFinding[] = [];
   const refuted: (AiFinding & { verifierNote: string })[] = [];
   const uncacheable = new Set<string>();
+  const unaccounted: JudgePass["unaccounted"] = [];
   const replies = new Map<string, string>();
   const repaired: RepairedFinding[] = [];
   const degraded: ContractLapse[] = [];
@@ -229,7 +240,10 @@ export async function judgeInBatches(args: {
         // A shot the reply accounted for in neither list has no verdict from
         // this panel. Caching would make silence look like a clean bill of
         // health, durably; left out, the pair is judged again next run.
-        if (res.unaccounted.length > 0) uncacheable.add(workKey(item));
+        if (res.unaccounted.length > 0) {
+          uncacheable.add(workKey(item));
+          unaccounted.push({ panel: panelName, groupId: job.groupId, shotIds: res.unaccounted });
+        }
         fresh.push(...res.findings);
       }
       rejectedCount += rejectedHere;
@@ -317,6 +331,7 @@ export async function judgeInBatches(args: {
     confirmed,
     refuted,
     uncacheable,
+    unaccounted,
     failedBatches,
     rejected: rejectedCount,
     costUsd,

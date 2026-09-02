@@ -1,7 +1,7 @@
 ---
 name: improve-skills
 description: Read what lookout got wrong in its own runs and write the amendment to the skill that would have prevented it.
-version: 4
+version: 5
 output: skill-amendment-v1
 ---
 
@@ -14,8 +14,9 @@ verifier refuted, findings a person adjudicated as intentional and wrote a
 reason for, defects that survived every fix attempt, acceptance criteria that
 could not be decided from a screenshot, findings filed with a problem written
 for one reader (the title again, one part, or a label where a plain sentence
-belonged), and replies that failed the output contract. Each is a case where
-the skill's instructions and its judgement came apart.
+belonged), screenshots a panel answered about and then ruled on in neither its
+findings nor its clean list, and replies that failed the output contract. Each
+is a case where the skill's instructions and its judgement came apart.
 
 Your job is to write the amendment that would have prevented the most of them,
 for ONE skill, in the project's own layer. You are not rewriting the skill: the

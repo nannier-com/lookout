@@ -396,6 +396,42 @@ describe("signals", () => {
     expect(byDesign[0]!.detail).toContain("deliberately");
   });
 
+  test("a shot a panel ruled on in neither list is a lesson for that panel", async () => {
+    // The count of these has always been reported. What the panel dropped, and
+    // that its own prose sometimes describes the very shot it left out, is
+    // what makes the lesson actionable.
+    const r = project();
+    writeFileSync(
+      join(evidenceDir(r), "judge-report.json"),
+      JSON.stringify({
+        runId: "check-1",
+        unaccounted: [
+          { panel: "judge-craft", groupId: "app|web|/|rest", shotIds: ["web/app/root/rest/phone/light", "web/app/root/rest/tablet/light"] },
+          { panel: "judge-craft", groupId: "app|web|/settings|rest", shotIds: ["web/app/settings/rest/phone/dark"] },
+          { panel: "judge-text", groupId: "app|web|/|rest", shotIds: ["web/app/root/rest/phone/dark"] },
+        ],
+        findings: [
+          {
+            shotId: "web/app/root/rest/desktop/light",
+            title: "The activity table is cut off at the phone width",
+            problem: "Also visible in web/app/root/rest/phone/light.",
+          },
+        ],
+      }),
+    );
+    const skipped = (await gatherSignals(r)).filter((s) => s.kind === "skipped");
+    // One per panel per run, not one per call: a reply that dropped three
+    // shots dropped them under one set of instructions.
+    expect(skipped.map((s) => s.skill).sort()).toEqual(["judge-craft", "judge-text"]);
+    const craft = skipped.find((s) => s.skill === "judge-craft")!;
+    expect(craft.summary).toContain("3 shot(s)");
+    expect(craft.detail).toContain("web/app/settings/rest/phone/dark");
+    // The panel described a shot it never listed: the case the contract is for.
+    expect(craft.detail).toContain("The activity table is cut off at the phone width");
+    // Same run, same panel, same key: a second gather does not re-teach it.
+    expect(new Set(skipped.map((s) => s.key)).size).toBe(2);
+  });
+
   test("a by-design on a measurement teaches nothing; a skill-found hand-roll teaches the conformance skill", async () => {
     // Deterministic findings are born verified: true because the measurement
     // is its own evidence. The refuter never saw this finding, so ruling it

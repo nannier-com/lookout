@@ -32,6 +32,7 @@ afterEach(() => {
   delete process.env.MOCK_ARGV_FILE;
   delete process.env.MOCK_JUDGE_SIBLINGS;
   delete process.env.MOCK_VERIFY_CONFIRM_ALL;
+  delete process.env.MOCK_SKIP_LAST;
 });
 
 function shot(id: string): ShotRecord {
@@ -216,6 +217,38 @@ describe("shots a defect was seen on, not merely mentioned in", () => {
     // which is what the cluster key fuses back into a single issue.
     expect(new Set(pass.confirmed.map((f) => `${f.category}/${f.attribute}`)).size).toBe(1);
     expect(pass.confirmed.filter((f) => f.siblingOf).map((f) => f.siblingOf)).toEqual([group[0]!.id]);
+  });
+
+  test("a shot still ruled on in neither list names its panel in the report", async () => {
+    // Not every judge will honour the contract every time. When one skips a
+    // shot, the run has always counted it; the report now says which panel and
+    // which shots, which is the only form the learning loop can act on.
+    const r = project();
+    const group = ["desktop", "phone"].map((ff) => shot(`web/app/home/rest/${ff}/dark`));
+    const a = stubPanel("panel-a", ["contrast"]);
+    const plan = planOf([a], [group]);
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    process.env.MOCK_SKIP_LAST = "1";
+
+    const pass = await drive(r, plan, group);
+    expect(pass.unaccounted).toEqual([
+      { panel: "panel-a", groupId: viewGroupId(group[0]!), shotIds: [group[1]!.id] },
+    ]);
+
+    const outcome = await recordOutcome({
+      resolved: r,
+      scope: { shots: group } as CheckScope,
+      plan,
+      pass,
+      log: silent,
+    });
+    expect(outcome.unjudged).toBe(2);
+    const written = JSON.parse(readFileSync(outcome.reportPath, "utf8")) as {
+      unaccounted: { panel: string; shotIds: string[] }[];
+    };
+    expect(written.unaccounted).toHaveLength(1);
+    expect(written.unaccounted[0]!.panel).toBe("panel-a");
+    expect(written.unaccounted[0]!.shotIds).toEqual([group[1]!.id]);
   });
 });
 

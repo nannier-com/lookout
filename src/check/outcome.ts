@@ -41,6 +41,15 @@ export interface CheckOutcome {
    * whole, and they are not clean; some panel did not rule on them.
    */
   unjudged: number;
+  /**
+   * Which panel left which shots unruled, beside the count.
+   *
+   * `unjudged` says a verdict is missing; this says whose it was and about
+   * what. A panel that keeps dropping the same kind of shot has instructions
+   * that are not landing, and `skills improve` can only be taught that if the
+   * run writes down more than a number.
+   */
+  unaccounted: { panel: string; groupId: string; shotIds: string[] }[];
   /** Panel calls whose judge subprocess failed. The run continued without them. */
   failedBatches: { panel: string; shots: number; message: string }[];
   deterministicErrors: number;
@@ -165,6 +174,7 @@ export async function recordOutcome(args: {
     degraded: pass.degraded,
     rejected: pass.rejected,
     unjudged: unjudgedIds.size,
+    unaccounted: pass.unaccounted,
     failedBatches: pass.failedBatches,
     deterministicErrors,
     costUsd: Number(pass.costUsd.toFixed(4)),

@@ -22,6 +22,10 @@
  * - An unreadable finding is one whose problem was written for one reader
  *   (the title again, one part, a label where a sentence belonged). It was
  *   filed anyway, and the panel that wrote it is the one to teach.
+ * - A skipped shot is one a panel answered about and then ruled on in neither
+ *   list. The contract says every shot must be a finding's, a finding's
+ *   sibling, or clean, so silence about one is the instructions failing to
+ *   land, and it costs the whole (view group, panel) pair its cached verdict.
  */
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -58,7 +62,7 @@ export interface Signal {
    * Never part of the watermark key, like `skill` itself.
    */
   licenses?: string[];
-  kind: "refuted" | "rejected" | "by-design" | "blocked" | "not-verifiable" | "unreadable";
+  kind: "refuted" | "rejected" | "by-design" | "blocked" | "not-verifiable" | "unreadable" | "skipped";
   /** One line naming what happened. */
   summary: string;
   /** The prose that explains it: a verifier note, a human reason, a judge note. */
@@ -84,6 +88,8 @@ interface JudgeReport {
   refuted?: { title: string; shotId: string; verifierNote: string; judge?: string }[];
   rejected?: number;
   degraded?: { shotId: string; category: string; title: string; judge?: string; lapses?: string[] }[];
+  unaccounted?: { panel: string; groupId: string; shotIds: string[] }[];
+  findings?: { shotId?: string; title?: string; problem?: string }[];
 }
 
 export async function gatherSignals(resolved: ResolvedConfig): Promise<Signal[]> {
@@ -122,6 +128,38 @@ export async function gatherSignals(resolved: ResolvedConfig): Promise<Signal[]>
           key: keyOf("rejected", report.runId ?? "unknown-run"),
         });
       }
+      // A shot the panel answered about and then ruled on in neither list.
+      // One signal per panel per run, because a reply that dropped four shots
+      // dropped them under one set of instructions. Where the panel's own
+      // prose names the shot it skipped, the finding's title goes in the
+      // detail: that is the case the contract exists for, a defect the panel
+      // saw and described on a shot it never listed.
+      const skipped = new Map<string, string[]>();
+      for (const u of report.unaccounted ?? []) {
+        skipped.set(u.panel, [...(skipped.get(u.panel) ?? []), ...u.shotIds]);
+      }
+      for (const [panel, shotIds] of skipped) {
+        const named = (report.findings ?? []).filter((f) =>
+          shotIds.some((id) => (f.problem ?? "").includes(id)),
+        );
+        signals.push({
+          skill: panel,
+          kind: "skipped",
+          summary: `${shotIds.length} shot(s) ruled on in neither findings nor clean`,
+          detail:
+            shotIds.slice(0, 8).join("\n") +
+            (named.length > 0
+              ? `\n\nThe reply's own prose names ${named.length === 1 ? "one of these shots" : "some of these shots"} while leaving ${named.length === 1 ? "it" : "them"} out of both lists: ` +
+                named
+                  .slice(0, 4)
+                  .map((f) => `"${f.title ?? ""}"`)
+                  .join(", ")
+              : ""),
+          source: `judge-report.json (run ${report.runId ?? "?"})`,
+          key: keyOf("skipped", `${report.runId ?? "unknown-run"}|${panel}`),
+        });
+      }
+
       // A finding filed with a problem written for one reader survived
       // ingestion on purpose; the lesson is the filing panel's, one signal per
       // panel per run, since the whole batch was written under one skill.
