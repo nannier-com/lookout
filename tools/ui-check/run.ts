@@ -18,8 +18,8 @@ import { chromium, type Page } from "playwright";
 import { spawn } from "node:child_process";
 import { mkdirSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import sharp from "sharp";
 import { buildFixture } from "./fixture.js";
+import { changeSaid, diffPng, writeDiffCrop } from "../../src/verify/pixels.js";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const WORK = join(ROOT, ".lookout-ui-check");
@@ -122,45 +122,30 @@ async function diff(a: string, b: string): Promise<number> {
   const dirB = join(WORK, "shots", b);
   let worst = 0;
   for (const f of readdirSync(dirA).filter((n) => n.endsWith(".png"))) {
-    const [x, y] = await Promise.all([
-      sharp(join(dirA, f)).raw().toBuffer({ resolveWithObject: true }),
-      sharp(join(dirB, f)).raw().toBuffer({ resolveWithObject: true }).catch(() => null),
-    ]);
-    if (!y) {
+    const fileB = join(dirB, f);
+    if (!existsSync(fileB)) {
       console.log(`${f.padEnd(22)} MISSING in ${b}`);
       worst = 100;
       continue;
     }
-    if (x.info.width !== y.info.width || x.info.height !== y.info.height) {
-      console.log(`${f.padEnd(22)} SIZE ${x.info.width}x${x.info.height} -> ${y.info.width}x${y.info.height}`);
+    const d = await diffPng(join(dirA, f), fileB);
+    if (!d) {
+      console.log(`${f.padEnd(22)} UNREADABLE`);
       worst = 100;
       continue;
     }
-    let n = 0, minX = 1e9, minY = 1e9, maxX = -1, maxY = -1;
-    const { width, channels } = x.info;
-    for (let i = 0; i < x.data.length; i += channels) {
-      if (x.data[i] !== y.data[i] || x.data[i + 1] !== y.data[i + 1] || x.data[i + 2] !== y.data[i + 2]) {
-        const px = (i / channels) % width;
-        const py = Math.floor(i / channels / width);
-        minX = Math.min(minX, px); maxX = Math.max(maxX, px);
-        minY = Math.min(minY, py); maxY = Math.max(maxY, py);
-        n++;
-      }
-    }
-    const pct = (n / (x.info.width * x.info.height)) * 100;
-    worst = Math.max(worst, pct);
-    if (n === 0) {
+    if (d.changed === 0) {
       console.log(`${f.padEnd(22)} identical`);
       continue;
     }
-    const pad = 14;
-    const left = Math.max(0, minX - pad);
-    const top = Math.max(0, minY - pad);
-    const w = Math.min(x.info.width - left, maxX - minX + pad * 2);
-    const h = Math.min(x.info.height - top, maxY - minY + pad * 2);
-    const crop = join(WORK, "shots", `${b}-crop-${f}`);
-    await sharp(join(dirB, f)).extract({ left, top, width: w, height: h }).resize({ width: Math.min(900, w * 3) }).png().toFile(crop);
-    console.log(`${f.padEnd(22)} ${n} px differ (${pct.toFixed(3)}%)  ${crop}`);
+    // A size change is a maximal alarm for this gate whatever its percentage:
+    // the fixture's clock is frozen, so nothing should be resizing at all.
+    const pct = d.fraction * 100;
+    worst = Math.max(worst, d.sizeChanged ? 100 : pct);
+    const crop = d.box
+      ? await writeDiffCrop(fileB, d.box, join(WORK, "shots", `${b}-crop-${f}`))
+      : null;
+    console.log(`${f.padEnd(22)} ${d.changed} px differ (${pct.toFixed(3)}%)  ${changeSaid(d)}${crop ? `  ${crop}` : ""}`);
   }
   console.log(worst === 0 ? "\nALL IDENTICAL" : `\nworst: ${worst.toFixed(3)}%`);
   return worst;
