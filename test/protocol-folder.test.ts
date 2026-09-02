@@ -14,6 +14,13 @@ describe("the protocol names what is on disk", () => {
     }
   });
 
+  test("what a capture photographs, in either fold, and what narrowing a ruling costs", () => {
+    expect(text).toContain("desktop, tablet and phone");
+    expect(text).toContain("booted iOS and Android devices");
+    expect(text).toContain("--viewports");
+    expect(text).toContain("ruled not verifiable");
+  });
+
   test("where the working evidence is, and the sidecar beside every shot", () => {
     expect(text).toContain(".lookout/workspace/");
     expect(text).toContain("capture-report.json");

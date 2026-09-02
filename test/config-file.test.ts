@@ -110,6 +110,15 @@ describe("lookout writing the config", () => {
     expect(createConfig(dir)).rejects.toThrow(/already exists/);
   });
 
+  test("the template names the form-factor presets, the fold, and the native keys", async () => {
+    const text = readFileSync(await createConfig(project()), "utf8");
+    expect(text).toContain("presets desktop 1440x900, tablet 834x1112, phone 390x844");
+    expect(text).toContain("--viewports");
+    expect(text).toContain("// viewports: { phone: { width: 375, height: 812 } },");
+    expect(text).toContain('devices: ["phone"], startHint: "make ios-sim"');
+    expect(text).toContain('// platforms: ["web"],');
+  });
+
   test("the startHint follows the project's lockfile, npm when there is none", async () => {
     const bun = project();
     writeFileSync(join(bun, "bun.lockb"), "");

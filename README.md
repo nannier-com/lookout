@@ -45,7 +45,7 @@ lookout targets               # resolve + probe the configured targets
 | `check`   | capture + AI judge against the base rubric plus the project rubric; findings merge into `.lookout/backlog.json` |
 | `verify-fix` | rule on a claimed fix: re-capture and re-judge one issue's routes, then close it or leave it open with a note on what the judge still sees |
 | `verify`  | judge the app against acceptance criteria (`--criteria ticket.md` or inline text); per-criterion pass / fail / not-visually-verifiable with evidence |
-| `ask`     | answer a free-form question about the rendered app, grounded in fresh screenshots |
+| `ask`     | answer a free-form question about the rendered app, grounded in fresh screenshots of every form factor (dark only by default; `--viewports` and `--schemes` change that) |
 | `backlog` | adjudicate findings: merge, set statuses (fixed / by-design / blocked, with mandatory reasons), regenerate the report, `check` for staleness |
 | `targets` | list configured targets and probe reachability |
 | `design-system` | what the project is built from (component kit, tokens, adoption), and where a visual fix belongs; `--audit` reads the application and says whether it is actually built out of that kit |
@@ -393,19 +393,57 @@ const config: LookoutConfig = {
   // is named here instead.
   checks: { edgeClip: { ignore: [".carousel__track"] } },
 
-  // Native apps (capture with --platforms ios,android). Both schemes on a
-  // device need appearanceParam: the app must read the scheme from the deep
-  // link, because OS-level appearance flips cannot reach apps that manage
-  // their own theme.
+  // Native apps. Declaring a platform here puts the project in the device
+  // fold: every run photographs the booted devices of that platform, one
+  // phone and one tablet (an iPad is recorded as `tablet`), each needing the
+  // app installed. `devices` names the kinds a run must have (default phone);
+  // `startHint` is printed, in your words, when one is missing. Both schemes
+  // on a device need appearanceParam: the app must read the scheme from the
+  // deep link, because OS-level appearance flips cannot reach apps that
+  // manage their own theme.
   native: {
     target: "app",
-    ios: { deepLinkScheme: "myapp", bundleId: "com.example.myapp" },
+    ios: { deepLinkScheme: "myapp", bundleId: "com.example.myapp", devices: ["phone", "tablet"], startHint: "make ios-sim" },
     android: { deepLinkScheme: "myapp", bundleId: "com.example.myapp", settleMs: 14000 },
   },
+
+  // Which fold to judge in, when the repository should not decide: "web"
+  // walks the three viewports, "ios" and "android" walk the devices.
+  // platforms: ["web"],
 };
 
 export default config;
 ```
+
+### Form factors: two folds
+
+A project is judged in one of two folds, or both, and `lookout targets` says
+which and why:
+
+- **Web**: every route is photographed at desktop (1440x900), tablet (834x1112)
+  and phone (390x844), in CSS pixels at 2x, in dark and light. The presets can
+  be resized per key in `viewports`; none can be added or removed.
+- **Devices**: a native or React Native project (a `react-native` or `expo`
+  dependency, an `ios/` Xcode project, a Gradle build) is photographed on its
+  booted iOS and Android devices once the config has a `native` block, one
+  phone and one tablet per platform. Detection only suggests; the `native`
+  block enables, and `platforms` in the config decides outright.
+
+`capture`, `check`, `verify` and `verify-fix` walk the whole fold; `ask`
+walks every form factor in dark. `--viewports`, `--schemes` and `--platforms`
+narrow one run, and a criterion about a form factor, device or scheme that
+was not captured is ruled not verifiable.
+
+Every form factor is judged as a rendering of its own, before anything is
+compared: the rubric says what a phone layout, a tablet layout and a device
+shot must do, and every panel names its phone, tablet and device instances.
+The judge is told which form factors and schemes a batch holds and which were
+not captured; a screenshot taller than the model can read exactly (8000 px)
+is handed over in pieces cut from the same bytes; a shot the judge called
+clean without opening is judged again rather than recorded clean; and every
+check prints what it judged per platform and form factor. The accessibility
+scan runs at every form factor, filing at a narrower one only what the wider
+layouts did not show.
 
 ### Navigation discovery
 

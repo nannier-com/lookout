@@ -118,6 +118,7 @@ function help(): void {
   }
   console.log(
     "\ncommon flags: --config <path> --url <base> --targets a,b --routes /x,/y" +
+      "\n              --viewports desktop,tablet,phone --schemes dark,light --platforms web,ios,android" +
       "\n              --json --allow-remote" +
       "\nexamples:" +
       "\n  lookout targets --url http://localhost:3000" +
@@ -125,7 +126,7 @@ function help(): void {
       "\n  lookout check" +
       "\n  lookout verify-fix --issue 418203 --commit <sha>" +
       '\n  lookout verify --criteria ticket.md --targets app' +
-      '\n  lookout ask "does the sidebar collapse below 640px?" --targets app' +
+      '\n  lookout ask "is the sidebar collapsed at phone width?" --targets app' +
       "\n\nlookout is run by agents, of any make. Run `lookout protocol` for the" +
       "\nfull operating contract; it is the tool's own instructions, not a plugin.",
   );

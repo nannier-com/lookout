@@ -22,7 +22,7 @@ import {
   locateConfig,
   nearestProjectRoot,
 } from "./config-locate.js";
-import { LookoutError, type LookoutConfig } from "./types.js";
+import { DEFAULT_VIEWPORTS, FORM_FACTORS, LookoutError, type LookoutConfig } from "./types.js";
 
 /** What a written config should point at, when lookout already knows. */
 export interface ConfigSeed {
@@ -50,6 +50,7 @@ export function configTemplate(seed: ConfigSeed = {}): string {
   const startHint = seed.url
     ? `      // startHint: "${dev}",   // printed when this target is down\n`
     : `      startHint: "${dev}",\n`;
+  const presets = FORM_FACTORS.map((f) => `${f} ${DEFAULT_VIEWPORTS[f].width}x${DEFAULT_VIEWPORTS[f].height}`).join(", ");
   return `import type { LookoutConfig } from "@nannier-com/lookout";
 
 // lookout project config. Targets are the apps this repo renders; lookout
@@ -65,6 +66,12 @@ const config: LookoutConfig = {
 ${startHint}      routes: ["/"],
     },
   ],
+
+  // Form factors. Every run photographs each route at desktop, tablet and
+  // phone (presets ${presets}, in CSS pixels at 2x); --viewports narrows a
+  // run. Resize a preset by key; one you leave out keeps its default. There
+  // is no adding or removing one.
+  // viewports: { phone: { width: 375, height: 812 } },
 
   // How this app switches dark/light. "emulate" (default) uses the browser's
   // prefers-color-scheme; use "url-param" when the app reads a query param, or
@@ -94,6 +101,18 @@ ${startHint}      routes: ["/"],
   //   maxChecksPerRoute: 8,     // link verification clicks (no judging cost)
   //   exclude: ["Sign out"],    // selectors or accessible-name substrings
   // },
+
+  // A native or React Native app. Declaring a platform here puts the project
+  // in the device fold: every run photographs its booted devices, one phone
+  // and one tablet, each needing the app installed. lookout never boots a
+  // simulator or installs an app; startHint is what it prints, in your words,
+  // when a required device is missing.
+  // native: {
+  //   ios: { deepLinkScheme: "myapp", bundleId: "com.example.myapp", devices: ["phone"], startHint: "make ios-sim" },
+  //   android: { deepLinkScheme: "myapp", bundleId: "com.example.myapp" },
+  // },
+  // Which fold to judge in, when the repository should not decide:
+  // platforms: ["web"],
 
   // Project-specific judging rules, relative to this file.
   // rubric: "./rubric.md",

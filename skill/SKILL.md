@@ -28,7 +28,10 @@ practical notes that are easier to hit than to work out.
 - You want the defects fixed, not just found: `lookout check`, fix what it
   filed, then have `lookout verify-fix` rule on each fix.
 - A ticket has acceptance criteria: `lookout verify --criteria <file|text>`.
-- You are unsure a visual assumption holds: `lookout ask "..."`.
+- You are unsure a visual assumption holds: `lookout ask "..."`. It photographs
+  every form factor of the project's fold (desktop, tablet, phone on the web;
+  the booted devices for a native app) in dark; add `--schemes light` for a
+  scheme question, `--viewports phone` to narrow.
 - Before fixing anything lookout filed in a project with a design system: read
   the issue's **Where this belongs** section first. The defect was photographed
   on a screen and is usually fixed in a component, which is a different file and
@@ -54,8 +57,12 @@ practical notes that are easier to hit than to work out.
   `startHint`; start the app the way the hint says. If the hint names an
   orchestration tool the operator runs by hand, ask them rather than running
   it yourself.
-- Native capture (`--platforms ios,android`) needs a booted simulator or
-  emulator with the app installed.
+- A native or React Native project is judged on its devices by default once
+  the config has a `native` block: every booted iOS and Android device, one
+  phone and one tablet per platform, an iPad recorded as `tablet`. Each needs
+  the app installed; `lookout targets` says which devices are booted and what
+  is missing, in the project's own `startHint` words. lookout never boots a
+  simulator or installs an app.
 - `lookout design-system` says what the project is built out of and where a
   visual fix belongs. Run it before fixing UI in an unfamiliar repository: the
   answer that matters most is whether the kit is this repository's to edit or an
