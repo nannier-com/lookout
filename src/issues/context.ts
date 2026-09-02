@@ -8,12 +8,13 @@
  * in neither.
  */
 import { evidenceDir } from "../config.js";
+import { loadReport } from "../capture/store.js";
 import { loadFrames, type FrameSet } from "./frames.js";
 import { loadState, type ClusterState } from "../fix/state.js";
 import { forgeOf, type Forge } from "../report/forge.js";
 import type { FixCluster } from "../fix/cluster.js";
 import type { IssueRecord } from "../backlog/lib.js";
-import type { ResolvedConfig } from "../types.js";
+import type { CaptureReport, ResolvedConfig, RunRecord, ShotRecord } from "../types.js";
 
 /** The slice of the issue record a rendering reads. */
 export type IssueRecordView = Pick<IssueRecord, "acceptance" | "causedBy" | "placement">;
@@ -32,6 +33,13 @@ export interface IssueContext {
    */
   state: ClusterState;
   /**
+   * The capture workspace's report, when it is still there. Working state that
+   * any capture rebuilds, so every section reading it degrades to what the
+   * config says when it is gone: the document never fails for a cleaned
+   * workspace.
+   */
+  report: CaptureReport | null;
+  /**
    * The repository's forge, asked for at most once and only when a section
    * needs a commit URL: it runs git, and most issues have no fix to link yet.
    */
@@ -43,9 +51,10 @@ export async function loadIssueContext(
   cluster: FixCluster,
   record?: IssueRecordView,
 ): Promise<IssueContext> {
-  const [frames, state] = await Promise.all([
+  const [frames, state, report] = await Promise.all([
     loadFrames(resolved, cluster.id),
     loadState(resolved, cluster.id),
+    loadReport(resolved).catch(() => null),
   ]);
   let forge: Promise<Forge | null> | null = null;
   return {
@@ -55,6 +64,23 @@ export async function loadIssueContext(
     evDir: evidenceDir(resolved),
     frames,
     state,
+    report,
     forge: () => (forge ??= forgeOf(resolved.projectDir)),
   };
+}
+
+/** The recorded shot behind a member's newest evidence, when the report still has it. */
+export function shotOf(ctx: IssueContext, shotId: string): ShotRecord | undefined {
+  return ctx.report?.shots.find((s) => s.id === shotId);
+}
+
+/**
+ * The run that produced the issue's newest evidence: what flags the filing
+ * capture ran with, and when. Absent once the workspace has been rebuilt by a
+ * capture that did not include it.
+ */
+export function filingRunOf(ctx: IssueContext): RunRecord | undefined {
+  const runIds = ctx.cluster.members.map((m) => m.evidence[m.evidence.length - 1]?.runId).filter(Boolean);
+  const runs = ctx.report?.runs ?? [];
+  return [...runs].reverse().find((r) => runIds.includes(r.id));
 }

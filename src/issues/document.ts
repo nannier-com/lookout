@@ -19,7 +19,7 @@ import { issueDir } from "./paths.js";
 import { loadIssueContext, type IssueRecordView } from "./context.js";
 import { acceptanceSection, placementSection, whatIsWrongSection } from "./doc-defects.js";
 import { evidenceSection, rendersSection } from "./doc-evidence.js";
-import { attemptsSection } from "./doc-attempts.js";
+import { attemptsSection, scopeSection } from "./doc-attempts.js";
 import { fixSection, verifySection } from "./doc-verify.js";
 import { statusOf } from "./record.js";
 import { commitUrl } from "../report/forge.js";
@@ -163,6 +163,7 @@ export async function renderIssueDocument(
   l.push(...attemptsSection(ctx, lookoutCmd));
   l.push(...evidenceSection(ctx));
   if (cluster.channel !== "code") l.push(...rendersSection(ctx));
+  l.push(...scopeSection(ctx));
   l.push(...(await fixSection(ctx)));
   l.push(...verifySection(ctx, lookoutCmd));
 

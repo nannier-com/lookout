@@ -223,10 +223,25 @@ export function clusterFindings(
   );
 }
 
-/** The capture scope that covers a cluster, for a scoped re-check. */
 /** A shell verdict needs at least this many routes behind it, and no more than the cap. */
 export const SHELL_MIN_ROUTES = 2;
 export const SHELL_MAX_ROUTES = 3;
+
+/**
+ * The routes a target's config lists, as paths. What `clusterScope` tops a
+ * shell verify up from, and what the issue document names when it says which
+ * routes lookout will photograph: one derivation, so the two cannot disagree.
+ */
+export function configuredRoutesOf(
+  config: { targets?: { name: string; routes?: (string | { path: string })[] }[] },
+  target: string,
+): string[] {
+  return (config.targets?.find((t) => t.name === target)?.routes ?? []).map((r) =>
+    typeof r === "string" ? r : r.path,
+  );
+}
+
+/** The capture scope that covers a cluster, for a scoped re-check. */
 
 export function clusterScope(
   c: FixCluster,

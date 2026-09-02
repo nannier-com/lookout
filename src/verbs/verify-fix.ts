@@ -14,7 +14,7 @@
  *   3  blocked    attempts exhausted; it needs a person
  */
 import { loadConfig } from "../config.js";
-import { clusterKeyOf } from "../fix/cluster.js";
+import { clusterKeyOf, configuredRoutesOf } from "../fix/cluster.js";
 import { findIssue, issueById } from "../issues/registry.js";
 import { issueDocPath } from "../issues/paths.js";
 import { spawnedIssues, stampCausedBy } from "../issues/spawned.js";
@@ -209,8 +209,7 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
     issueId,
     cluster,
     priorHashes,
-    configuredRoutes: (preResolved.config.targets.find((t) => t.name === cluster.target)?.routes ?? [])
-      .map((r) => (typeof r === "string" ? r : r.path)),
+    configuredRoutes: configuredRoutesOf(preResolved.config, cluster.target),
   });
 
   // 3. Rule this issue's acceptance criteria against the fresh evidence, each
