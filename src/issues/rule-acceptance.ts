@@ -37,7 +37,7 @@ export interface RuleAcceptanceInput {
    * Shots in scope that had a previous hash to compare against. Zero means the
    * pixels-moved question cannot be asked at all (a cleaned evidence directory,
    * a route never captured before), which is `not-verifiable` rather than the
-   * "byte-identical" this used to claim.
+   * claim of sameness this used to make.
    */
   baselineShots: number;
   deterministic: DeterministicOutcome;
@@ -61,9 +61,9 @@ export function ruleAcceptance(input: RuleAcceptanceInput): AcceptanceCriterion[
           note: `${input.changedShots} of ${input.totalShots} screenshot(s) changed.`,
         };
       }
-      // Nothing to compare against is not the same as nothing changed. Saying
-      // "byte-identical" with no baseline would be a claim about pixels lookout
-      // has never seen.
+      // Nothing to compare against is not the same as nothing changed. Calling
+      // the shots identical with no baseline would be a claim about pixels
+      // lookout has never seen.
       if (input.baselineShots === 0) {
         return {
           ...c,
@@ -79,8 +79,8 @@ export function ruleAcceptance(input: RuleAcceptanceInput): AcceptanceCriterion[
         ...stamp,
         verdict: "unmet",
         note:
-          `all ${input.baselineShots} comparable screenshot(s) are byte-identical to the ` +
-          "previous run, so no edit reached the rendered output.",
+          `all ${input.baselineShots} comparable screenshot(s) are identical pixel for pixel ` +
+          "to the previous run, so no edit reached the rendered output.",
       };
     }
 

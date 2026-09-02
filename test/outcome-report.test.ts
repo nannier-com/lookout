@@ -29,6 +29,9 @@ const base: FixOutcomeArgs = {
   changedShots: 1,
   baselineShots: 6,
   totalShots: 6,
+  moved: [
+    { shotId: "web/app/dash/rest/phone/dark", changed: 4200, total: 1400000, fraction: 0.003, said: "0.30% of pixels changed, in one 120x60 area near the top" },
+  ],
   unclosable: ["/settings"],
   reportedCommit: "cafef00d",
   reportedNote: "rebuilt the bundle",
@@ -96,5 +99,32 @@ describe("the --json payload", () => {
     expect(fixPayload({ ...base, verdict: "passed" }).attemptsLeft).toBeNull();
     // The whole payload survives JSON: nothing in it is a function, a Map or a Set.
     expect(JSON.parse(JSON.stringify(p))).toEqual(p);
+  });
+});
+
+describe("how much moved", () => {
+  test("each measured move is printed, largest first", () => {
+    const out = capture(() =>
+      printFixOutcome({ ...base, json: false, payload: fixPayload(base) }),
+    );
+    expect(out).toContain("moved: web/app/dash/rest/phone/dark: 0.30% of pixels changed");
+  });
+
+  test("changed shots nothing could measure are said, not left to look small", () => {
+    // Four screenshots changed and one was measurable. Printing only the one
+    // would read as "the fix barely touched anything".
+    const args = { ...base, changedShots: 4 };
+    const out = capture(() => printFixOutcome({ ...args, json: false, payload: fixPayload(args) }));
+    expect(out).toContain("3 more changed, by how much was not measured");
+  });
+
+  test("nothing measured prints no moved lines at all", () => {
+    const args = { ...base, moved: [] };
+    const out = capture(() => printFixOutcome({ ...args, json: false, payload: fixPayload(args) }));
+    expect(out).not.toContain("moved:");
+  });
+
+  test("--json carries the same measurements", () => {
+    expect(fixPayload(base).moved).toEqual(base.moved);
   });
 });

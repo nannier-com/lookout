@@ -12,6 +12,7 @@ import { sheetNote } from "../capture/sheet.js";
 import { list, printJson } from "../util.js";
 import { FORM_FACTORS, SCHEMES } from "../types.js";
 import type { SheetResult } from "../capture/sheet.js";
+import type { ShotMove } from "./moved.js";
 import type { RepoObservation } from "../fix/state.js";
 import type { BaselineDescription } from "./baseline.js";
 import type { Verdict } from "../fix/rule.js";
@@ -30,6 +31,8 @@ export interface FixOutcomeArgs {
   changedShots: number;
   baselineShots: number;
   totalShots: number;
+  /** How far each changed screenshot moved, largest first; empty when nothing was measurable. */
+  moved: ShotMove[];
   /** Routes whose pixels did not move since filing. */
   unclosable: string[];
   reportedCommit: string | null;
@@ -74,6 +77,7 @@ export function fixPayload(a: FixOutcomeArgs): Record<string, unknown> {
     changedShots: a.changedShots,
     baselineShots: a.baselineShots,
     totalShots: a.totalShots,
+    moved: a.moved,
     unclosable: a.unclosable,
     baseline: a.baseline,
     photographed: { ...a.photographed, formFactors, schemes },
@@ -154,6 +158,14 @@ export function printFixOutcome(args: FixOutcomeArgs & { json: boolean; payload:
     `  compared against: ${baselineSaid(a.baseline)}; ` +
       `${a.changedShots} of ${a.baselineShots} comparable screenshot(s) changed (${a.totalShots} in scope)`,
   );
+  // How much moved, largest first. A shot counted as changed and missing here
+  // moved by an amount nothing could measure, and the last line says so rather
+  // than letting its absence read as "barely moved".
+  for (const m of a.moved) out.push(`  moved: ${m.shotId}: ${m.said}`);
+  const unmeasured = a.changedShots - a.moved.length;
+  if (a.moved.length > 0 && unmeasured > 0) {
+    out.push(`  moved: ${unmeasured} more changed, by how much was not measured (no baseline pixels on hand)`);
+  }
   if (a.unclosable.length > 0) out.push(`  pixels unchanged since filing on ${a.unclosable.join(", ")}: nothing there could close`);
   if (a.stillOpen.length > 0) {
     out.push("  still open:");

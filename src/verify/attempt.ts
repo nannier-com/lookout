@@ -8,6 +8,8 @@
  */
 import { loadState, saveState, type AttemptRecord, type RepoObservation, type RulingBaseline } from "../fix/state.js";
 import { rulingBaselineOf } from "./baseline.js";
+import { movesRecorded, type ShotMove } from "./moved.js";
+import type { PixelDiff } from "./pixels.js";
 import type { Verdict } from "../fix/rule.js";
 import type { ResolvedConfig, ShotRecord } from "../types.js";
 import { execFileAsync, nowIso } from "../util.js";
@@ -35,8 +37,9 @@ export function judgeNoteFor(i: JudgeNoteInput): string {
         "capture to compare against, so lookout cannot tell whether the fix reached the rendered " +
         "output. Run `lookout check` on this scope first, then verify."
       : `nothing changed: all ${i.baselineShots} comparable screenshot(s) in this scope are ` +
-        "byte-identical to the previous run, so no edit reached the rendered output. Either the fix " +
-        "was not applied, it was applied somewhere the app does not use, or the app was not rebuilt."
+        "identical pixel for pixel to the previous run, so no edit reached the rendered output. " +
+        "Either the fix was not applied, it was applied somewhere the app does not use, or the app " +
+        "was not rebuilt."
     : i.stillOpen.length > 0
       ? i.stillOpen[0]!.observed
       : i.unmet.length > 0
@@ -131,6 +134,7 @@ export interface AttemptInput {
   totalShots?: number;
   changedShots?: number;
   baselineShots?: number;
+  moved?: ShotMove[];
   stillOpen?: { title: string; shotId: string; observed: string }[];
   unclosable?: string[];
   criteria?: { id: string; text: string; verdict: string; note?: string }[];
@@ -155,6 +159,7 @@ export function attemptRecord(a: AttemptInput): AttemptRecord {
     ...(a.totalShots !== undefined ? { totalShots: a.totalShots } : {}),
     ...(a.changedShots !== undefined ? { changedShots: a.changedShots } : {}),
     ...(a.baselineShots !== undefined ? { baselineShots: a.baselineShots } : {}),
+    ...(a.moved && a.moved.length > 0 ? { moved: a.moved } : {}),
     ...(a.stillOpen && a.stillOpen.length > 0 ? { stillOpen: a.stillOpen.slice(0, MAX_STILL_OPEN) } : {}),
     ...(a.unclosable && a.unclosable.length > 0 ? { unclosable: a.unclosable } : {}),
     ...(a.criteria && a.criteria.length > 0 ? { criteria: a.criteria } : {}),
@@ -187,6 +192,8 @@ export async function recordRuling(a: {
   shotsById: ReadonlyMap<string, ShotRecord>;
   changedShots: ReadonlySet<string>;
   baselineShots: number;
+  /** How far each changed shot moved, for the shots that could be measured. */
+  changes: ReadonlyMap<string, PixelDiff>;
   stillOpen: { title: string; observed: string; evidence: { shotId: string }[] }[];
   unclosable: { route: string }[];
   criteria: { id: string; text: string; verdict: string; note?: string }[];
@@ -220,6 +227,7 @@ export async function recordRuling(a: {
       totalShots: a.shotsById.size,
       changedShots: a.changedShots.size,
       baselineShots: a.baselineShots,
+      moved: movesRecorded(a.changes),
       stillOpen,
       unclosable,
       criteria: a.criteria.map((c) => ({ id: c.id, text: c.text, verdict: c.verdict, ...(c.note ? { note: c.note } : {}) })),

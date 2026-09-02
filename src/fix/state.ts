@@ -20,6 +20,7 @@ import type { ResolvedConfig } from "../types.js";
 
 export type { Verdict } from "./rule.js";
 import type { Verdict } from "./rule.js";
+import type { ShotMove } from "../verify/moved.js";
 
 /**
  * What lookout saw in the repository when it ruled: facts it observed, kept
@@ -54,6 +55,13 @@ export interface AttemptRecord {
   totalShots?: number;
   changedShots?: number;
   baselineShots?: number;
+  /**
+   * How far each screenshot moved, largest first, for the shots whose baseline
+   * pixels were still on hand at ruling time. A shot counted in `changedShots`
+   * but absent here moved by an amount nothing could measure, which is not the
+   * same as not moving.
+   */
+  moved?: ShotMove[];
   /** Every finding still filed against the issue after this ruling, with the judge's account. */
   stillOpen?: { title: string; shotId: string; observed: string }[];
   /** Routes whose pixels did not move since filing, so nothing on them could close. */

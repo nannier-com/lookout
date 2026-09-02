@@ -19,6 +19,7 @@ import { findIssue, issueById } from "../issues/registry.js";
 import { issueDocPath } from "../issues/paths.js";
 import { spawnedIssues, stampCausedBy } from "../issues/spawned.js";
 import { headSha, judgeNoteFor, recordRuling } from "../verify/attempt.js";
+import { movesRecorded } from "../verify/moved.js";
 import { ruleCodeIssue } from "../verify/code.js";
 import { loadIssueBaseline } from "../verify/baseline.js";
 import { unclosableMembers } from "../verify/closure.js";
@@ -190,7 +191,8 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
   // The issue's own record first: the previous ruling's capture, then the
   // frames frozen at filing. The workspace is asked only for shots the issue
   // has no record of, because a check run since the edit has already moved it.
-  const base = await loadIssueBaseline(preResolved, cluster, priorReport?.shots ?? [], Object.values(before.findings));
+  const configuredRoutes = configuredRoutesOf(preResolved.config, cluster.target);
+  const base = await loadIssueBaseline(preResolved, cluster, priorReport?.shots ?? [], Object.values(before.findings), configuredRoutes);
   const priorHashes = base.hashes;
   // A settle different from the filing capture's moves pixels for reasons
   // unrelated to the fix. Said, not refused: a slow render sometimes needs it.
@@ -218,6 +220,7 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
     sheet,
     changedShots,
     baselineShots,
+    changes,
     freshDeterministic,
     stillOpen,
     runIdNow,
@@ -226,7 +229,8 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
     issueId,
     cluster,
     priorHashes,
-    configuredRoutes: configuredRoutesOf(preResolved.config, cluster.target),
+    priorPixels: base.pixels,
+    configuredRoutes,
   });
 
   // 3. Rule this issue's acceptance criteria against the fresh evidence, each
@@ -360,6 +364,7 @@ ${issueId}: not ruled. ${what}`);
     shotsById,
     changedShots,
     baselineShots,
+    changes,
     stillOpen,
     unclosable,
     criteria: ruledCriteria,
@@ -398,6 +403,7 @@ ${issueId}: not ruled. ${what}`);
     changedShots: changedShots.size,
     baselineShots,
     totalShots: shotsById.size,
+    moved: movesRecorded(changes),
     unclosable: unclosableRoutes,
     reportedCommit: reportedCommit ?? null,
     reportedNote: reportedNote ?? null,

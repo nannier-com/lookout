@@ -171,17 +171,20 @@ describe("ruling them", () => {
     expect(blocksPass([out])).toHaveLength(0);
   });
 
-  test("the pixels-moved guard is ruled by the hashes", () => {
+  test("the pixels-moved guard is ruled by what the pixels did", () => {
     expect(ruleAcceptance({ ...base, criteria: [universal] })[0]!.verdict).toBe("met");
     const nothingMoved = ruleAcceptance({ ...base, criteria: [universal], changedShots: 0 })[0]!;
     expect(nothingMoved.verdict).toBe("unmet");
-    expect(nothingMoved.note).toContain("byte-identical");
+    // Corrected, not loosened: the guard compares decoded pixels now, so
+    // "byte-identical" was no longer what it had checked. The claim asserted
+    // here is the same one, in the words the rule can stand behind.
+    expect(nothingMoved.note).toContain("identical pixel for pixel");
   });
 
-  test("no baseline to compare is not verifiable, and does not claim byte-identical", () => {
+  test("no baseline to compare is not verifiable, and does not claim the shots are identical", () => {
     // A cleaned evidence directory leaves nothing to compare against. Claiming
-    // the shots are byte-identical there would be a statement about pixels
-    // lookout has never seen.
+    // the shots are identical there would be a statement about pixels lookout
+    // has never seen.
     const out = ruleAcceptance({
       ...base,
       criteria: [universal],
@@ -189,7 +192,7 @@ describe("ruling them", () => {
       baselineShots: 0,
     })[0]!;
     expect(out.verdict).toBe("not-verifiable");
-    expect(out.note).not.toContain("byte-identical");
+    expect(out.note).not.toContain("identical pixel for pixel");
     expect(blocksPass([out])).toHaveLength(0);
   });
 

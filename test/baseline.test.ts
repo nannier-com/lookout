@@ -107,6 +107,37 @@ describe("read off the issue's folder", () => {
     expect(b.described).toEqual({ kind: "frozen", at: "t1" });
   });
 
+  test("the frozen frame's file is the baseline's pixels when its hash won", async () => {
+    const { r } = withShot();
+    await freezeFrames(r, cluster([finding("filed-hash")]), "before");
+    const b = await loadIssueBaseline(r, cluster([finding("moved")]), [{ id: SHOT, hash: "moved" }], [finding("moved")]);
+    expect(b.pixels.get(SHOT)).toContain("img/pre/");
+  });
+
+  test("a hash nothing on disk matches leaves the shot with no pixels to measure", () => {
+    // The previous ruling records hashes and no files. That shot has a baseline
+    // to compare against and no pixels to measure, which the ruling must be
+    // able to say rather than guess at.
+    const b = issueBaseline({
+      ruling: { runId: "r1", capturedAt: "t1", hashes: { [SHOT]: "from-the-ruling" } },
+      frozen: [{ shotId: SHOT, hash: "frozen-hash", at: "t0", abs: "/abs/img/pre/x.png" }],
+      priorShots: [{ id: SHOT, hash: "workspace-hash", abs: "/abs/ws/x.png" }],
+      findings: [],
+    });
+    expect(b.hashes.get(SHOT)).toBe("from-the-ruling");
+    expect(b.pixels.has(SHOT)).toBe(false);
+  });
+
+  test("a ruling hash the frozen frame happens to match still names that file", () => {
+    const b = issueBaseline({
+      ruling: { runId: "r1", capturedAt: "t1", hashes: { [SHOT]: "same" } },
+      frozen: [{ shotId: SHOT, hash: "same", at: "t0", abs: "/abs/img/pre/x.png" }],
+      priorShots: [],
+      findings: [],
+    });
+    expect(b.pixels.get(SHOT)).toBe("/abs/img/pre/x.png");
+  });
+
   test("once ruled, the ruling's capture outranks the frozen frame", async () => {
     const { r } = withShot();
     await freezeFrames(r, cluster([finding("filed-hash")]), "before");

@@ -16,6 +16,9 @@
  * firing.
  */
 import { loadReport } from "../capture/store.js";
+import { evidenceDir } from "../config.js";
+import { classifyShots, measureMoves, snapshotBaseline } from "./moved.js";
+import type { PixelDiff } from "./pixels.js";
 import { runCheck } from "../verbs/check.js";
 import { mergeLatest } from "../verbs/backlog.js";
 import { runContactSheet } from "../verbs/capture.js";
@@ -47,6 +50,12 @@ export interface FreshEvidence {
   changedShots: Set<string>;
   /** How many shots had a baseline to compare against at all. */
   baselineShots: number;
+  /**
+   * How much each changed shot moved, for the shots whose baseline pixels were
+   * still on hand. A changed shot missing from this map moved by an amount
+   * nothing could measure, which the ruling says rather than guesses at.
+   */
+  changes: Map<string, PixelDiff>;
   freshDeterministic: ReturnType<typeof deterministicToFindings>;
   /** This cluster's findings that came back, minus anything ruled by-design. */
   stillOpen: FreshFinding[];
@@ -58,10 +67,15 @@ export async function gatherFreshEvidence(args: {
   issueId: string;
   cluster: FixCluster;
   priorHashes: Map<string, string>;
+  /** Where the baseline's pixels are, so how much moved can be measured. */
+  priorPixels?: ReadonlyMap<string, string>;
   /** The target's configured routes, in config order: the shell scope's top-up. */
   configuredRoutes?: string[];
 }): Promise<FreshEvidence> {
   const { parsed, issueId, cluster, priorHashes } = args;
+  // Before anything captures: the capture writes each view back to the path it
+  // came from, so pixels not read now are pixels nothing can compare against.
+  const beforePixels = await snapshotBaseline(args.priorPixels ?? new Map());
   // 1. Re-capture and re-judge only this cluster's own routes; a shell
   // cluster widens to at least two so a one-route fix cannot pass.
   const scope = clusterScope(cluster, args.configuredRoutes ?? []);
@@ -110,18 +124,20 @@ export async function gatherFreshEvidence(args: {
   const latestShots = new Set(
     (report?.shots ?? []).filter((sh) => sh.runId === latestRun?.id).map((sh) => sh.id),
   );
-  // A shot with no baseline at all is not evidence of change: it is evidence of
-  // nothing. Counting it as changed is what let a cleaned evidence directory
-  // satisfy the guard. Kept separate so the verdict and the criterion can both
-  // say which of the two they are looking at.
-  const changedShots = new Set<string>();
-  const noBaseline = new Set<string>();
-  for (const sh of shotsById.values()) {
-    const prior = priorHashes.get(sh.id);
-    if (prior === undefined) noBaseline.add(sh.id);
-    else if (prior !== sh.hash) changedShots.add(sh.id);
-  }
-  const baselineShots = shotsById.size - noBaseline.size;
+  // What moved, and by how much. A shot with no baseline at all is not
+  // evidence of change: it is evidence of nothing. Counting it as changed is
+  // what let a cleaned evidence directory satisfy the guard.
+  const measured = await measureMoves({
+    shots: shotsById.values(),
+    priorHashes,
+    before: beforePixels,
+    evidenceDir: evidenceDir(resolved),
+  });
+  const { changedShots, baselineShots, changes } = classifyShots({
+    shots: [...shotsById.values()],
+    priorHashes,
+    measured,
+  });
 
   const freshDeterministic = report
     ? deterministicToFindings(
@@ -153,6 +169,7 @@ export async function gatherFreshEvidence(args: {
     sheet,
     changedShots,
     baselineShots,
+    changes,
     freshDeterministic,
     stillOpen,
     runIdNow,

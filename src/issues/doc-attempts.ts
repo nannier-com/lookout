@@ -70,6 +70,10 @@ export function attemptsSection(ctx: IssueContext, lookoutCmd: string): string[]
           (a.baseline ? `, compared against ${baselineSaid(a.baseline)}` : "") +
           (a.flags ? `; flags: ${Object.entries(a.flags).map(([k, v]) => (v === true ? `--${k}` : `--${k} ${v}`)).join(" ")}` : ""),
       );
+      // The largest move, so the record says what the fix did to the screen
+      // rather than only that it did something.
+      const largest = a.moved?.[0];
+      if (largest) l.push(`- largest move: ${largest.shotId}, ${largest.said}`);
     } else if (a.runId) {
       l.push(`- run ${a.runId}`);
     }
@@ -164,7 +168,8 @@ export function scopeSection(ctx: IssueContext): string[] {
       : `lookout's last capture of these routes${run ? ` (run \`${run.id}\`, finished ${run.finishedAt})` : ""}`;
   l.push(
     "Nothing passes on unchanged pixels. Every screenshot in scope is compared to",
-    `${against}, and a fix that leaves every comparable screenshot byte-identical is`,
+    `${against}, and a fix that leaves every comparable screenshot identical pixel for`,
+    "pixel is",
     "ruled still-open whatever the judge says. A `lookout capture` or `lookout check`",
     "between the edit and the ruling does not move that baseline: the ruling is always",
     "measured against the previous ruling's capture, or the defect as filed.",
