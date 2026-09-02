@@ -15,6 +15,7 @@ import { clusterIncidents, incidentsPath, readIncidents, recordIncident } from "
 import { LookoutError } from "../src/types.js";
 import { SUITE_HOME } from "./setup.js";
 import { tmpProject } from "./tmp-project.js";
+import { attemptsDir, healsPath } from "../src/checkout.js";
 
 const MOCK = join(import.meta.dir, "mock-claude.ts");
 
@@ -141,6 +142,16 @@ describe("what self-heal refuses", () => {
     expect(lockHeld(join(dir, "nothing.lock"))).toBe(false);
   });
 
+  test("a checkout that does not ignore .lookout/, because a failed gate cleans it", async () => {
+    const dir = checkout();
+    // The fixture ignores it; take that away and the refusal is the subject.
+    writeFileSync(join(dir, ".gitignore"), "node_modules/\n");
+    process.env.LOOKOUT_CHECKOUT = dir;
+    await expect(selfHeal({ positionals: [], flags: {} })).rejects.toThrow(/does not ignore/);
+    // And nothing was written before the refusal: no lock, no state directory.
+    expect(existsSync(join(dir, ".lookout"))).toBe(false);
+  });
+
   test("nothing to heal when nothing has gone wrong", async () => {
     home();
     process.env.LOOKOUT_CHECKOUT = checkout();
@@ -150,7 +161,7 @@ describe("what self-heal refuses", () => {
 
 describe("a change that fails a gate", () => {
   test("is reverted whole, kept for a person to read, and recorded", async () => {
-    const h = home();
+    home();
     const dir = checkout();
     process.env.LOOKOUT_CHECKOUT = dir;
     process.env.LOOKOUT_CLAUDE_BIN = MOCK;
@@ -167,9 +178,9 @@ describe("a change that fails a gate", () => {
 
     // The attempt is kept where somebody can read what was tried and why it
     // was refused.
-    const attempts = readdirSync(join(h, "self-heal"));
+    const attempts = readdirSync(attemptsDir(dir));
     expect(attempts).toHaveLength(1);
-    const kept = join(h, "self-heal", attempts[0]!);
+    const kept = join(attemptsDir(dir), attempts[0]!);
     expect(existsSync(join(kept, "attempt.diff"))).toBe(true);
     expect(readFileSync(join(kept, "gates.txt"), "utf8")).toContain("typecheck");
     expect(readFileSync(join(kept, "report.json"), "utf8")).toContain("Retry the judge");
@@ -216,7 +227,7 @@ describe("a change that passes every gate", () => {
 describe("the reply contract is load-bearing", () => {
   test("an unparseable healer reply is reverted, recorded, and exits 1", async () => {
     const dir = checkout();
-    const h = home();
+    home();
     // The checkout first: a failure with no project in scope is recorded
     // against lookout's own checkout, so which one is current decides where
     // this seeded incident lands.
@@ -234,9 +245,9 @@ describe("the reply contract is load-bearing", () => {
       expect(log.trim().split("\n")).toHaveLength(1);
       expect(readFileSync(incidentsPath(dir), "utf8")).toContain("healer-unparseable");
       // The raw reply is kept for a person.
-      const attempts = readdirSync(join(h, "self-heal"));
+      const attempts = readdirSync(attemptsDir(dir));
       expect(attempts).toHaveLength(1);
-      expect(readFileSync(join(h, "self-heal", attempts[0]!, "raw-reply.txt"), "utf8")).toContain("trust me");
+      expect(readFileSync(join(attemptsDir(dir), attempts[0]!, "raw-reply.txt"), "utf8")).toContain("trust me");
     } finally {
       delete process.env.MOCK_HEAL_GARBAGE;
     }
@@ -267,7 +278,7 @@ describe("the reply contract is load-bearing", () => {
 
   test("a committed heal is marked, so the settled group stops being offered", async () => {
     const dir = checkout(true);
-    const h = home();
+    home();
     // The checkout first: a failure with no project in scope is recorded
     // against lookout's own checkout, so which one is current decides where
     // this seeded incident lands.
@@ -276,7 +287,7 @@ describe("the reply contract is load-bearing", () => {
     process.env.LOOKOUT_CLAUDE_BIN = MOCK;
     process.env.MOCK_HEAL_FILE = join(dir, "src", "healed.ts");
     expect(await selfHeal({ positionals: [], flags: {} })).toBe(0);
-    expect(readFileSync(join(h, "heals.jsonl"), "utf8")).toContain("boom in module N");
+    expect(readFileSync(healsPath(dir), "utf8")).toContain("boom in module N");
     // No new occurrences since the heal: the next run finds nothing active.
     const again = await selfHeal({ positionals: [], flags: {} });
     expect(again).toBe(0);

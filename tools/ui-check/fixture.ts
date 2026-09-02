@@ -17,6 +17,7 @@ import { mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import sharp from "sharp";
 import { evidenceDir } from "../../src/config.js";
+import { attemptsDir } from "../../src/checkout.js";
 import { composeAcceptance, type AcceptanceCriterion } from "../../src/issues/acceptance.js";
 import { renderIssueDocument } from "../../src/issues/document.js";
 import { issuesOf } from "../../src/issues/registry.js";
@@ -833,7 +834,10 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
       .join("\n") + "\n",
   );
 
-  const attempt = join(home, "self-heal", "2026-08-29T12-00-04-118Z");
+  // Beside the checkout it was reverted out of, which is where the page reads
+  // it from now. The directory is made before git init so nothing here depends
+  // on the order of the two blocks.
+  const attempt = join(attemptsDir(checkout), "2026-08-29T12-00-04-118Z");
   mkdirSync(attempt, { recursive: true });
   writeFileSync(join(attempt, "report.json"), JSON.stringify({ summary: "Retry the judge once more before giving up on the reply.", cause: "One retry is not enough when the model opens with prose." }));
   writeFileSync(join(attempt, "gates.txt"), "=== typecheck (pass): bun run typecheck\nok\n\n=== test (FAIL): bun test\n1 failing\n");
@@ -841,6 +845,8 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
 
   // A checkout with heals that stuck, so the commits panel has something in it.
   mkdirSync(join(checkout, "src"), { recursive: true });
+  // Its own state is ignored there, the way lookout's real checkout ignores it.
+  writeFileSync(join(checkout, ".gitignore"), ".lookout/\n");
   // Fixed dates, because a commit's hash is made of them. Left to the clock,
   // every `fixture` build mints two new shas at a new time, the commits panel
   // draws different pixels, and the two learning views report a difference on

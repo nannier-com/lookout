@@ -658,19 +658,22 @@ on itself: the heaviest active pressure in the last 30 days, where a group
 healed before that came back outranks everything, and one with two reverted
 attempts on record waits for a person. It fixes that group's cause in
 lookout's own checkout, and is not believed about any of it. Committed heals
-are marked in `~/.lookout/heals.jsonl`, so a settled group stops being
-offered. This verb never runs itself: it edits the code that does the
+are marked in the checkout's own `.lookout/self-heal/heals.jsonl`, beside the
+source they changed, so a settled group stops being offered whichever project
+the next run starts from. This verb never runs itself: it edits the code that does the
 judging, and starting it stays a person's deliberate act.
 
 The subprocess may read and edit inside the checkout and may not run a single
 command. lookout runs `tsc --noEmit`, `eslint`, `bun test` and the build itself,
-plus a replay of frozen regression sets from up to two recent projects that
-hold one (`--project` names one explicitly); when no project on the machine
-can grade the judge, the commit says so. A reply that breaks the report
+plus a replay of frozen regression sets from the projects it read incidents
+from that hold one (`--project` names one explicitly); when none can grade the
+judge, the commit says so. A reply that breaks the report
 contract forfeits its edits outright: reverted, kept with the raw reply for
 a person, recorded as an incident. Any gate failing reverts everything, keeps
-the diff and the gate output under `~/.lookout/self-heal/<stamp>/`, and
-records the rollback as an incident.
+the diff and the gate output under the checkout's
+`.lookout/self-heal/attempts/<stamp>/`, and records the rollback as an
+incident. The checkout has to ignore `.lookout/` before any of this runs, since
+a failed gate reverts with `git clean`; lookout's own repository always has.
 Every gate passing commits the change alone with a patch changeset, and does not
 push: a local commit is one `git revert` away.
 

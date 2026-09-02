@@ -86,13 +86,16 @@ export async function maybeAutoImprove(
     const signals = await gatherSignals(resolved);
     const mark = await loadWatermark(resolved);
     const fresh = newSignals(mark, signals);
-    const healLock = await import("../verbs/self-heal.js").then((m) => m.lockPath());
+    // No checkout, no heal: an installed package cannot run one, so its lock
+    // cannot be held and the improve is not waiting on anything.
+    const { ownCheckout, selfHealLockPath } = await import("../checkout.js");
+    const checkout = ownCheckout();
     const decision = shouldAutoImprove({
       configured: !!resolved.configPath,
       declined: !!parsed.flags["no-improve"] || learn.auto === false,
       ci: !!process.env.CI,
       improveLockHeld: lockHeld(improveLockPath(resolved)),
-      healLockHeld: lockHeld(healLock),
+      healLockHeld: !!checkout && lockHeld(selfHealLockPath(checkout)),
       lastImproveAt: mark.lastImproveAt,
       cooldownHours: learn.cooldownHours ?? DEFAULT_COOLDOWN_HOURS,
       now: nowIso(),

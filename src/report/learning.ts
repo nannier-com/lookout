@@ -30,15 +30,14 @@ import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { lookoutDir } from "../config.js";
 import { incidentsPath, readIncidents } from "../skills/incidents.js";
-import { lookoutHome } from "../home.js";
-import { activeGroups, healsPath, readHeals } from "../skills/heal-select.js";
+import { attemptsDir, healsPath, ownCheckout, selfHealLockPath } from "../checkout.js";
+import { activeGroups, readHeals } from "../skills/heal-select.js";
 import { loadWatermark, newSignals, seenPath } from "../skills/watermark.js";
 import { DEFAULT_THRESHOLD } from "../skills/auto-improve.js";
 import { loadSkill, projectProposalPath } from "../skills/load.js";
 import { loadRegressionSet, regressionManifestPath } from "../skills/regression.js";
 import { bySkill, gatherSignals } from "../skills/signals.js";
 import { historyPath, improveLockPath, SKILL_NAMES } from "../verbs/skills.js";
-import { lockPath, ownCheckout } from "../verbs/self-heal.js";
 import { execFileAsync, lockHeld } from "../util.js";
 import type { ResolvedConfig } from "../types.js";
 
@@ -140,16 +139,17 @@ const MAX_COMMITS = 12;
  */
 export function learningKey(resolved: ResolvedConfig): string {
   const parts: string[] = [];
+  // The checkout's half of the key is absent for an installed package, which
+  // has no heals, no attempts and no lock to notice a change in.
+  const checkout = ownCheckout();
   for (const p of [
     historyPath(resolved),
     improveLockPath(resolved),
     join(lookoutDir(resolved), "skills"),
     regressionManifestPath(resolved),
     incidentsPath(resolved.projectDir),
-    healsPath(),
     seenPath(resolved),
-    lockPath(),
-    join(lookoutHome(), "self-heal"),
+    ...(checkout ? [healsPath(checkout), selfHealLockPath(checkout), attemptsDir(checkout)] : []),
   ]) {
     try {
       const st = statSync(p);
@@ -209,8 +209,9 @@ async function readSkills(resolved: ResolvedConfig): Promise<SkillState[]> {
  * rejected change survives. Reading it here is what turns that directory from
  * something an operator has to know about into something the page offers.
  */
-async function readAttempts(): Promise<HealAttempt[]> {
-  const root = join(lookoutHome(), "self-heal");
+async function readAttempts(checkout: string | null): Promise<HealAttempt[]> {
+  if (!checkout) return [];
+  const root = attemptsDir(checkout);
   if (!existsSync(root)) return [];
   let stamps: string[];
   try {
@@ -306,7 +307,7 @@ export async function buildLearning(resolved: ResolvedConfig): Promise<Learning>
   const [skills, history, attempts, commits] = await Promise.all([
     readSkills(resolved),
     readHistory(resolved),
-    readAttempts(),
+    readAttempts(checkout),
     readCommits(checkout),
   ]);
 
@@ -350,7 +351,7 @@ export async function buildLearning(resolved: ResolvedConfig): Promise<Learning>
   // Active pressure, recurred-first: a healed group that stayed quiet is
   // settled history (the attempts and commits sections still tell it), and a
   // fix that did not stick is the loudest state there is.
-  const incidents = activeGroups(readIncidents(resolved.projectDir), readHeals())
+  const incidents = activeGroups(readIncidents(resolved.projectDir), readHeals(checkout))
     .slice(0, MAX_INCIDENT_GROUPS)
     .map((g) => ({
       kind: g.kind,
@@ -364,7 +365,10 @@ export async function buildLearning(resolved: ResolvedConfig): Promise<Learning>
     }));
 
   return {
-    running: { improve: lockHeld(improveLockPath(resolved)), heal: lockHeld(lockPath()) },
+    running: {
+      improve: lockHeld(improveLockPath(resolved)),
+      heal: !!checkout && lockHeld(selfHealLockPath(checkout)),
+    },
     instructions: { skills, history, frozen, pending },
     code: { checkout, incidents, attempts, commits },
   };

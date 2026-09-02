@@ -21,9 +21,13 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { loadSkill, renderSkill } from "../skills/load.js";
 import { incidentSources, readIncidentsFrom, recordIncident, shapeOf } from "../skills/incidents.js";
-import { lookoutHome } from "../home.js";
-import { ownCheckout } from "../checkout.js";
-import { locateConfig } from "../config-locate.js";
+import {
+  attemptDir,
+  ownCheckout,
+  selfHealDir,
+  selfHealLockPath,
+} from "../checkout.js";
+import { LOOKOUT_DIR, locateConfig } from "../config-locate.js";
 import {
   activeGroups,
   compactIncidents,
@@ -92,13 +96,26 @@ async function runGate(cwd: string, name: string, command: string, args: string[
   }
 }
 
-/** Where a reverted attempt is kept, so a person can read what was tried. */
-function attemptDir(stamp: string): string {
-  return join(lookoutHome(), "self-heal", stamp);
-}
-
-export function lockPath(): string {
-  return join(lookoutHome(), "self-heal.lock");
+/**
+ * Refuse unless the checkout ignores `.lookout/`.
+ *
+ * Not a nicety: a failed gate runs `git clean -fd`, which would delete the
+ * attempt this verb had just written and the log it read to choose the work.
+ * lookout's own repository has ignored it since before its state moved here;
+ * a checkout that does not is told rather than quietly damaged.
+ */
+async function requireIgnoredState(checkout: string): Promise<void> {
+  try {
+    // The trailing slash matters: `.lookout/` is a directory-only pattern, and
+    // git answers "not ignored" for a bare `.lookout` that does not exist yet,
+    // which is every checkout's first heal.
+    await execFileAsync("git", ["check-ignore", "-q", `${LOOKOUT_DIR}/`], { cwd: checkout });
+  } catch {
+    throw new LookoutError(
+      `${checkout} does not ignore ${LOOKOUT_DIR}/`,
+      `self-heal keeps its lock, its heals and its reverted attempts there, and reverts with \`git clean\`; add ${LOOKOUT_DIR}/ to .gitignore first`,
+    );
+  }
 }
 
 /**
@@ -112,14 +129,30 @@ export function lockPath(): string {
 export { LOCK_STALE_MS, lockHeld };
 
 export async function selfHeal(parsed: Parsed): Promise<number> {
-  const lock = lockPath();
+  // Resolved first, because the lock, the heals and the attempts all live
+  // inside it now. An installed package has no source to fix and no
+  // repository to revert in, so it never gets as far as taking a lock.
+  const checkout = ownCheckout();
+  if (!checkout) {
+    throw new LookoutError(
+      "self-heal needs lookout's own source checkout",
+      "this is an installed package: there is no source here to fix and no repository to revert in",
+    );
+  }
+  // The tree is judged by `git status` twice in this verb, and lookout's own
+  // state is in the tree now. A checkout that does not ignore `.lookout/`
+  // would look permanently dirty to the first check and have its records
+  // deleted by the `git clean` of the second.
+  await requireIgnoredState(checkout);
+
+  const lock = selfHealLockPath(checkout);
   if (lockHeld(lock)) {
     throw new LookoutError(
       "another self-heal is already running",
       `if it died, remove ${lock}`,
     );
   }
-  await mkdir(lookoutHome(), { recursive: true });
+  await mkdir(selfHealDir(checkout), { recursive: true });
   await writeFile(lock, nowIso());
   try {
     // The one writer allowed to rewrite the append-only logs: old entries
@@ -129,7 +162,7 @@ export async function selfHeal(parsed: Parsed): Promise<number> {
       const compacted = compactIncidents(dir);
       if (compacted > 0) console.log(`${dir}: compacted ${compacted} incident(s) older than 90 days`);
     }
-    return await heal(parsed);
+    return await heal(parsed, checkout);
   } finally {
     await rm(lock, { force: true });
   }
@@ -151,15 +184,7 @@ function describeGroup(g: ActiveGroup, incidents: Parameters<typeof activeGroups
   ].join("\n");
 }
 
-async function heal(parsed: Parsed): Promise<number> {
-  const checkout = ownCheckout();
-  if (!checkout) {
-    throw new LookoutError(
-      "self-heal needs lookout's own source checkout",
-      "this is an installed package: there is no source here to fix and no repository to revert in",
-    );
-  }
-
+async function heal(parsed: Parsed, checkout: string): Promise<number> {
   // A dirty tree means something else is mid-edit. Reverting on a failed gate
   // would take that with it, and committing on a passing one would sweep it in.
   const dirty = await git(checkout, ["status", "--porcelain"]);
@@ -177,7 +202,7 @@ async function heal(parsed: Parsed): Promise<number> {
   // up: a heal now answers what broke where lookout was actually working.
   const sources = healSources(parsed);
   const incidents = readIncidentsFrom(sources);
-  const groups = activeGroups(incidents, readHeals());
+  const groups = activeGroups(incidents, readHeals(checkout));
   if (groups.length === 0) {
     console.log("nothing to heal: no active incidents in the window.");
     return 0;
@@ -228,7 +253,7 @@ async function heal(parsed: Parsed): Promise<number> {
     // follow the reply contract does not get its edits committed under
     // fabricated provenance; the attempt is kept for a person, the tree is
     // reverted, and the failure is an incident like any other.
-    const dir = attemptDir(stamp);
+    const dir = attemptDir(checkout, stamp);
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, "attempt.diff"), await git(checkout, ["diff"]));
     await writeFile(join(dir, "raw-reply.txt"), res.text);
@@ -285,7 +310,7 @@ async function heal(parsed: Parsed): Promise<number> {
   for (const g of gates) console.log(`  ${g.ok ? "pass" : "FAIL"}  ${g.name}`);
 
   if (failed.length > 0) {
-    const dir = attemptDir(stamp);
+    const dir = attemptDir(checkout, stamp);
     await mkdir(dir, { recursive: true });
     const diff = await git(checkout, ["diff"]);
     await writeFile(join(dir, "attempt.diff"), diff);
@@ -341,7 +366,7 @@ async function heal(parsed: Parsed): Promise<number> {
       ` Not pushed: that is a person's call.`,
   ]);
   const after = await git(checkout, ["rev-parse", "--short", "HEAD"]);
-  recordHeal({ at: nowIso(), kind: picked.kind, shape: picked.message, commit: after });
+  recordHeal(checkout, { at: nowIso(), kind: picked.kind, shape: picked.message, commit: after });
 
   const payload = {
     healed: true,

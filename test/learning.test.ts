@@ -14,6 +14,7 @@ import { buildLearning, learningBadge, learningKey } from "../src/report/learnin
 import { improveLockPath } from "../src/verbs/skills.js";
 import { tmpProject } from "./tmp-project.js";
 import { incidentsPath } from "../src/skills/incidents.js";
+import { attemptsDir } from "../src/checkout.js";
 
 const HOME = process.env.LOOKOUT_HOME;
 
@@ -26,6 +27,19 @@ afterEach(() => {
 function tmpHome(): string {
   const dir = mkdtempSync(join(tmpdir(), "lookout-learning-home-"));
   process.env.LOOKOUT_HOME = dir;
+  return dir;
+}
+
+/**
+ * A checkout the page can read a heal's records out of: self-heal keeps them
+ * beside the source it changed, so a fixture has to look like a checkout
+ * (`src/` beside `.git/`) before any of them can be found.
+ */
+function tmpCheckout(): string {
+  const dir = mkdtempSync(join(tmpdir(), "lookout-learning-checkout-"));
+  mkdirSync(join(dir, "src"), { recursive: true });
+  mkdirSync(join(dir, ".git"), { recursive: true });
+  process.env.LOOKOUT_CHECKOUT = dir;
   return dir;
 }
 
@@ -137,9 +151,18 @@ describe("what lookout has changed about itself", () => {
     expect(learningBadge(l).hot).toBe(0);
   });
 
+  test("an installed package has no checkout, so no attempts, heals or lock", async () => {
+    // `ownCheckout` wants src/ beside .git/; a bare directory is what an
+    // installed package looks like, and the page must render rather than throw.
+    process.env.LOOKOUT_CHECKOUT = mkdtempSync(join(tmpdir(), "lookout-installed-"));
+    const l = await buildLearning(tmpProject());
+    expect(l.code.checkout).toBeNull();
+    expect(l.code.attempts).toEqual([]);
+    expect(l.running.heal).toBe(false);
+  });
+
   test("a reverted heal carries the gates that killed it and a readable time", async () => {
-    const home = tmpHome();
-    const dir = join(home, "self-heal", "2026-08-30T17-43-31-016Z");
+    const dir = join(attemptsDir(tmpCheckout()), "2026-08-30T17-43-31-016Z");
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "report.json"), JSON.stringify({ summary: "retry the judge", cause: "one retry is not enough" }));
     writeFileSync(
@@ -159,8 +182,7 @@ describe("what lookout has changed about itself", () => {
   });
 
   test("an attempt with no readable report is still an attempt", async () => {
-    const home = tmpHome();
-    const dir = join(home, "self-heal", "2026-08-30T17-43-31-016Z");
+    const dir = join(attemptsDir(tmpCheckout()), "2026-08-30T17-43-31-016Z");
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "attempt.diff"), "diff --git a b\n");
 

@@ -141,7 +141,7 @@ export async function doctor(parsed: Parsed): Promise<number> {
   const { locateConfig } = await import("../config-locate.js");
   const { ownCheckout } = await import("../checkout.js");
   const sources = incidentSources(locateConfig(process.cwd())?.projectDir, ownCheckout());
-  const groups = activeGroups(readIncidentsFrom(sources), readHeals());
+  const groups = activeGroups(readIncidentsFrom(sources), readHeals(ownCheckout()));
   const hot = groups.filter((g) => g.recurred || g.count >= 3);
   const self = {
     sources,

@@ -264,7 +264,8 @@ export async function check(parsed: Parsed): Promise<number> {
   if (!parsed.flags.json && !parsed.flags.quiet) {
     const { activeGroups, readHeals } = await import("../skills/heal-select.js");
     const { readIncidents } = await import("../skills/incidents.js");
-    const hot = activeGroups(readIncidents(resolved.projectDir), readHeals()).filter(
+    const { ownCheckout } = await import("../checkout.js");
+    const hot = activeGroups(readIncidents(resolved.projectDir), readHeals(ownCheckout())).filter(
       (g) => g.recurred || g.count >= 3,
     );
     if (hot.length > 0) {

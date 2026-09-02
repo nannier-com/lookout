@@ -13,7 +13,7 @@
  * occurring is `recurred`, the loudest state there is, because a fix that
  * did not stick is worse news than a fresh bug.
  */
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, basename } from "node:path";
 import { CONFIG_FILENAME } from "../config-locate.js";
 import {
@@ -23,7 +23,7 @@ import {
   type Incident,
   type IncidentKind,
 } from "./incidents.js";
-import { lookoutHome } from "../home.js";
+import { healsPath, selfHealDir } from "../checkout.js";
 
 export interface Heal {
   at: string;
@@ -44,12 +44,13 @@ export interface ActiveGroup {
   failedAttempts: number;
 }
 
-export function healsPath(): string {
-  return join(lookoutHome(), "heals.jsonl");
-}
-
-export function readHeals(): Heal[] {
-  const p = healsPath();
+/**
+ * The heals a checkout has on record. Null for an installed package, which
+ * cannot heal at all, so it has none rather than an empty file somewhere.
+ */
+export function readHeals(checkout: string | null): Heal[] {
+  if (!checkout) return [];
+  const p = healsPath(checkout);
   if (!existsSync(p)) return [];
   try {
     return readFileSync(p, "utf8")
@@ -69,9 +70,10 @@ export function readHeals(): Heal[] {
   }
 }
 
-export function recordHeal(heal: Heal): void {
+export function recordHeal(checkout: string, heal: Heal): void {
   try {
-    appendFileSync(healsPath(), JSON.stringify(heal) + "\n");
+    mkdirSync(selfHealDir(checkout), { recursive: true });
+    appendFileSync(healsPath(checkout), JSON.stringify(heal) + "\n");
   } catch {
     // Losing the marker costs one re-offered group, not the heal itself.
   }
