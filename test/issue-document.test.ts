@@ -77,7 +77,7 @@ async function withBacklog(findings: BacklogFinding[]): Promise<{ r: ResolvedCon
 
 async function render(r: ResolvedConfig, backlog: Backlog, id: string): Promise<string> {
   const cluster = issuesOf(backlog).find((c) => c.id === id)!;
-  return (await renderIssueDocument(r, cluster, backlog.issues![id])).markdown;
+  return (await renderIssueDocument(r, cluster, backlog.issues![id], { backlog })).markdown;
 }
 
 const attempt = (over: Partial<AttemptRecord>): AttemptRecord => ({
@@ -325,5 +325,56 @@ describe("the scope of verification is stated before anyone asks for a ruling", 
     expect(configuredRoutesOf(config, "admin")).toEqual(["/x"]);
     expect(configuredRoutesOf(config, "none")).toEqual([]);
     expect(configuredRoutesOf({}, "app")).toEqual([]);
+  });
+});
+
+describe("the other issues on the same screenshot are named", () => {
+  const sibling = (over: Partial<BacklogFinding>): BacklogFinding =>
+    finding({
+      fingerprint: "app./dash.rest.phone.dark.render-failure.page-error",
+      category: "render-failure",
+      attribute: "page-error",
+      channel: "deterministic",
+      title: "TypeError: Cannot read properties of undefined (reading 'items')",
+      acceptance: [],
+      ...over,
+    });
+
+  test("an open finding sharing a shot is listed with its own issue id", async () => {
+    const { r, backlog, id } = await withBacklog([finding(), sibling({})]);
+    const md = await render(r, backlog, id);
+    const other = issuesOf(backlog).find((c) => c.id !== id)!.id;
+    expect(md).toContain("## Also on this screenshot");
+    expect(md).toContain(`- issue ${other} (high, render-failure/page-error): TypeError: Cannot read properties of undefined (reading 'items')`);
+    expect(md).toContain("None of them is");
+    // And the sibling's own document points back.
+    const back = await render(r, backlog, other);
+    expect(back).toContain(`- issue ${id} (high, layout-overflow/header-icon-overlap): Header icons collide with the activity row`);
+  });
+
+  test("a finding on another screenshot, or one already settled, is not a sibling", async () => {
+    const { r, backlog, id } = await withBacklog([
+      finding(),
+      sibling({
+        fingerprint: "app./settings.rest.phone.dark.render-failure.page-error",
+        route: "/settings",
+        evidence: [{ shotId: "web/app/settings/rest/phone/dark", path: "web/app/settings/rest--phone-dark.png", hash: "h2", runId: "r1" }],
+      }),
+      sibling({
+        fingerprint: "app./dash.rest.phone.dark.render-failure.console-error",
+        attribute: "console-error",
+        status: "fixed",
+        fixedIn: { commit: "abc", runId: "r2" },
+      }),
+    ]);
+    const md = await render(r, backlog, id);
+    expect(md).not.toContain("## Also on this screenshot");
+  });
+
+  test("without the backlog in hand the section is simply absent", async () => {
+    const { r, backlog, id } = await withBacklog([finding(), sibling({})]);
+    const cluster = issuesOf(backlog).find((c) => c.id === id)!;
+    const { markdown } = await renderIssueDocument(r, cluster, backlog.issues![id]);
+    expect(markdown).not.toContain("## Also on this screenshot");
   });
 });

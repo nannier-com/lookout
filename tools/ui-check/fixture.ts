@@ -840,7 +840,7 @@ async function writeDocuments(
     if (!record || skip.includes(cluster.id)) continue;
     const where = join(lk, "issues", cluster.id);
     mkdirSync(where, { recursive: true });
-    const { markdown } = await renderIssueDocument(resolved, cluster, record);
+    const { markdown } = await renderIssueDocument(resolved, cluster, record, { backlog });
     writeFileSync(join(where, "Issue.md"), markdown);
   }
 }

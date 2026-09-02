@@ -140,7 +140,7 @@ export async function launchHandoff(
   }
   const dir = issueDir(resolved, issueId);
   const doc = issueDocPath(resolved, issueId);
-  if (!existsSync(doc)) await materializeIssue(resolved, cluster, record);
+  if (!existsSync(doc)) await materializeIssue(resolved, cluster, record, { backlog });
 
   const prompt = `Read ${doc} and fix the issue it describes.`;
   const command = `${tool.bin} ${JSON.stringify(prompt)}`;

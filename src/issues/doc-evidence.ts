@@ -5,7 +5,12 @@
 import { existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { frameAbsPath } from "./frames.js";
+import { issueIdsByKey } from "./registry.js";
+import { clusterKeyOf } from "../fix/cluster.js";
 import type { IssueContext } from "./context.js";
+
+/** Siblings listed inline before the document points at the backlog instead. */
+const SIBLING_CAP = 12;
 
 /** "Where it is" for a source finding, "Look at these first" for a photographed one. */
 export function evidenceSection(ctx: IssueContext): string[] {
@@ -94,6 +99,46 @@ export function rendersSection(ctx: IssueContext): string[] {
     ...rendered.values(),
     // Without this the next heading is welded to the last list item and
     // markdown renders the two as one paragraph.
+    "",
+  ];
+}
+
+/**
+ * The other open issues filed against the same screenshots. A thrown error or
+ * a blank capture on the same picture is often the cause of what this issue
+ * describes, and clustering files it under its own number: without this, the
+ * two documents never mention each other.
+ */
+export function siblingsSection(ctx: IssueContext): string[] {
+  const { cluster, backlog } = ctx;
+  if (!backlog || cluster.channel === "code") return [];
+  const mine = new Set(cluster.fingerprints);
+  const shotIds = new Set(cluster.members.flatMap((m) => m.evidence.map((e) => e.shotId)));
+  const ids = issueIdsByKey(backlog);
+  const rows = new Map<string, string>();
+  for (const f of Object.values(backlog.findings)) {
+    if (mine.has(f.fingerprint)) continue;
+    if (f.status !== "open" && f.status !== "blocked") continue;
+    if (!f.evidence.some((e) => shotIds.has(e.shotId))) continue;
+    const id = ids[clusterKeyOf(f)] ?? "not yet numbered";
+    // One line per issue and defect, however many screenshots they share.
+    const key = `${id}|${f.attribute}`;
+    if (rows.has(key)) continue;
+    rows.set(key, `- issue ${id} (${f.severity}, ${f.category}/${f.attribute}): ${f.title}`);
+  }
+  if (rows.size === 0) return [];
+  const all = [...rows.values()].sort();
+  const shown = all.slice(0, SIBLING_CAP);
+  return [
+    "## Also on this screenshot",
+    "",
+    "Other open findings filed against the same screenshots, each in its own",
+    "issue. A thrown error, a failed request or a blank capture on the same",
+    "picture is often the cause of what this issue describes. None of them is",
+    "closed by fixing this one.",
+    "",
+    ...shown,
+    ...(all.length > shown.length ? [`- and ${all.length - shown.length} more; the backlog lists them all`] : []),
     "",
   ];
 }

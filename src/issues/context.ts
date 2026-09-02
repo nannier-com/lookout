@@ -13,7 +13,7 @@ import { loadFrames, type FrameSet } from "./frames.js";
 import { loadState, type ClusterState } from "../fix/state.js";
 import { forgeOf, type Forge } from "../report/forge.js";
 import type { FixCluster } from "../fix/cluster.js";
-import type { IssueRecord } from "../backlog/lib.js";
+import type { Backlog, IssueRecord } from "../backlog/lib.js";
 import type { CaptureReport, ResolvedConfig, RunRecord, ShotRecord } from "../types.js";
 
 /** The slice of the issue record a rendering reads. */
@@ -40,16 +40,28 @@ export interface IssueContext {
    */
   report: CaptureReport | null;
   /**
+   * The whole backlog, when the caller has it open: what lets a document name
+   * the other issues filed on the same screenshot. A caller rendering one
+   * issue in isolation leaves it out, and the section is simply absent.
+   */
+  backlog?: Backlog;
+  /**
    * The repository's forge, asked for at most once and only when a section
    * needs a commit URL: it runs git, and most issues have no fix to link yet.
    */
   forge: () => Promise<Forge | null>;
 }
 
+/** What a caller can hand the renderer beyond the issue itself. */
+export interface IssueExtras {
+  backlog?: Backlog;
+}
+
 export async function loadIssueContext(
   resolved: ResolvedConfig,
   cluster: FixCluster,
   record?: IssueRecordView,
+  extras: IssueExtras = {},
 ): Promise<IssueContext> {
   const [frames, state, report] = await Promise.all([
     loadFrames(resolved, cluster.id),
@@ -65,6 +77,7 @@ export async function loadIssueContext(
     frames,
     state,
     report,
+    ...(extras.backlog ? { backlog: extras.backlog } : {}),
     forge: () => (forge ??= forgeOf(resolved.projectDir)),
   };
 }

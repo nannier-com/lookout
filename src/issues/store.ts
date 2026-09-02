@@ -40,6 +40,7 @@ import {
   ISSUE_RECORD_FILE,
 } from "./paths.js";
 import { renderIssueDocument } from "./document.js";
+import type { IssueExtras } from "./context.js";
 import { ensureBeforeFrames, type Frame, type FrameSet } from "./frames.js";
 import type { ResolvedConfig } from "../types.js";
 
@@ -197,6 +198,7 @@ export async function materializeIssue(
   resolved: ResolvedConfig,
   cluster: FixCluster,
   record: IssueRecord,
+  extras: IssueExtras = {},
 ): Promise<string> {
   // Where the folder belongs is the record's call, and the folder follows it
   // here rather than at the moment somebody clicks archive: one mechanism, run
@@ -220,7 +222,7 @@ export async function materializeIssue(
   const doc = buildIssueDocument(cluster, record, shots);
   await writeAtomic(join(dir, ISSUE_RECORD_FILE), JSON.stringify(doc, null, 2));
 
-  const { markdown } = await renderIssueDocument(resolved, cluster, record);
+  const { markdown } = await renderIssueDocument(resolved, cluster, record, extras);
   await writeAtomic(join(dir, ISSUE_DOC_FILE), markdown);
   return dir;
 }
@@ -234,6 +236,8 @@ export async function materializeIssues(resolved: ResolvedConfig, backlog: Backl
   const byKey = new Map(Object.values(backlog.issues ?? {}).map((r) => [r.key, r]));
   for (const cluster of clusters) {
     const record = byKey.get(cluster.key);
-    if (record) await materializeIssue(resolved, cluster, record);
+    // The whole backlog rides along so each document can name the other
+    // issues filed on its screenshots.
+    if (record) await materializeIssue(resolved, cluster, record, { backlog });
   }
 }
