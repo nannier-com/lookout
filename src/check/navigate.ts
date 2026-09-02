@@ -23,6 +23,7 @@
 import { loadReport } from "../capture/store.js";
 import { resolveTargets, shotInConfig } from "../targets.js";
 import { planRoute } from "../navigate/plan.js";
+import { loadSkill } from "../skills/load.js";
 import { loadHarvests, loadPlans, plannedStateIndex, savePlans } from "../navigate/store.js";
 import { navigationOn } from "../navigate/consent.js";
 import { list, str, type Parsed } from "../util.js";
@@ -56,6 +57,9 @@ export async function maybeRefreshNavigation(args: {
   // never planned). --navigate re-plans even fresh routes.
   const onlyTargets = list(parsed.flags.targets);
   const onlyRoutes = list(parsed.flags.routes);
+  // What the shipped planner is at right now: a cached plan made by an older
+  // one predates whatever it has since learned to look for.
+  const plannerVersion = (await loadSkill(scope.resolved, "plan-navigation")).version;
   const stale: { key: string; targetName: string; routePath: string }[] = [];
   for (const [key, harvest] of Object.entries(harvests.routes)) {
     const [targetName, routePath] = [key.slice(0, key.indexOf("|")), key.slice(key.indexOf("|") + 1)];
@@ -70,7 +74,10 @@ export async function maybeRefreshNavigation(args: {
     if (onlyRoutes && !onlyRoutes.some((r) => r === routePath || `/${r}` === routePath || r === route.name)) {
       continue;
     }
-    if (force || plans.routes[key]?.signature !== harvest.signature) {
+    // A planner that has learned a new kind of state must be asked again, or a
+    // project whose controls have not changed never receives one.
+    const planned = plans.routes[key];
+    if (force || planned?.signature !== harvest.signature || (planned.skillVersion ?? 0) < plannerVersion) {
       stale.push({ key, targetName, routePath: routePath! });
     }
   }

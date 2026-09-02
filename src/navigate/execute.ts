@@ -15,6 +15,7 @@ import type { Page } from "playwright";
 import type { DeterministicFinding, NavigationConfig, StateRecipe } from "../types.js";
 import type { Affordance, AffordanceRef, PlannedState, RouteHarvest, RoutePlan } from "./store.js";
 import { validStateName } from "./store.js";
+import { DEFAULT_MAX_FOCUS, DEFAULT_MAX_HOVER, focusControl, hoverControl, type Interaction } from "./indicate.js";
 
 export const DEFAULT_MAX_STATES = 5;
 export const DEFAULT_MAX_CHECKS = 8;
@@ -49,10 +50,21 @@ function orderKey(s: PlannedState): number {
   return risk + (s.outcome === "navigation" ? 1 : 0);
 }
 
+/** Form factors a state must not be attempted at, by state name. */
+export type SkipAt = Map<string, ReadonlySet<string>>;
+
 export interface SynthesizedStates {
   states: [string, StateRecipe][];
   /** State names whose click ends the session; capture re-runs signIn after them. */
   sessionDestructive: Set<string>;
+  /**
+   * States a form factor must not attempt. Hovering is not an interaction a
+   * phone has, so a hover state there is skipped outright: no shot, no finding,
+   * no ledger entry, rather than a phone shot that photographs nothing.
+   */
+  skipAt: SkipAt;
+  /** How a state was reached, for the states reached by focus or hover. */
+  interaction: Map<string, Interaction>;
   /** Navigation-outcome names: their shots show another page, so the route's design reference must not ride along. */
   suppressDesign: Set<string>;
   /** What was clicked to reach each state, and what was expected, for the shot record. */
@@ -68,23 +80,40 @@ export function synthStates(args: {
   routeUrl: string;
 }): SynthesizedStates {
   const cap = args.navigation.maxStatesPerRoute ?? DEFAULT_MAX_STATES;
-  const survivors = args.plan.states
+  const focusCap = args.navigation.maxFocusStatesPerRoute ?? DEFAULT_MAX_FOCUS;
+  const hoverCap = args.navigation.maxHoverStatesPerRoute ?? DEFAULT_MAX_HOVER;
+  const eligible = args.plan.states
     .filter((s) => validStateName(s.name) && !args.recipeNames.includes(s.name))
     .map((s) => ({ planned: s, live: matchAffordance(s.affordance, args.harvest) }))
     .filter((s): s is { planned: PlannedState; live: Affordance } => s.live !== null)
     .filter((s) => sameOrigin(s.live.href, args.routeUrl))
-    .sort((a, b) => orderKey(a.planned) - orderKey(b.planned))
-    .slice(0, cap);
+    .sort((a, b) => orderKey(a.planned) - orderKey(b.planned));
+  // Three budgets, not one. A route already spending its five states on
+  // overlays would otherwise never get a focus shot, and the whole point of a
+  // focus shot is that it is the only place an indicator can be ruled on.
+  const take = (kinds: readonly string[], n: number) =>
+    eligible.filter((e) => kinds.includes(e.planned.outcome)).slice(0, n);
+  const survivors = [
+    ...take(["overlay", "in-page-change", "navigation"], cap),
+    ...take(["focus"], focusCap),
+    ...take(["hover"], hoverCap),
+  ];
 
   const out: SynthesizedStates = {
     states: [],
     sessionDestructive: new Set(),
+    skipAt: new Map(),
+    interaction: new Map(),
     suppressDesign: new Set(),
     affordances: new Map(),
   };
   for (const { planned, live } of survivors) {
     if (planned.risk === "session-destructive") out.sessionDestructive.add(planned.name);
     if (planned.outcome === "navigation") out.suppressDesign.add(planned.name);
+    if (planned.outcome === "focus" || planned.outcome === "hover") {
+      out.interaction.set(planned.name, planned.outcome);
+      if (planned.outcome === "hover") out.skipAt.set(planned.name, new Set(["phone"]));
+    }
     out.affordances.set(planned.name, {
       selector: live.selector,
       role: live.role,
@@ -100,7 +129,8 @@ export function synthStates(args: {
         // need the whole frame (portals render outside it, destinations are
         // another page entirely). No restore: the loop's reload guarantees a
         // clean rest state better than any Escape could.
-        element: planned.outcome === "in-page-change" ? undefined : null,
+        element:
+          planned.outcome === "in-page-change" || planned.outcome === "focus" ? undefined : null,
         prepare: (page) => actuate(page, live, planned, args.routeUrl),
       },
     ]);
@@ -128,6 +158,10 @@ async function actuate(
   // Harvested at the widest form factor; a control a narrow layout hides is a
   // skip at that form factor, not a defect.
   if (!target) throw new NavSkip(`"${live.name}" not visible at this form factor`);
+  // Neither of these activates anything, so neither can navigate, and neither
+  // needs the mislabeling guard below.
+  if (planned.outcome === "focus") return focusControl(page, target, live.name);
+  if (planned.outcome === "hover") return hoverControl(page, target, live.name);
   if (planned.outcome === "navigation") {
     await Promise.all([
       page.waitForLoadState("load", { timeout: 15_000 }),

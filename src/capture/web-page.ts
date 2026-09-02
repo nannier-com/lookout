@@ -74,3 +74,51 @@ export function markSchemeMismatches(shots: ShotRecord[]): void {
     }
   }
 }
+
+/**
+ * Indicator read-back: a focus or hover shot whose pixels are identical to its
+ * own rest shot means the interaction changed nothing on screen.
+ *
+ * This is the half of a focus or hover state a judge cannot rule on. A
+ * screenshot never draws the cursor, and a judge sees a state's view group
+ * without its rest sibling, so "hovering this did nothing" is not visible in
+ * the evidence it is given: it is a comparison, and comparisons are what the
+ * deterministic channel is for. The same read-back the scheme check does.
+ *
+ * One-sided on purpose. Identical pixels prove the interaction did nothing;
+ * different pixels prove only that SOMETHING moved, which a clock or a lazy
+ * image can do on its own, so nothing is filed in that direction.
+ */
+export function markIndicatorReadback(shots: ShotRecord[]): void {
+  const rest = new Map<string, ShotRecord>();
+  for (const s of shots) {
+    if (s.state === "rest") {
+      rest.set([s.platform, s.target, s.route, s.formFactor, s.scheme].join("|"), s);
+    }
+  }
+  for (const s of shots) {
+    if (!s.interaction) continue;
+    const twin = rest.get([s.platform, s.target, s.route, s.formFactor, s.scheme].join("|"));
+    if (!twin || twin.hash !== s.hash) continue;
+    const name = s.stateAffordance?.name ?? "the control";
+    s.deterministicFindings.push(
+      s.interaction === "focus"
+        ? {
+            type: "focus-invisible",
+            severity: "warning",
+            message:
+              `"${name}" has keyboard focus in this shot and the screen is unchanged from at rest, ` +
+              "so nothing marks where a keyboard user is",
+            meta: { control: name, restShotId: twin.id },
+          }
+        : {
+            type: "hover-silent",
+            severity: "warning",
+            message:
+              `the pointer is on "${name}" in this shot and the screen is unchanged from at rest, ` +
+              "so hovering it gives no sign it can be used",
+            meta: { control: name, restShotId: twin.id },
+          },
+    );
+  }
+}

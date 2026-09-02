@@ -158,6 +158,14 @@ export interface JudgeContext {
  * reducing them to one, and a group's trees are a few thousand characters
  * beside six images and a rubric.
  */
+/** Which control this shot's interaction was performed on, in words. */
+function interactionLine(s: ShotRecord): string {
+  const verb = s.interaction === "focus" ? "keyboard focus on" : "pointer hover over";
+  const a = s.stateAffordance;
+  const what = a?.name ? `${a.role || "control"} "${a.name}"` : "one control";
+  return `${verb} ${what}; the cursor itself is never drawn`;
+}
+
 function ariaBlock(shot: ShotRecord, ctx: JudgeContext, shownBy: Map<string, string>): string {
   const tree = ctx.aria?.get(shot.id);
   if (!tree) return "";
@@ -189,6 +197,10 @@ export function buildJudgePrompt(
     (s) =>
       (s.design ? `\n  design: ${s.design}` : "") +
       (s.animated ? "\n  note: this view animates live; the still is one frame of it" : "") +
+      // Which control the keyboard or the pointer is on. A screenshot never
+      // draws the cursor, so without this line a hover shot is a rest shot
+      // with something inexplicably different about it.
+      (s.interaction ? `\n  interaction: ${interactionLine(s)}` : "") +
       // What scrolls in this frame, said before the signals: it changes how
       // to read everything else about the shot, because content past the
       // edge of a scroller is reachable rather than lost.

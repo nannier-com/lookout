@@ -575,6 +575,37 @@ positioned out of flow is excluded, along with everything inside it, because
 that is how an overlay, a dropdown and a sticky bar are built, and covering
 something is their job.
 
+### Where the keyboard and the pointer are
+
+lookout's rubric has always refused to file focus rings, and it was right to:
+nothing in a rest, overlay or in-page shot holds keyboard focus on purpose, so
+a ring there is an accident of whatever was clicked last, and a still image
+cannot show focus ORDER at all. Both of those stay true. What is new is that
+the navigation planner can pick one control per route to put the keyboard on,
+and one to put the pointer on, and photograph each deliberately. The manifest
+line then names the control, and that control's indicator on that one shot is
+evidence rather than an accident. Focus order is still never filed.
+
+`focus` presses Tab to put Chromium into keyboard modality, focuses the named
+control, and verifies the browser really is showing it as keyboard focus; a
+control that will not show one is skipped rather than photographed, because
+that shot would file lookout's own capture as the application's defect. `hover`
+rests the pointer on the control and waits for anything on a JS delay to
+appear, and is skipped entirely at phone width, where there is no pointer to
+rest. Defaults are one of each per route (`navigation.maxFocusStatesPerRoute`,
+`navigation.maxHoverStatesPerRoute`, `0` for neither), counted separately from
+`maxStatesPerRoute` so a route already spending its budget on overlays can
+still have them.
+
+The half a judge cannot see is measured instead. A screenshot never draws the
+cursor, and a judge is shown a state's view group without its rest sibling, so
+"hovering this did nothing" is a comparison rather than something visible in
+the evidence. lookout compares each indicator shot with its own rest shot and
+files `focus-invisible` or `hover-silent` when they are identical. It is
+one-sided on purpose: identical pixels prove the interaction did nothing, while
+different pixels prove only that something moved, which a clock can do by
+itself.
+
 ### The one piece of evidence that is not a picture
 
 Every web shot is captured with the page's accessibility tree beside it, written

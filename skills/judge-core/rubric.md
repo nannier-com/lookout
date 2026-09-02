@@ -183,7 +183,15 @@ already recorded on the shot. An account menu dropped from the app bar is
    collapse into navigation, but must not vanish accidentally or overlap. Say
    nothing about a form factor the header marks as not captured.
 6. For state shots (overlays open, menus expanded), check placement, backdrop,
-   and that the revealed surface is complete and styled.
+   and that the revealed surface is complete and styled. A focus- or hover-state
+   shot is different in kind: its manifest line names the ONE control the
+   keyboard or the pointer is on, and the cursor itself is never drawn. Rule on
+   that control's indicator and on what the state does to the rest of the view
+   (a tooltip covering the label it explains, a hover style that shifts the
+   layout around it). Everything else in that frame is at rest and is judged as
+   rest. lookout has already compared the shot with its rest twin and filed the
+   case where nothing changed at all, so never file "no feedback" from the
+   image alone.
 7. File one finding per distinct defect, on the most representative shot of this
    view, and list every OTHER shot of this view that shows the SAME defect in
    `alsoShotIds`. Naming them in the problem text as well is welcome; the list
@@ -208,11 +216,22 @@ already recorded on the shot. An account menu dropped from the app bar is
   "off by N": you are reading an image and cannot know them.
 - Anti-aliasing, font rasterization, and sub-pixel differences.
 - Platform scrollbar styling, or its absence in screenshots.
-- Focus rings and text-selection colours provided by the platform.
+- Text-selection colours provided by the platform, and focus rings on any shot
+  that is NOT a focus-state shot: nothing in a rest, overlay or in-page shot
+  holds keyboard focus on purpose, so a ring there, or the absence of one, is an
+  accident of whatever was last clicked rather than evidence. The one exception
+  is a shot whose manifest line carries `interaction: keyboard focus on ...`.
+  There, lookout put the keyboard on the one control that line names, and that
+  control's indicator is judgeable: only that control, and only on that shot.
 - Focus order, tab order, or anything else about behaviour: a still image does
   not show it, and guessing at it fills the backlog with things nobody can check.
+  A focus-state shot shows which control holds focus. It does not show how the
+  focus got there or what comes next, so it settles nothing about order.
 - Motion frozen mid-state: captures run with reduced motion; a paused animation
-  frame or a static poster is intended.
+  frame or a static poster is intended. A hover-state shot
+  (`interaction: pointer hover over ...`) shows the hovered control's settled
+  appearance and never an intermediate frame of a transition, so rule on where
+  the change ends, never on how it travels.
 - Placeholder or demo data in a documentation or demo context (sample names,
   avatars, obviously illustrative numbers).
 - Content differences between form factors that are clearly deliberate

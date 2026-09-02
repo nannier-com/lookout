@@ -18,6 +18,7 @@ import { evidenceDir } from "../config.js";
 import { nowIso } from "../util.js";
 import type { NavigationConfig, ResolvedConfig, ShotRecord } from "../types.js";
 import { DEFAULT_MAX_CHECKS, DEFAULT_MAX_STATES } from "./execute.js";
+import { DEFAULT_MAX_FOCUS, DEFAULT_MAX_HOVER, prefixed, type Interaction } from "./indicate.js";
 import {
   validStateName,
   type Affordance,
@@ -27,7 +28,9 @@ import {
   type RoutePlan,
 } from "./store.js";
 
-const OUTCOMES: readonly NavOutcome[] = ["overlay", "in-page-change", "navigation"];
+const OUTCOMES: readonly NavOutcome[] = ["overlay", "in-page-change", "navigation", "focus", "hover"];
+/** The outcomes that put the keyboard or the pointer on a control and nothing else. */
+const INDICATOR: readonly NavOutcome[] = ["focus", "hover"];
 const RISKS: readonly NavRisk[] = ["safe", "destructive", "session-destructive"];
 
 /** The affordance list as the skill sees it: one line per control, by id. */
@@ -65,6 +68,8 @@ export function parsePlanReply(
     recipeNames: readonly string[];
     maxStates: number;
     maxChecks: number;
+    maxFocus: number;
+    maxHover: number;
     /** Normalized pathnames of the target's configured routes. */
     configuredPaths: readonly string[];
   },
@@ -105,19 +110,40 @@ export function parsePlanReply(
       notes.push(`state ${JSON.stringify(name)} rerouted to checks: ${destination} is already configured`);
       continue;
     }
-    seenNames.add(name);
+    // The interaction spelled into the name, where it fits, so a shot id and a
+    // board label say what was done rather than only which control it was done
+    // to. Applied after the duplicate check so the prefix cannot collide.
+    const finalName = INDICATOR.includes(outcome) ? prefixed(name, outcome as Interaction) : name;
+    if (finalName !== name && (seenNames.has(finalName) || opts.recipeNames.includes(finalName))) {
+      notes.push(`state ${JSON.stringify(name)} kept its planned name: ${JSON.stringify(finalName)} is taken`);
+    }
+    const chosen = finalName !== name && (seenNames.has(finalName) || opts.recipeNames.includes(finalName)) ? name : finalName;
+    seenNames.add(chosen);
     states.push({
-      name,
+      name: chosen,
       affordance: refOf(live),
       outcome,
-      risk: RISKS.includes(e.risk as NavRisk) ? (e.risk as NavRisk) : "safe",
+      // Neither focus nor hover activates anything, so neither can be
+      // destructive whatever the planner said about it.
+      risk: INDICATOR.includes(outcome)
+        ? "safe"
+        : RISKS.includes(e.risk as NavRisk)
+          ? (e.risk as NavRisk)
+          : "safe",
       why: typeof e.why === "string" ? e.why.slice(0, 200) : "",
     });
   }
-  if (states.length > opts.maxStates) {
-    notes.push(`${states.length - opts.maxStates} state(s) beyond the cap dropped`);
-    states.length = opts.maxStates;
-  }
+  // Three caps, applied per kind: a route spending its whole state budget on
+  // overlays must still be able to have its one focus shot.
+  const capKind = (kinds: readonly NavOutcome[], max: number, what: string) => {
+    const of = states.filter((st) => kinds.includes(st.outcome));
+    if (of.length <= max) return;
+    for (const drop of of.slice(max)) states.splice(states.indexOf(drop), 1);
+    notes.push(`${of.length - max} ${what} state(s) beyond the cap dropped`);
+  };
+  capKind(["overlay", "in-page-change", "navigation"], opts.maxStates, "click");
+  capKind(["focus"], opts.maxFocus, "focus");
+  capKind(["hover"], opts.maxHover, "hover");
 
   for (const entry of Array.isArray(r.checks) ? r.checks : []) {
     const e = entry as Record<string, unknown>;
@@ -177,6 +203,8 @@ export async function planRoute(args: {
   const skill = await loadSkill(args.resolved, "plan-navigation");
   const maxStates = args.navigation.maxStatesPerRoute ?? DEFAULT_MAX_STATES;
   const maxChecks = args.navigation.maxChecksPerRoute ?? DEFAULT_MAX_CHECKS;
+  const maxFocus = args.navigation.maxFocusStatesPerRoute ?? DEFAULT_MAX_FOCUS;
+  const maxHover = args.navigation.maxHoverStatesPerRoute ?? DEFAULT_MAX_HOVER;
   const evDir = evidenceDir(args.resolved);
   const manifest = args.restShots
     .map((s) => `- shotId: ${s.id}\n  file: ${join(evDir, s.path)}\n  formFactor: ${s.formFactor}  scheme: ${s.scheme}  size: ${s.width}x${s.height}`)
@@ -193,6 +221,8 @@ export async function planRoute(args: {
     inventory: inventoryBrief(args.harvest),
     maxStates: String(maxStates),
     maxChecks: String(maxChecks),
+    maxFocus: String(maxFocus),
+    maxHover: String(maxHover),
   });
 
   // The plan is written into the workspace below, and a capture may not have
@@ -212,6 +242,8 @@ export async function planRoute(args: {
     recipeNames: args.recipeNames,
     maxStates,
     maxChecks,
+    maxFocus,
+    maxHover,
     configuredPaths: args.configuredPaths,
   });
   return {

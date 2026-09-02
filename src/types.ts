@@ -96,6 +96,14 @@ export interface NavigationConfig {
   maxStatesPerRoute?: number;
   /** Link-verification clicks per route (no shots, no judging cost). Default 8. */
   maxChecksPerRoute?: number;
+  /**
+   * Keyboard-focus states the planner may pick per route. Default 1, 0 turns
+   * them off. Counted separately from `maxStatesPerRoute`, so a project with a
+   * full five overlay states does not silently lose one to make room.
+   */
+  maxFocusStatesPerRoute?: number;
+  /** Pointer-hover states per route, on the same terms. Default 1, 0 turns them off. */
+  maxHoverStatesPerRoute?: number;
   /** CSS selectors or accessible-name substrings never actuated. */
   exclude?: string[];
   /** CSS selectors always offered to the planner. */
@@ -366,7 +374,9 @@ export interface DeterministicFinding {
     | "scheme-mismatch"
     | "stale-frame"
     | "off-origin"
-    | "dead-interaction";
+    | "dead-interaction"
+    | "focus-invisible"
+    | "hover-silent";
   severity: "error" | "warning" | "info";
   message: string;
   meta?: Record<string, unknown>;
@@ -449,6 +459,12 @@ export interface ShotRecord {
   stateDescription?: string;
   /** What was clicked to reach a synthesized state, and what was expected. */
   stateAffordance?: { selector: string; role: string; name: string; href: string | null; outcome?: string };
+  /**
+   * How this state was reached, when it was reached by putting the keyboard or
+   * the pointer on one control rather than by clicking. What makes that
+   * control's indicator judgeable on this shot and on no other.
+   */
+  interaction?: "focus" | "hover";
   capturedAt: string;
   runId: string;
   deterministicFindings: DeterministicFinding[];

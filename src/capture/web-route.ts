@@ -100,6 +100,10 @@ export async function captureRoute(
       for (const [stateName, recipe] of states) {
         // State recipes run at every requested form factor: overlays and
         // drawers are exactly where narrow layouts break.
+        if (recipe && synth?.skipAt.get(stateName)?.has(formFactor)) {
+          ctx.progress(`nav state ${stateName} skipped at ${formFactor}: hover is not a phone interaction`);
+          continue;
+        }
         if (recipe) {
           try {
             await recipe.prepare(page);
@@ -270,6 +274,7 @@ export async function captureRoute(
           ...(elementSel ? { element: elementSel } : {}),
           ...(recipe?.description ? { stateDescription: recipe.description } : {}),
           ...(synth?.affordances.get(stateName) ? { stateAffordance: synth.affordances.get(stateName) } : {}),
+          ...(synth?.interaction.get(stateName) ? { interaction: synth.interaction.get(stateName) } : {}),
           capturedAt,
           runId: ctx.runId,
           deterministicFindings: findings,

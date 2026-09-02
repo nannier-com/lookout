@@ -25,7 +25,7 @@ import {
 } from "../types.js";
 import type { ResolvedTarget } from "../targets.js";
 import { attachConsoleCollector } from "./checks.js";
-import { markSchemeMismatches } from "./web-page.js";
+import { markIndicatorReadback, markSchemeMismatches } from "./web-page.js";
 import { captureRoute } from "./web-route.js";
 import type { RouteHarvest, RoutePlan } from "../navigate/store.js";
 import { nowIso } from "../util.js";
@@ -153,6 +153,7 @@ export async function captureWeb(
     await browser.close();
   }
 
+  markIndicatorReadback(shots);
   markSchemeMismatches(shots);
 
   return {

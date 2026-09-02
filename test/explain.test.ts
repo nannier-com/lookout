@@ -107,7 +107,7 @@ describe("the other checks say why their measurement matters", () => {
     const types = [
       "console-error", "page-error", "request-failed", "horizontal-overflow",
       "blank-shot", "capture-error", "scheme-mismatch", "stale-frame",
-      "off-origin", "dead-interaction",
+      "off-origin", "dead-interaction", "focus-invisible", "hover-silent",
     ] as const;
     for (const type of types) {
       const p = explainDeterministic({ type, severity: "error", message: "the measurement" });
@@ -175,6 +175,8 @@ describe("every check has a title that is not its message", () => {
     { type: "edge-clipped", severity: "error", message: '"Last seen" extends 88px past the right edge of an ancestor that hides its overflow', meta: { clipper: "ancestor", offenderPath: "table > thead > tr > th:nth-of-type(5)", clipped: 1, offenders: [{ path: "table > thead > tr > th:nth-of-type(5)", tag: "th", text: "Last seen", overRight: 88, overBottom: 0 }] } },
     { type: "box-collision", severity: "warning", message: '"Person" is drawn over "Bobby Nannier", covering 34% of it', meta: { offenderPath: "span.chip", collisions: 8, pairs: [{ topPath: "span.chip", topText: "Person", underPath: "td > a", underText: "Bobby Nannier", share: 0.34 }] } },
     axe({}),
+    { type: "focus-invisible", severity: "warning", message: '"Save changes" has keyboard focus in this shot and the screen is unchanged from at rest, so nothing marks where a keyboard user is', meta: { control: "Save changes", restShotId: "web/app/root/rest/desktop/dark" } },
+    { type: "hover-silent", severity: "warning", message: 'the pointer is on "Pricing" in this shot and the screen is unchanged from at rest, so hovering it gives no sign it can be used', meta: { control: "Pricing", restShotId: "web/app/root/rest/desktop/dark" } },
   ];
 
   // The list above is hand-written, so a check type added later would get no
@@ -207,6 +209,8 @@ describe("every check has a title that is not its message", () => {
     expect(t(12)).toBe('"Last seen" is cut off by the area that holds it');
     expect(t(13)).toBe('"Person" is drawn on top of "Bobby Nannier" (and 7 more)');
     expect(t(14)).toBe("Heading levels should only increase by one");
+    expect(t(15)).toBe('Nothing shows when "Save changes" has keyboard focus');
+    expect(t(16)).toBe('"Pricing" looks no different when the pointer is on it');
   });
 
   test("observed carries the record's detail; expected is the fixed state", () => {

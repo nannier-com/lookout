@@ -1,7 +1,7 @@
 ---
 name: plan-navigation
 description: Curate which of a route's interactive affordances lookout should actuate and photograph, naming each captured state, classifying its risk, and routing already-covered link clicks to verification.
-version: 3
+version: 4
 output: navigation-plan-v1
 ---
 
@@ -55,6 +55,22 @@ declares its outcome:
   already listed in the configured routes above; a configured destination is
   already judged at rest under its own identity and belongs in `checks`
   instead.
+- `focus`: the control is given keyboard focus and nothing is activated, so the
+  judges can rule on whether anything marks where a keyboard user is. At most
+  {{maxFocus}} per route. Choose the control a keyboard user most needs to
+  find: the route's primary action, or the first item of its navigation where
+  there is no primary. Name it `focus-<control>`.
+- `hover`: the pointer rests on the control and nothing is activated, so the
+  judges can rule on what hovering it does. At most {{maxHover}} per route, and
+  never the same control you chose for focus. Pick one member of the route's
+  most repeated control family (a nav item, a row action, a card), because a
+  control that gives no sign it is live costs most where it is repeated. Name
+  it `hover-<control>`. lookout skips hover states at phone width itself, so
+  plan one regardless of form factor.
+
+Both are always `risk: safe`: neither activates anything. A control you have
+already planned as an overlay or a navigation may also be planned for focus or
+hover, because those shots show different things about it.
 
 **Checks** (at most {{maxChecks}}): links and CTAs whose destination is
 already a configured route. lookout clicks each one and verifies the

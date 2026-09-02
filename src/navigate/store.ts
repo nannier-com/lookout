@@ -43,7 +43,7 @@ export interface RouteHarvest {
   affordances: Affordance[];
 }
 
-export type NavOutcome = "overlay" | "in-page-change" | "navigation";
+export type NavOutcome = "overlay" | "in-page-change" | "navigation" | "focus" | "hover";
 export type NavRisk = "safe" | "destructive" | "session-destructive";
 
 /**

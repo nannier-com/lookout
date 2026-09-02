@@ -49,6 +49,8 @@ const DETERMINISTIC_MAP: Record<
   "stale-frame": { category: "render-failure", attribute: "stale-frame" },
   "off-origin": { category: "render-failure", attribute: "off-origin" },
   "dead-interaction": { category: "states", attribute: "dead-control" },
+  "focus-invisible": { category: "a11y", attribute: "focus-indicator" },
+  "hover-silent": { category: "states", attribute: "hover-feedback" },
 };
 
 function severityFromDeterministic(f: DeterministicFinding): Severity {

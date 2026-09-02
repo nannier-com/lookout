@@ -9,6 +9,7 @@ import { routeKey, saveHarvests, savePlans, loadPlans } from "../src/navigate/st
 import type { Affordance, RouteHarvest } from "../src/navigate/store.js";
 import type { ShotRecord } from "../src/types.js";
 import { tmpProject } from "./tmp-project.js";
+import { loadSkill } from "../src/skills/load.js";
 
 process.env.LOOKOUT_CLAUDE_BIN = join(import.meta.dir, "mock-claude.ts");
 
@@ -32,7 +33,7 @@ const HARVEST: RouteHarvest = {
   ],
 };
 
-const OPTS = { recipeNames: [], maxStates: 5, maxChecks: 8, configuredPaths: ["/", "/pricing"] };
+const OPTS = { recipeNames: [], maxStates: 5, maxChecks: 8, maxFocus: 1, maxHover: 1, configuredPaths: ["/", "/pricing"] };
 
 describe("parsePlanReply", () => {
   test("drops unknown affordances, bad names, and unknown outcomes, with notes", () => {
@@ -129,7 +130,7 @@ describe("planRoute through the mock CLI", () => {
 describe("maybeRefreshNavigation gating", () => {
   const parsedBase = { verb: "check", args: [], positionals: [], flags: {} as Record<string, unknown> };
 
-  async function project(withPlanSignature?: string) {
+  async function project(withPlanSignature?: string, skillVersion?: number) {
     const r = tmpProject("lookout-navgate-");
     r.config.navigation = { enabled: true };
     await saveHarvests(r, { version: 1, routes: { [routeKey("app", "/")]: HARVEST } });
@@ -138,7 +139,12 @@ describe("maybeRefreshNavigation gating", () => {
         version: 1,
         routes: {
           [routeKey("app", "/")]: {
-            signature: withPlanSignature, plannedAt: "t", skillVersion: 1,
+            signature: withPlanSignature,
+            plannedAt: "t",
+            // A plan is fresh only if the planner that made it is the planner
+            // shipping now: a planner taught a new kind of state has to be
+            // asked again even when the route's controls have not moved.
+            skillVersion: skillVersion ?? (await loadSkill(r, "plan-navigation")).version,
             states: [], checks: [], skipped: [], suggestions: [],
           },
         },
@@ -159,6 +165,17 @@ describe("maybeRefreshNavigation gating", () => {
     expect(res.refreshed).toBe(1);
     expect(recaptured).toEqual([["app", "/"]]);
     expect((await loadPlans(r)).routes[routeKey("app", "/")]!.signature).toBe(HARVEST.signature);
+  });
+
+  test("a plan made by an older planner is re-planned though nothing on the route moved", async () => {
+    const r = await project(HARVEST.signature, 1);
+    const res = await maybeRefreshNavigation({
+      scope: { resolved: r, shots: [], shotsById: new Map() },
+      parsed: { ...parsedBase, flags: {} },
+      log: () => {},
+      recapture: async () => {},
+    });
+    expect(res.refreshed).toBe(1);
   });
 
   test("a fresh plan spends nothing; --navigate forces; scoped and disabled runs skip", async () => {

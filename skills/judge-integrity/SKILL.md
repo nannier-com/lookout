@@ -1,7 +1,7 @@
 ---
 name: judge-integrity
 description: The integrity panel of lookout's visual judge, ruling on render failures, broken interactive states, and controls missing expected parts.
-version: 4
+version: 5
 output: judge-findings-v2
 ---
 
@@ -12,7 +12,11 @@ output: judge-findings-v2
 - states: a captured interactive state rendered wrongly: a stuck loading state,
   an open overlay misplaced or unstyled, a menu opened at phone that renders
   partly off the screen, a disabled control indistinguishable from an enabled
-  one.
+  one, and on a shot whose manifest line says the pointer is on a named
+  control, feedback that breaks that control rather than helping it: its label
+  vanishing or losing contrast, a tooltip covering the very thing it explains,
+  a hover style that shifts the layout around it. lookout files the case where
+  hovering changed nothing at all; what you rule on is what the change does.
 - anatomy: a familiar control missing an expected part: a dialog without a
   dismiss affordance, a form field whose label is detached or absent, a table
   header misaligned with its columns, a control that gives no sign it can be
