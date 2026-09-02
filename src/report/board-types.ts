@@ -96,10 +96,15 @@ export interface BoardEntry {
    * what stops the page offering a link that answers 404.
    */
   doc: string | null;
+  /** The compact identity, `category/attribute on routes`: what a search or a tooltip wants. */
   label: string;
+  /** The headline in words: the defect's own title, or the group's ("2 accessibility problems on /"). */
+  title: string;
   routes: string[];
   severity: string;
   category: string;
+  /** The category as a phrase a person reads, with the one-line gloss the chip carries. */
+  categoryGloss: { phrase: string; gloss: string };
   /**
    * Every distinct defect grouped under this root cause, worst first, with the
    * judge's own words. This used to live in a separate findings list, which

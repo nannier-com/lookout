@@ -21,6 +21,7 @@
  * left here is the join, plus the two tallies that count what came out.
  */
 import { existsSync } from "node:fs";
+import { CATEGORY_GLOSS, type CategoryWords } from "../judge/glossary.js";
 import { issuesOf } from "../issues/registry.js";
 import { clusterLabel } from "../fix/brief.js";
 import { loadBacklog } from "../verbs/backlog.js";
@@ -50,6 +51,12 @@ export { ORDER_BY_ATTENTION };
  * the top. Pass the events in when you have already read them, so a caller
  * polling twice a second reads the log once.
  */
+/** The category's words for the chip; a category outside the registry keeps its own name. */
+function glossOf(category: string): { phrase: string; gloss: string } {
+  const words = (CATEGORY_GLOSS as Record<string, CategoryWords>)[category];
+  return words ? { phrase: words.phrase, gloss: words.gloss } : { phrase: category, gloss: "" };
+}
+
 export async function buildBoard(
   resolved: ResolvedConfig,
   events?: LookoutEvent[],
@@ -79,9 +86,11 @@ export async function buildBoard(
         // worse than no link, because it looks like the issue has nothing in it.
         doc: existsSync(doc) ? doc : null,
         label: clusterLabel(c),
+        title: c.title,
         routes: c.routes,
         severity: c.severity,
         category: c.category,
+        categoryGloss: glossOf(c.category),
         defects: c.defects.map((d) => ({
           attribute: d.attribute,
           severity: d.severity,

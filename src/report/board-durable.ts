@@ -10,6 +10,7 @@
  * anything re-captured.
  */
 import { existsSync, statSync } from "node:fs";
+import { shortShas } from "./board-words.js";
 import { join } from "node:path";
 import { evidenceDir } from "../config.js";
 import { frameServedPath, type Frame } from "../issues/frames.js";
@@ -145,7 +146,7 @@ export function durableTimeline(state: ClusterState, foundAt: string | null): Bo
   // card and then the file recognises every line.
   for (const a of state.attempts) {
     const said = attemptSentences(a);
-    if (said.claimed) steps.push({ at: a.dispatchedAt, kind: "claimed", text: said.claimed });
+    if (said.claimed) steps.push({ at: a.dispatchedAt, kind: "claimed", text: shortShas(said.claimed) });
     if (said.surfaced) steps.push({ at: a.dispatchedAt, kind: "found", text: said.surfaced });
     if (said.verdict) steps.push({ at: a.dispatchedAt, kind: "verdict", text: said.verdict });
   }

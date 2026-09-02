@@ -116,6 +116,11 @@ describe("the board survives a truncated log", () => {
     const board = await buildBoard(r);
     expect(board).toHaveLength(2);
     expect(board.every((b) => b.shots.length > 0)).toBe(true);
+    // The headline is the defect's own title, and the category chip carries
+    // the phrase a person reads with its gloss.
+    expect(board.every((b) => b.title === b.defects[0]!.title)).toBe(true);
+    expect(board[0]!.categoryGloss.phrase).toBe("accessibility");
+    expect(board[0]!.categoryGloss.gloss.length).toBeGreaterThan(20);
     expect(tally(board)).toEqual({ open: 2, verifying: 0, blocked: 0, done: 0, archived: 0 });
   });
 

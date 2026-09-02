@@ -7,6 +7,7 @@
  * issue to somebody who then has to go and open those files.
  */
 import { enc, esc } from "./dom.js";
+import { ruleLine, statusWords, verdictMark, verdictState, verdictWords } from "./card-words.js";
 import { toolLabel, toolMark } from "./tools.js";
 import type { BoardEntry, BoardShot } from "../../report/board.js";
 
@@ -59,8 +60,8 @@ function fixStrip(b: BoardEntry): string {
   // sentence and a rarer one.
   const ruled = b.status === "done" || b.status === "archived";
   const absent = (side: string): string =>
-    side === "post" ? (ruled ? "no post-fix frame kept" : "no post-fix frame yet")
-      : "no pre-fix frame kept";
+    side === "post" ? (ruled ? "no post-fix screenshot kept" : "no post-fix screenshot yet")
+      : "no pre-fix screenshot kept";
 
   const half = (s: BoardShot | null, side: string): string => s
     ? '<a class="tile side ' + side + '" href="/evidence/' + enc(s.path) + '" target="_blank"'
@@ -135,7 +136,7 @@ function defects(b: BoardEntry): string {
   const rows = list.map((d) =>
     '<div class="defect ' + esc(d.severity) + '">'
     + '<div class="dtitle">' + esc(d.title) + '</div>'
-    + (list.length > 1 ? '<div class="dattr">' + esc(d.attribute) + '</div>' : '')
+    + '<div class="dattr">' + esc(ruleLine(b.category, d.attribute)) + '</div>'
     + problemHtml(d.problem, d.title)
     + '</div>').join("");
   return '<div class="evi"><h4>What is wrong'
@@ -151,17 +152,14 @@ function defects(b: BoardEntry): string {
 function acceptance(b: BoardEntry): string {
   const list = b.acceptance || [];
   if (!list.length) return "";
-  const state = (v: string | null): string => v === "met" ? "met" : v === "unmet" ? "unmet"
-    : v === "not-verifiable" ? "notverifiable" : "pending";
-  const mark = (v: string | null): string => v === "met" ? "\u2713" : v === "unmet" ? "\u2717"
-    : v === "not-verifiable" ? "\u2013" : "";
-  const said = (v: string | null): string => v === "met" ? "Met." : v === "unmet" ? "Not met."
-    : v === "not-verifiable" ? "Not verifiable from the evidence." : "Not checked yet.";
   const met = list.filter((c) => c.verdict === "met").length;
+  // The verdict is said in words beside the mark, since a glyph alone is a
+  // code a viewer has to know: "not met" and "not ruled" are different news.
   const rows = list.map((c) =>
-    '<li class="crit ' + state(c.verdict) + '">'
-    + '<span class="box" aria-hidden="true">' + mark(c.verdict) + '</span>'
-    + '<span class="ct"><span class="sr">' + said(c.verdict) + ' </span>' + esc(c.text)
+    '<li class="crit ' + verdictState(c.verdict) + '">'
+    + '<span class="box" aria-hidden="true">' + verdictMark(c.verdict) + '</span>'
+    + '<span class="cv">' + verdictWords(c.verdict) + '</span>'
+    + '<span class="ct">' + esc(c.text)
     + (c.note && c.verdict !== "met" ? '<span class="cnote">' + esc(c.note) + '</span>' : '')
     + '</span></li>').join("");
   return '<div class="evi"><h4>Acceptance <span class="n">' + met + ' of ' + list.length
@@ -295,16 +293,17 @@ export function card(b: BoardEntry): string {
     : '<span class="tick faint">no evidence on disk</span>';
   const judge = b.judgeNote ? '<div class="note"><b>judge:</b> ' + esc(b.judgeNote) + '</div>' : "";
   return '<article class="card ' + esc(b.status) + '">'
-    + '<div class="top"><span class="pill">' + esc(b.status) + '</span>'
+    + '<div class="top"><span class="pill">' + esc(statusWords(b.status)) + '</span>'
     + '<span class="issueid" title="issue id: verify-fix --issue ' + esc(b.id) + '">'
     + esc(b.id) + '</span>' + seen + '</div>'
     + '<div class="meta">' + cardAction(b) + docLink(b)
     + '<span class="launched" data-launched="' + esc(b.id) + '"></span></div>'
-    + '<h3 class="title">' + esc(b.label) + '</h3>'
+    + '<h3 class="title" title="' + esc(b.label) + '">' + esc(b.title || b.label) + '</h3>'
     + whatLine(b)
     + commitLine(b)
     + '<div class="meta"><span class="chip sev ' + esc(b.severity) + '">' + esc(b.severity) + '</span>'
-    + '<span class="chip">' + esc(b.category) + '</span>' + routes + attempt + '</div>'
+    + '<span class="chip" title="' + esc(b.categoryGloss ? b.categoryGloss.gloss : "") + '">'
+    + esc(b.categoryGloss ? b.categoryGloss.phrase : b.category) + '</span>' + routes + attempt + '</div>'
     + defects(b)
     + acceptance(b)
     // The frozen pair IS the evidence, and the live strip beneath it would be

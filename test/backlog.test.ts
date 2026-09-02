@@ -267,7 +267,17 @@ describe("markdown + stats", () => {
     const md = renderMarkdown(b);
     expect(md).toContain("## By design");
     expect(md).toContain("intentional demo scroller");
+    // The rows read as words; the fingerprint sits once under Identities,
+    // and the issue number links to the document that carries the rest.
+    expect(md).toContain("| issue | severity | channel | title | evidence |");
+    expect(md).not.toContain("| fingerprint |");
+    expect(md).toContain("## Identities");
     expect(md).toBe(renderMarkdown(b)); // stable
+    reconcileIssues(b, NOW);
+    const id = Object.keys(b.issues)[0]!;
+    const linked = renderMarkdown(b);
+    expect(linked).toContain(`| [${id}](issues/${id}/Issue.md) | high |`);
+    expect(linked).toContain(`- [${id}](issues/${id}/Issue.md) \`${fp}\``);
     expect(stats(b).byStatus["by-design"]).toBe(1);
   });
 });
