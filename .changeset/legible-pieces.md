@@ -1,5 +1,0 @@
----
-"@nannier-com/lookout": patch
----
-
-**The judge is told what a batch holds, and reads tall screenshots in pieces it can actually read.** Every list of shots a model is handed (the judge, the refuter, the acceptance verifier, `lookout ask`) now opens with a header naming the platform, the form factors and the schemes present and, for a narrowed run, the ones not captured, so a batch without a tablet shot can no longer invite a claim about tablet. The description of a shot is written once, in `src/judge/manifest.ts`. Measured on 2026-09-02 with the judge's own model and tool: a 7802 px tall capture was transcribed exactly, an 11202 px one came back with digits and letters misread, and a 29500 px one was illegible. A full-page shot taller than 8000 px is therefore cut, from the same bytes, into pieces of a whole number of screens, and the model is told to read the pieces instead of the file; the same 11202 px capture read in pieces was transcribed exactly. The file stays the shot (its hash is the ledger key, its path is what an issue freezes); the pieces are working evidence beside it, rebuilt when the shot's hash changes.
