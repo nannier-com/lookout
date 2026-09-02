@@ -17,6 +17,11 @@ import { mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import sharp from "sharp";
 import { workspaceKey } from "../../src/home.js";
+import { composeAcceptance, type AcceptanceCriterion } from "../../src/issues/acceptance.js";
+import { renderIssueDocument } from "../../src/issues/document.js";
+import { issuesOf } from "../../src/issues/registry.js";
+import type { Backlog, BacklogFinding } from "../../src/backlog/lib.js";
+import type { ResolvedConfig } from "../../src/types.js";
 
 const AT = "2026-08-28T14:02:11.000Z";
 
@@ -38,6 +43,17 @@ const SETTLED_ISSUE = "731094";
 // lookout has to mint is a save, and a save freezes frames onto every issue
 // including the one that is meant to have none.
 const EXPLAINED_ISSUE = "864512";
+// An issue somebody has tried to fix twice and lookout still sees: the one
+// card with attempts, ruled acceptance criteria, and a state other than rest.
+const STILL_OPEN_ISSUE = "275630";
+// A deterministic finding on the same screenshot the open issue was filed
+// against: the sibling a document has to point at, and the issue the second
+// attempt above surfaced.
+const SIBLING_ISSUE = "602417";
+// Fixed times for the two attempts, so the record feed draws the same pixels
+// on every build.
+const ATTEMPT_1_AT = "2026-08-29T10:00:00.000Z";
+const ATTEMPT_2_AT = "2026-08-30T10:00:00.000Z";
 
 /** A frozen clock for the transcript, so two captures a minute apart match. */
 function stamp(i: number): string {
@@ -117,6 +133,7 @@ async function freeze(
     route: string;
     formFactor: string;
     overflow: boolean;
+    state?: string;
   }[],
 ): Promise<void> {
   const manifest: { schema: 2; before: unknown[]; after: unknown[] } = { schema: 2, before: [], after: [] };
@@ -132,7 +149,7 @@ async function freeze(
       route: f.route,
       formFactor: f.formFactor,
       scheme: "dark",
-      state: "rest",
+      state: f.state ?? "rest",
       at: AT,
     });
   }
@@ -146,6 +163,17 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
   const checkout = join(root, "checkout");
   const lk = join(project, ".lookout");
   mkdirSync(project, { recursive: true });
+  // The documents are rendered by lookout's own renderer below, and it finds
+  // the capture workspace through the home the served ui will be given. This
+  // process is the fixture builder and nothing else, so pointing it there is
+  // the same as `serve` doing it.
+  process.env.LOOKOUT_HOME = home;
+  const resolved: ResolvedConfig = {
+    config: { targets: [{ name: "app", url: "http://127.0.0.1:5999", routes: ["/", "/settings"] }] },
+    configPath: join(project, "lookout.config.ts"),
+    projectDir: project,
+    project: "project",
+  };
   // The capture workspace, exactly where the served ui will look for it:
   // keyed under the home that `serve` exports as LOOKOUT_HOME.
   const ev = join(home, "evidence", workspaceKey(project));
@@ -216,6 +244,21 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
   await freeze(lk, OPEN_ISSUE, [
     { side: "before", file: "web-app-root-rest--desktop-dark.png", route: "/", formFactor: "desktop", overflow: false },
   ]);
+  // The one view photographed in a state other than rest, with a before frame
+  // and no after: two attempts have been ruled on it and neither passed.
+  {
+    const path = join(ev, "web", "app", "root", "menu-open--desktop-dark.png");
+    await shot(path, "#101318", "#181c24");
+    utimesSync(path, EVIDENCE_MTIME, EVIDENCE_MTIME);
+  }
+  await freeze(lk, STILL_OPEN_ISSUE, [
+    { side: "before", file: "web-app-root-menu-open--desktop-dark.png", route: "/", formFactor: "desktop", overflow: false, state: "menu-open" },
+  ]);
+  // The design hand-off the root route was judged against, so a document can
+  // name the picture the judge compared the build to.
+  mkdirSync(join(project, "design"), { recursive: true });
+  await shot(join(project, "design", "home.png"), "#0e1116", "#161a22");
+  utimesSync(join(project, "design", "home.png"), EVIDENCE_MTIME, EVIDENCE_MTIME);
   await freeze(lk, SETTLED_ISSUE, [
     { side: "before", file: "web-app-settings-rest--desktop-dark.png", route: "/settings", formFactor: "desktop", overflow: true },
     { side: "before", file: "web-app-settings-rest--phone-dark.png", route: "/settings", formFactor: "phone", overflow: true },
@@ -223,13 +266,82 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
     { side: "after", file: "web-app-settings-rest--phone-dark.png", route: "/settings", formFactor: "phone", overflow: false },
   ]);
 
-  writeFileSync(
-    join(lk, "backlog.json"),
-    JSON.stringify(
-      {
+  // The issue with attempts. Its criteria are composed by lookout's own
+  // function so their ids are the ones reconcile recomputes on every load:
+  // hand-written ids would mint a save, and a save freezes frames onto the
+  // archived issue that is meant to have none.
+  const stillOpen = finding({
+    fingerprint: "app.root.menu-open.desktop.dark.states.dead-control",
+    state: "menu-open",
+    category: "states",
+    attribute: "dead-control",
+    severity: "high",
+    status: "open",
+    fixAttempts: 2,
+    title: "The menu button does nothing when clicked",
+    problem:
+      "Clicking the menu button at the top left of the page leaves the page exactly as it was: " +
+      "no drawer, no panel, no change of any kind, so anyone trying to navigate from here is " +
+      "stuck on the first screen.\n\nThe button (`header button[aria-label=\"Menu\"]`) has a " +
+      "click handler that toggles `menuOpen` in state, but nothing in the tree reads that " +
+      "state, so the drawer component is never mounted.",
+    expected: "Clicking the menu button opens a navigation drawer over the page.",
+    observed: "The page after the click is byte-identical to the page before it.",
+    acceptance: [
+      "The menu button opens the navigation drawer at desktop, dark scheme",
+      "The drawer lists the same routes as the header navigation",
+      "The drawer closes again on escape",
+    ],
+    evidence: [
+      { shotId: "web/app/root/menu-open/desktop/dark", path: "web/app/root/menu-open--desktop-dark.png", hash: "h5", at: AT },
+    ],
+  });
+  const ruled: AcceptanceCriterion[] = composeAcceptance([stillOpen as unknown as BacklogFinding]).map((c, i) => {
+    const stamp = { ruledAt: ATTEMPT_2_AT, runId: "verify-fixture-2" };
+    if (c.source === "universal") return { ...c, ...stamp, verdict: "met", note: "1 of 1 screenshot(s) changed." };
+    if (i === 0) {
+      return {
+        ...c,
+        ...stamp,
+        verdict: "unmet",
+        note: "The drawer is not open in the fresh capture: the header is unchanged and no panel is visible over the page.",
+      };
+    }
+    if (i === 1) {
+      return {
+        ...c,
+        ...stamp,
+        verdict: "not-verifiable",
+        note: "No drawer is open in any capture, so what it would list cannot be read from the pixels.",
+      };
+    }
+    return c;
+  });
+
+  const backlog = {
         project: "fixture-app",
         generatedAt: AT,
         findings: {
+          [stillOpen.fingerprint as string]: stillOpen,
+          // Filed by a check, not a judge, on the same screenshot the open
+          // issue was filed against: the thrown error is the likeliest cause of
+          // the contrast defect on that screen, and it is its own issue.
+          "app.root.rest.desktop.dark.render-failure.page-error": finding({
+            fingerprint: "app.root.rest.desktop.dark.render-failure.page-error",
+            category: "render-failure",
+            attribute: "page-error",
+            severity: "high",
+            channel: "deterministic",
+            status: "open",
+            title: "TypeError: Cannot read properties of undefined (reading 'items')",
+            problem:
+              "Code on this page threw and nothing caught it. Anything the failing script was " +
+              "responsible for after that point did not happen, which is how a screen ends up " +
+              "looking complete while a control on it silently does nothing.\n\nWhat the check " +
+              "measured: TypeError: Cannot read properties of undefined (reading 'items')",
+            expected: "",
+            observed: "",
+          }),
           "app.root.rest.desktop.dark.contrast.body-text": finding({
             fingerprint: "app.root.rest.desktop.dark.contrast.body-text",
             category: "contrast",
@@ -343,11 +455,58 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
             createdAt: AT,
             acceptance: [],
           },
+          [STILL_OPEN_ISSUE]: {
+            id: STILL_OPEN_ISSUE,
+            key: "app--states--dead-control",
+            createdAt: AT,
+            acceptance: ruled,
+          },
+          [SIBLING_ISSUE]: {
+            id: SIBLING_ISSUE,
+            key: "app--render-failure--page-error",
+            createdAt: ATTEMPT_2_AT,
+            acceptance: [],
+            causedBy: { issue: STILL_OPEN_ISSUE, commit: "9f2c41d7b6a8e05c3d1f", runId: "verify-fixture-2", at: ATTEMPT_2_AT },
+          },
         },
+  } as unknown as Backlog;
+  writeFileSync(join(lk, "backlog.json"), JSON.stringify(backlog, null, 2));
+
+  // What two rulings recorded about the issue with attempts. Truth, not a
+  // projection: lookout never regenerates this file.
+  mkdirSync(join(lk, "issues", STILL_OPEN_ISSUE), { recursive: true });
+  writeFileSync(
+    join(lk, "issues", STILL_OPEN_ISSUE, "state.json"),
+    JSON.stringify(
+      {
+        id: STILL_OPEN_ISSUE,
+        attempts: [
+          {
+            n: 1,
+            dispatchedAt: ATTEMPT_1_AT,
+            reported: { commit: "3f2a9c1d7b6e4a05c8d2", note: "wired the click handler to toggle the drawer" },
+            verdict: "still-open",
+            judgeNote:
+              "nothing changed: all 1 comparable screenshot(s) in this scope are byte-identical to " +
+              "the previous run, so no edit reached the rendered output. Either the fix was not " +
+              "applied, it was applied somewhere the app does not use, or the app was not rebuilt.",
+          },
+          {
+            n: 2,
+            dispatchedAt: ATTEMPT_2_AT,
+            reported: {
+              commit: "9f2c41d7b6a8e05c3d1f",
+              note: "rebuilt the bundle; the handler toggles state now but the drawer component never mounts",
+            },
+            verdict: "still-open",
+            judgeNote: "The menu button still does nothing on click: the header is unchanged and no drawer is visible.",
+            spawned: [SIBLING_ISSUE],
+          },
+        ],
       },
       null,
       2,
-    ),
+    ) + "\n",
   );
 
   // The folders the backlog projects. lookout writes one per issue on every
@@ -366,26 +525,155 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
   // because that is where lookout would put them: the folder follows the
   // record's `archived` field, and the intentional issue here carries the older
   // adjudication instead, which never moved a folder.
-  for (const [id, title] of [
-    [OPEN_ISSUE, "Body text sits at 3.1:1 against the page background"],
-    [SETTLED_ISSUE, "The settings table scrolls the page sideways"],
-    [EXPLAINED_ISSUE, "heading-order: Heading levels should only increase by one"],
-  ] as const) {
-    const where = join(lk, "issues", id);
-    mkdirSync(where, { recursive: true });
-    writeFileSync(
-      join(where, "Issue.md"),
-      `# ${title}\n\n` +
-        "```\n" +
-        `issue:      ${id}\n` +
-        `folder:     ${where}\n` +
-        `repository: ${project}\n` +
-        "```\n\n" +
-        "This is a visual defect lookout found in the running application, filed\n" +
-        "against the screenshots below. lookout did not send you here; somebody read\n" +
-        "it and decided to. Nothing about how you fix it is prescribed.\n",
-    );
-  }
+  //
+  // The documents are lookout's own rendering, not a stub with the header
+  // lines the gate greps for: a fixture that stubbed them would never show
+  // anyone what the renderer draws for an issue with attempts, a sibling, or
+  // a ruled criterion. Rendered last, once every file a section reads exists.
+  await writeDocuments(resolved, backlog, lk, [INTENTIONAL_ISSUE]);
+
+  // The run log: a check that finished, then a verify-fix of the open issue
+  // that has not, so one card is mid-ruling with a live feed under it. The
+  // header will call the run stalled, and say for how many whole days: that
+  // moves once a day, like the seen chip, so two captures a minute apart match.
+  const shotData = {
+    shotId: "web/app/root/rest/desktop/dark",
+    path: "web/app/root/rest--desktop-dark.png",
+    route: "/",
+    state: "rest",
+    formFactor: "desktop",
+    scheme: "dark",
+    findings: 1,
+  };
+  writeFileSync(
+    join(ev, "events.jsonl"),
+    [
+      { at: stamp(0), runId: "check-fixture", kind: "run-start", message: "lookout check", data: { project: "project" } },
+      { at: stamp(1), runId: "check-fixture", kind: "shot", message: "app/ desktop dark", data: shotData },
+      { at: stamp(2), runId: "check-fixture", kind: "run-end", message: "2 finding(s); ~$0.12", data: {} },
+      { at: stamp(3), runId: "verify-fixture", kind: "run-start", message: `lookout verify-fix ${OPEN_ISSUE}`, data: { issue: OPEN_ISSUE, verb: "verify-fix" } },
+      { at: stamp(4), runId: "verify-fixture", kind: "shot", message: "app/ desktop dark", data: shotData },
+      {
+        at: stamp(5),
+        runId: "verify-fixture",
+        kind: "finding",
+        message: "contrast/body-text: Body text sits at 3.1:1 against the page background",
+        data: {
+          severity: "high",
+          category: "contrast",
+          attribute: "body-text",
+          shotId: shotData.shotId,
+          path: shotData.path,
+          route: "/",
+          formFactor: "desktop",
+          scheme: "dark",
+          problem: "Paragraph text is mid grey on near-black, below the 4.5:1 minimum.",
+          verified: true,
+        },
+        severity: "high",
+      },
+    ]
+      .map((e) => JSON.stringify(e))
+      .join("\n") + "\n",
+  );
+
+  // What the last check ruled, including the one finding the adversarial
+  // verifier threw out: the record a person asks for when something they saw
+  // yesterday is not on the board today.
+  writeFileSync(
+    join(ev, "judge-report.json"),
+    JSON.stringify(
+      {
+        runId: "check-fixture",
+        model: "fixture",
+        rubricVersion: 7,
+        panels: ["judge-integrity", "judge-geometry", "judge-craft"],
+        shotsConsidered: 5,
+        judged: 5,
+        cached: 0,
+        findings: [],
+        refuted: [
+          {
+            title: "The settings table header repeats mid-page",
+            shotId: "web/app/settings/rest/phone/dark",
+            verifierNote:
+              "The header appears once; what read as a repeat is the sticky header drawn over the scrolled table.",
+            judge: "judge-craft",
+          },
+        ],
+        rejected: 0,
+        unjudged: 0,
+        failedBatches: 0,
+        deterministicErrors: 0,
+        costUsd: 0.12,
+        reportPath: join(ev, "judge-report.json"),
+      },
+      null,
+      2,
+    ),
+  );
+
+  // What capture recorded about each view: the geometry, the hand-off the root
+  // route was judged against, the sidecar beside the dark shot, and the error
+  // the page threw while the dark shot was being taken.
+  const shotRecord = (over: Record<string, unknown>) => ({
+    target: "app",
+    route: "/",
+    routeName: "root",
+    state: "rest",
+    platform: "web",
+    formFactor: "desktop",
+    scheme: "dark",
+    bytes: 4096,
+    width: 2560,
+    height: 1800,
+    animated: false,
+    capturedAt: AT,
+    runId: "check-fixture",
+    deterministicFindings: [],
+    ...over,
+  });
+  writeFileSync(
+    join(ev, "capture-report.json"),
+    JSON.stringify(
+      {
+        version: 1,
+        project: "project",
+        createdAt: AT,
+        updatedAt: AT,
+        runs: [
+          {
+            id: "check-fixture",
+            kind: "web",
+            startedAt: stamp(0),
+            finishedAt: stamp(2),
+            flags: { formFactors: ["desktop", "phone"], schemes: ["dark", "light"], axe: true, states: true, settleMs: 800, navigation: false },
+            failures: [],
+            skips: [],
+          },
+        ],
+        shots: [
+          shotRecord({
+            id: "web/app/root/rest/desktop/dark",
+            path: "web/app/root/rest--desktop-dark.png",
+            hash: "h1",
+            design: join(project, "design", "home.png"),
+            designHash: "d1",
+            provenance: "web/app/root/rest--desktop-dark.png.provenance.json",
+            deterministicFindings: [
+              { type: "page-error", severity: "error", message: "TypeError: Cannot read properties of undefined (reading 'items')" },
+            ],
+          }),
+          shotRecord({ id: "web/app/root/rest/desktop/light", path: "web/app/root/rest--desktop-light.png", hash: "h2", scheme: "light" }),
+          shotRecord({ id: "web/app/root/menu-open/desktop/dark", path: "web/app/root/menu-open--desktop-dark.png", hash: "h5", state: "menu-open" }),
+          shotRecord({ id: "web/app/settings/rest/desktop/dark", path: "web/app/settings/rest--desktop-dark.png", hash: "h3", route: "/settings", routeName: "settings" }),
+          shotRecord({ id: "web/app/settings/rest/phone/dark", path: "web/app/settings/rest--phone-dark.png", hash: "h4", route: "/settings", routeName: "settings", formFactor: "phone", width: 780, height: 1688 }),
+        ],
+      },
+      null,
+      2,
+    ),
+  );
 
   // Two judges mid-sentence, interleaved, because that is what a real run looks
   // like: two workers judge two view groups at once and reach the same panel at
@@ -534,4 +822,25 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
   }
 
   return { project, home, checkout };
+}
+
+/**
+ * Every issue's Issue.md, by the renderer itself, except the ones named: the
+ * intentional issue is left without a folder on purpose, so the card without
+ * a document link stays on the board.
+ */
+async function writeDocuments(
+  resolved: ResolvedConfig,
+  backlog: Backlog,
+  lk: string,
+  skip: string[],
+): Promise<void> {
+  for (const cluster of issuesOf(backlog)) {
+    const record = backlog.issues?.[cluster.id];
+    if (!record || skip.includes(cluster.id)) continue;
+    const where = join(lk, "issues", cluster.id);
+    mkdirSync(where, { recursive: true });
+    const { markdown } = await renderIssueDocument(resolved, cluster, record);
+    writeFileSync(join(where, "Issue.md"), markdown);
+  }
 }
