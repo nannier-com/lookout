@@ -33,6 +33,7 @@ afterEach(() => {
   delete process.env.MOCK_JUDGE_SIBLINGS;
   delete process.env.MOCK_VERIFY_CONFIRM_ALL;
   delete process.env.MOCK_SKIP_LAST;
+  delete process.env.MOCK_VERIFY;
 });
 
 function shot(id: string): ShotRecord {
@@ -249,6 +250,84 @@ describe("shots a defect was seen on, not merely mentioned in", () => {
     expect(written.unaccounted).toHaveLength(1);
     expect(written.unaccounted[0]!.panel).toBe("panel-a");
     expect(written.unaccounted[0]!.shotIds).toEqual([group[1]!.id]);
+  });
+});
+
+describe("names minted this run", () => {
+  test("what one group filed reaches the next group's judge", async () => {
+    // The prior list is built once, before judging, from the backlog. Nothing
+    // told a group what the groups before it had just filed, so one defect
+    // could be minted under a different attribute on every route of a single
+    // run: several issues, several fix sessions, one fix.
+    const r = project();
+    const first = [shot("web/app/home/rest/desktop/dark")];
+    const second = [shot("web/app/settings/rest/desktop/dark")];
+    const a = stubPanel("panel-a", ["contrast"]);
+    const plan = planOf([a], [first, second]);
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    process.env.MOCK_ARGV_FILE = join(evidenceDir(r), "argv.txt");
+    // One worker, so the two groups are strictly ordered and the second can
+    // actually see what the first filed.
+    await judgeInBatches({
+      resolved: r,
+      plan,
+      shotsById: new Map([...first, ...second].map((s) => [s.id, s])),
+      // A string, because that is what a flag is: num() ignores anything else,
+      // and with the default two workers both groups judge at once and neither
+      // can see what the other filed.
+      parsed: { positionals: [], flags: { concurrency: "1" } },
+      log: silent,
+      opts: {},
+    });
+
+    const prompts = readFileSync(process.env.MOCK_ARGV_FILE, "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => (JSON.parse(l) as string[]))
+      .map((argv) => argv[argv.indexOf("-p") + 1] ?? "");
+    const secondJudge = prompts.find((p) => p.includes("web/app/settings/rest/desktop/dark"))!;
+    expect(secondJudge).toContain("Also open elsewhere");
+    expect(secondJudge).toContain("[contrast/body-text]");
+    // And the first group could not have seen it: there was nothing yet.
+    const firstJudge = prompts.find((p) => p.includes("web/app/home/rest/desktop/dark"))!;
+    expect(firstJudge).not.toContain("Also open elsewhere");
+  });
+
+  test("a name the refuter killed is not offered to the next group", async () => {
+    // The mock refuter confirms index 0 and refutes the rest, so a group whose
+    // only finding is a sibling copy ends with nothing confirmed. Offering a
+    // refuted name would invite the next group to file what was just killed.
+    const r = project();
+    const first = [shot("web/app/home/rest/desktop/dark"), shot("web/app/home/rest/phone/dark")];
+    const second = [shot("web/app/settings/rest/desktop/dark")];
+    const a = stubPanel("panel-a", ["contrast"]);
+    const plan = planOf([a], [first, second]);
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    process.env.MOCK_ARGV_FILE = join(evidenceDir(r), "argv.txt");
+    process.env.MOCK_VERIFY = JSON.stringify({
+      verdicts: [
+        { index: 0, verdict: "refuted", note: "not visible" },
+        { index: 1, verdict: "refuted", note: "not visible" },
+      ],
+    });
+
+    const pass = await judgeInBatches({
+      resolved: r,
+      plan,
+      shotsById: new Map([...first, ...second].map((s) => [s.id, s])),
+      parsed: { positionals: [], flags: { concurrency: "1" } },
+      log: silent,
+      opts: {},
+    });
+    expect(pass.confirmed.filter((f) => f.shotId.includes("home"))).toHaveLength(0);
+
+    const prompts = readFileSync(process.env.MOCK_ARGV_FILE, "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => (JSON.parse(l) as string[]))
+      .map((argv) => argv[argv.indexOf("-p") + 1] ?? "");
+    const secondJudge = prompts.find((p) => p.includes("web/app/settings/rest/desktop/dark"))!;
+    expect(secondJudge).not.toContain("Also open elsewhere");
   });
 });
 

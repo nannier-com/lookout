@@ -91,6 +91,15 @@ export interface PriorFinding {
   attribute: string;
   title: string;
   region?: Region;
+  /**
+   * A name a person already settled: ruled intentional, blocked, or fixed.
+   *
+   * It travels for its NAME, not as a defect to look for. Reusing it is what
+   * lets a ruling reach a re-sighting: merge suppresses an exact fingerprint
+   * and cannot suppress a synonym, so a by-design defect re-filed under a
+   * fresh attribute mints a second issue the ruling never touches.
+   */
+  settled?: true;
 }
 
 export interface JudgeContext {
@@ -153,8 +162,13 @@ export function buildJudgePrompt(
           "the SAME category and attribute so it is recognised as the same defect and",
           "not a new one. If it is gone, just leave it out; absence is how a fix is",
           "reported. This list is not a claim that these are still there.",
+          "A line marked (settled) was already ruled on by a person or closed. It is",
+          "here only for its name: if you see that defect, file it under exactly that",
+          "category and attribute. Do not file it under a new name, and do not treat",
+          "the line as a reason to file it at all.",
           ...local.map(
-            (p) => `- ${p.shotId}  [${p.category}/${p.attribute}] ${p.title.slice(0, 120)}`,
+            (p) =>
+              `- ${p.shotId}  [${p.category}/${p.attribute}]${p.settled ? " (settled)" : ""} ${p.title.slice(0, 120)}`,
           ),
           ...(cross.length > 0
             ? [
@@ -162,7 +176,7 @@ export function buildJudgePrompt(
                 "in these views, file it with the SAME category, attribute and region:",
                 ...cross.map(
                   (p) =>
-                    `- ${p.region ?? "content"}  [${p.category}/${p.attribute}] ${p.title.slice(0, 120)}`,
+                    `- ${p.region ?? "content"}  [${p.category}/${p.attribute}]${p.settled ? " (settled)" : ""} ${p.title.slice(0, 120)}`,
                 ),
               ]
             : []),

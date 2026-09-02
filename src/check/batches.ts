@@ -18,7 +18,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { evidenceDir } from "../config.js";
-import { judgeBatch, type AiFinding, type ContractLapse } from "../judge/engine.js";
+import { judgeBatch, type AiFinding, type ContractLapse, type PriorFinding } from "../judge/engine.js";
 import { groupHash } from "../judge/ledger.js";
 import { verifyFindings, type RepairedFinding, type VerifiedFinding } from "../judge/verify.js";
 import { recordIncident } from "../skills/incidents.js";
@@ -95,6 +95,9 @@ function viewLabel(shots: ShotRecord[]): string {
   return `${s.target}${s.route}` + (s.state === "rest" ? "" : ` ${s.state}`);
 }
 
+/** The same cap the prior list uses: a naming aid, never a second manifest. */
+const MAX_RUN_NAMES = 40;
+
 /** The uncacheable-set member for one unit of panel work. */
 export function workKey(item: Pick<PanelWork, "groupId"> & { panel: { def: { name: string } } }): string {
   return `${item.groupId}|${item.panel.def.name}`;
@@ -151,6 +154,29 @@ export async function judgeInBatches(args: {
   const refuted: (AiFinding & { verifierNote: string })[] = [];
   const uncacheable = new Set<string>();
   const unaccounted: JudgePass["unaccounted"] = [];
+  /**
+   * Names this run has already minted, so later groups reuse them.
+   *
+   * The prior list is built once, before any judging, from what was already in
+   * the backlog. Nothing told a group what the groups before it had just
+   * filed, so one responsive-table defect could be filed as three attributes
+   * across three routes in a single run: three issues, three fix sessions, and
+   * an attempt history split three ways for one fix.
+   *
+   * They travel as "*" entries, the shape a defect open everywhere already
+   * uses, because the point is precisely that the same defect may appear on a
+   * view this call has not been handed. Appended synchronously inside a
+   * worker's turn, which is all the mutual exclusion a single-threaded loop
+   * needs. Two groups in flight at once are blind to each other and later ones
+   * anchor on whichever finished first; that is order-dependent, and still
+   * strictly better than every group minting its own name.
+   *
+   * Capped like the prior list, and for the same reason: this is a naming aid,
+   * and past a certain length it becomes a second manifest the judge has to
+   * read before it looks at the screenshots.
+   */
+  const filedSoFar: PriorFinding[] = [];
+  const filedKeys = new Set<string>();
   const replies = new Map<string, string>();
   const repaired: RepairedFinding[] = [];
   const degraded: ContractLapse[] = [];
@@ -199,7 +225,7 @@ export async function judgeInBatches(args: {
             handoff: item.panel.handoff,
             // Priors travel per lane: an out-of-lane prior instructs the judge
             // to re-file it, which the lane rule would then reject.
-            prior: plan.prior.filter((p) =>
+            prior: [...plan.prior, ...filedSoFar].filter((p) =>
               (item.panel.def.categories as readonly string[]).includes(p.category),
             ),
             panel: { name: panelName, categories: item.panel.def.categories },
@@ -275,6 +301,21 @@ export async function judgeInBatches(args: {
         }
       }
       confirmed.push(...jobFindings);
+      // What this group just filed becomes a name later groups can reuse.
+      // Confirmed only: a refuted claim is not a defect, and offering its name
+      // would invite the next group to file the thing the refuter just killed.
+      for (const f of jobFindings) {
+        const key = `${f.category}|${f.attribute}`;
+        if (filedKeys.has(key) || filedSoFar.length >= MAX_RUN_NAMES) continue;
+        filedKeys.add(key);
+        filedSoFar.push({
+          shotId: "*",
+          category: f.category,
+          attribute: f.attribute,
+          title: f.title,
+          region: f.region,
+        });
+      }
 
       log(
         `  batch ${i + 1}/${jobs.length}: ${job.shots.length} shot(s), ${job.items.length} panel(s), ` +

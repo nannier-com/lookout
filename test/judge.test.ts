@@ -216,6 +216,27 @@ describe("context the judge already paid for", () => {
     expect(out).toContain("[color-scheme/theme-not-switching]");
   });
 
+  test("a name a person already settled travels, marked as settled", () => {
+    // The case that taught this: once a colour-scheme defect was ruled
+    // by-design, the next run stopped seeing its name, re-filed it under a
+    // fresh attribute, and minted a second issue the ruling could not reach.
+    // Merge suppresses an exact fingerprint and cannot suppress a synonym.
+    const out = prompt([shot("web/app/x/rest/desktop/dark")], {
+      prior: [
+        {
+          shotId: "web/app/x/rest/desktop/dark",
+          category: "color-scheme",
+          attribute: "no-dark-theme",
+          title: "The site ignores the OS colour scheme",
+          settled: true,
+        },
+      ],
+    });
+    expect(out).toContain("[color-scheme/no-dark-theme] (settled)");
+    // And it is unmistakably a name rather than a defect to go and look for.
+    expect(out).toContain("here only for its name");
+  });
+
   test("findings for other views are not carried into this batch", () => {
     const out = prompt([shot("web/app/x/rest/desktop/dark")], {
       prior: [

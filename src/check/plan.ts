@@ -178,10 +178,19 @@ export async function planJudging(
     const { isShellRegion } = await import("../backlog/region.js");
     const b = await loadBacklog(resolved);
     const seen = new Set<string>();
-    const open = Object.values(b.findings).filter(
-      (f) => f.status === "open" && f.channel === "ai",
+    const ai = Object.values(b.findings).filter((f) => f.channel === "ai");
+    const open = ai.filter((f) => f.status === "open");
+    // Names a person has already settled travel too, and this is the case that
+    // taught the lesson: once a colour-scheme defect was ruled by-design, the
+    // next run no longer saw its name, re-filed it under a fresh attribute, and
+    // minted a second issue that the ruling on the first could not reach. A
+    // settled name is the most valuable one to reuse, because merge suppresses
+    // an exact fingerprint and cannot suppress a synonym. Marked as settled so
+    // the block never reads as a list of defects still standing.
+    const settled = ai.filter(
+      (f) => f.status === "by-design" || f.status === "blocked" || f.status === "fixed",
     );
-    for (const f of open) {
+    for (const f of [...open, ...settled]) {
       for (const ev of f.evidence) {
         const key = `${ev.shotId}|${f.category}|${f.attribute}`;
         if (seen.has(key)) continue;
@@ -191,6 +200,7 @@ export async function planJudging(
           category: f.category,
           attribute: f.attribute,
           title: f.title,
+          ...(f.status === "open" ? {} : { settled: true }),
         });
       }
     }
@@ -202,10 +212,15 @@ export async function planJudging(
     // large backlog stays a naming aid rather than a second manifest.
     const RANK: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
     const shell = open.filter((f) => isShellRegion(f.region));
-    const travelling = (shell.length > 0 ? shell : open)
-      .slice()
-      .sort((a, b) => (RANK[a.severity] ?? 4) - (RANK[b.severity] ?? 4))
-      .slice(0, 40);
+    // Open names first and worst-first, then settled ones: the cap is there to
+    // keep this a naming aid rather than a second manifest, so what it drops
+    // should be the least useful names, never the most urgent.
+    const travelling = [
+      ...(shell.length > 0 ? shell : open)
+        .slice()
+        .sort((a, b) => (RANK[a.severity] ?? 4) - (RANK[b.severity] ?? 4)),
+      ...settled.filter((f) => shell.length === 0 || isShellRegion(f.region)),
+    ].slice(0, 40);
     for (const f of travelling) {
       const key = `*|${f.category}|${f.attribute}`;
       if (seen.has(key)) continue;
@@ -216,6 +231,7 @@ export async function planJudging(
         attribute: f.attribute,
         title: f.title,
         region: f.region,
+        ...(f.status === "open" ? {} : { settled: true }),
       });
     }
   }
