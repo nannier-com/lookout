@@ -6,7 +6,7 @@
  * do it from two copies of the code. This is the one copy, so a fact added to
  * the record reaches both verify-fix and the source-scan ruling at once.
  */
-import { loadState, saveState, type AttemptRecord, type RepoObservation } from "../fix/state.js";
+import { loadState, saveState, type AttemptRecord, type RepoObservation, type RulingBaseline } from "../fix/state.js";
 import type { Verdict } from "../fix/rule.js";
 import type { ResolvedConfig } from "../types.js";
 import { execFileAsync, nowIso } from "../util.js";
@@ -136,6 +136,7 @@ export interface AttemptInput {
   contactSheet?: string | null;
   flags?: Record<string, string | boolean>;
   observed?: RepoObservation;
+  baseline?: AttemptRecord["baseline"];
 }
 
 /** The attempt as state.json keeps it: nothing absent is written as empty. */
@@ -159,6 +160,7 @@ export function attemptRecord(a: AttemptInput): AttemptRecord {
     ...(a.contactSheet ? { contactSheet: a.contactSheet } : {}),
     ...(a.flags ? { flags: a.flags } : {}),
     ...(a.observed ? { observed: a.observed } : {}),
+    ...(a.baseline ? { baseline: a.baseline } : {}),
   };
 }
 
@@ -168,12 +170,18 @@ export async function previousAttempt(resolved: ResolvedConfig, issueId: string)
   return state.attempts[state.attempts.length - 1];
 }
 
+/**
+ * Write the attempt, and when the ruling captured anything, make its capture
+ * the baseline the next ruling is measured against.
+ */
 export async function recordAttempt(
   resolved: ResolvedConfig,
   issueId: string,
   attempt: AttemptRecord,
+  baseline?: RulingBaseline,
 ): Promise<void> {
   const state = await loadState(resolved, issueId);
   state.attempts.push(attempt);
+  if (baseline) state.baseline = baseline;
   await saveState(resolved, state);
 }

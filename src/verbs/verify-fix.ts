@@ -20,7 +20,7 @@ import { issueDocPath } from "../issues/paths.js";
 import { spawnedIssues, stampCausedBy } from "../issues/spawned.js";
 import { attemptRecord, headSha, judgeNoteFor, narrowingFlags, observeRepo, previousAttempt, recordAttempt } from "../verify/attempt.js";
 import { ruleCodeIssue } from "../verify/code.js";
-import { baselineHashes } from "../verify/evidence.js";
+import { loadIssueBaseline, rulingBaselineOf } from "../verify/baseline.js";
 import { unclosableMembers } from "../verify/closure.js";
 
 // Re-exported from their new home so existing importers keep working; the
@@ -169,7 +169,11 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
   // Pixel hashes are deterministic, and they are what separates "the fixer
   // changed something" from "the judge said something different today".
   const priorReport = await loadReport(preResolved);
-  const priorHashes = baselineHashes(priorReport?.shots ?? [], Object.values(before.findings));
+  // The issue's own record first: the previous ruling's capture, then the
+  // frames frozen at filing. The workspace is asked only for shots the issue
+  // has no record of, because a check run since the edit has already moved it.
+  const base = await loadIssueBaseline(preResolved, cluster, priorReport?.shots ?? [], Object.values(before.findings));
+  const priorHashes = base.hashes;
 
   // The last moment the defect still exists in a file. The capture below writes
   // each view back to the path it came from, so a frame not copied aside now is
@@ -342,7 +346,9 @@ ${issueId}: not ruled. ${what}`);
       contactSheet: sheet?.path ?? null,
       flags: narrowingFlags(parsed.flags),
       observed,
+      baseline: base.described,
     }),
+    rulingBaselineOf(shotsById),
   );
   await saveBacklog(resolved, backlog);
 
@@ -362,7 +368,6 @@ ${issueId}: not ruled. ${what}`);
   });
   // The same facts the document just took: a session reading stdout and one
   // opening the file fresh learn the same things about this attempt.
-  const baselineRun = priorReport?.runs[priorReport.runs.length - 1];
   const outcomeArgs: FixOutcomeArgs = {
     issueId,
     verdict,
@@ -381,7 +386,7 @@ ${issueId}: not ruled. ${what}`);
     reportedNote: reportedNote ?? null,
     observed,
     docPath: issueDocPath(resolved, issueId),
-    baseline: baselineRun ? { runId: baselineRun.id, finishedAt: baselineRun.finishedAt } : null,
+    baseline: base.described,
     photographed: {
       url: resolved.config.targets.find((t) => t.name === cluster.target)?.url ?? null,
       routes: clusterScope(cluster, configuredRoutesOf(resolved.config, cluster.target)).routes,

@@ -55,6 +55,14 @@ export interface Frame {
   state?: string;
   /** When this frame was frozen. */
   at: string;
+  /**
+   * The shot this is a copy of, and the hash of its pixels at freeze time.
+   * What lets a never-ruled issue be verified against the defect as filed
+   * rather than against whatever the workspace holds now. Absent on frames
+   * frozen before these were recorded; both are recovered from the file.
+   */
+  shotId?: string;
+  hash?: string;
 }
 
 export interface FrameSet {
@@ -223,6 +231,8 @@ export async function freezeFrames(
       scheme: m.scheme ?? "",
       ...(m.state ? { state: m.state } : {}),
       at,
+      shotId: ev.shotId,
+      hash: ev.hash,
     });
   }
 

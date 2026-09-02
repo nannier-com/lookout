@@ -293,9 +293,9 @@ describe("the scope of verification is stated before anyone asks for a ruling", 
     const md = await render(r, backlog, id);
     expect(md).toContain("photographs target `app` at http://127.0.0.1:5999 on `/dash`.");
     expect(md).not.toContain("shell defect");
-    expect(md).toContain("(run `r1`, finished 2026-08-28T14:02:11.000Z)");
+    expect(md).toContain("lookout's last capture of these routes (run `r1`, finished 2026-08-28T14:02:11.000Z)");
     expect(md).toContain("The capture that filed this ran with: formFactors phone/desktop, schemes dark, axe route, settleMs 800.");
-    expect(md).toContain("A `lookout capture` or `lookout check` of these");
+    expect(md).toContain("between the edit and the ruling does not move that baseline");
     expect(md).toContain("`--no-capture` rules on the last capture");
   });
 
@@ -570,4 +570,37 @@ describe("what the ruling saw is written under the attempt", () => {
     expect(md).toContain("  - decided on: web/app/dash/rest/phone/dark");
     expect(md).toContain("  - the verifier suggested: move the badge below the heading");
   });
+});
+
+describe("what a ruling is measured against", () => {
+  test("after a ruling, the previous ruling's capture; the attempt says what it compared against", async () => {
+    const { r, backlog, id } = await withBacklog([finding({ fixAttempts: 1 })]);
+    withRoutesFor(r);
+    const state = { id, attempts: [attempt({ baseline: { kind: "frozen" as const, at: "2026-08-28T14:02:11.000Z" }, totalShots: 2, changedShots: 1, baselineShots: 2 })],
+      baseline: { runId: "web-verify-1", capturedAt: "2026-08-29T10:00:00.000Z", hashes: { "web/app/dash/rest/phone/dark": "h2" } } };
+    await saveState(r, state);
+    const md = await render(r, backlog, id);
+    expect(md).toContain("compared to\nthe capture of the previous ruling (run `web-verify-1`, 2026-08-29T10:00:00.000Z), and a fix");
+    expect(md).toContain("compared against the frames frozen when this was filed (2026-08-28T14:02:11.000Z)");
+  });
+
+  test("before any ruling, the frames frozen when the issue was filed", async () => {
+    const r0 = project();
+    // A screenshot on disk, so the save that files the issue freezes a frame of it.
+    mkdirSync(join(evidenceDir(r0), "web", "app", "dash"), { recursive: true });
+    writeFileSync(join(evidenceDir(r0), "web/app/dash/rest--phone-dark.png"), "png-bytes");
+    writeFileSync(
+      join(r0.projectDir, ".lookout", "backlog.json"),
+      JSON.stringify({ project: "app", updatedAt: new Date(0).toISOString(), findings: { [finding().fingerprint]: finding() } }),
+    );
+    const backlog = await loadBacklog(r0);
+    const id = issuesOf(backlog)[0]!.id;
+    withRoutesFor(r0);
+    const md = await render(r0, backlog, id);
+    expect(md).toContain("compared to\nthe frames frozen when this issue was filed (");
+  });
+
+  function withRoutesFor(r: ResolvedConfig): void {
+    r.config = { targets: [{ name: "app", url: "http://127.0.0.1:5999", routes: ["/dash"] }] } as ResolvedConfig["config"];
+  }
 });

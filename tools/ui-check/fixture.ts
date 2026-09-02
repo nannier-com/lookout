@@ -528,8 +528,12 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
               dirty: false,
               filesChanged: ["src/Header.tsx", "src/Drawer.tsx"],
             },
+            baseline: { kind: "ruling", runId: "web-verify-1", at: ATTEMPT_1_AT },
           },
         ],
+        // What the next ruling is measured against: the second attempt's own
+        // capture, not whatever the workspace holds by then.
+        baseline: { runId: "web-verify-2", capturedAt: ATTEMPT_2_AT, hashes: { "web/app/root/menu-open/desktop/dark": "h5" } },
       },
       null,
       2,

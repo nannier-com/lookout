@@ -22,6 +22,7 @@ import { isShellRegion } from "../backlog/lib.js";
 import { panelOf } from "../judge/panels.js";
 import { DEFAULT_VIEWPORTS } from "../types.js";
 import type { AttemptRecord } from "../fix/state.js";
+import { baselineSaid } from "../verify/outcome-report.js";
 import { filingRunOf, type IssueContext } from "./context.js";
 
 /**
@@ -74,6 +75,7 @@ export function attemptsSection(ctx: IssueContext, lookoutCmd: string): string[]
         `- re-captured: ${a.changedShots ?? 0} of ${a.baselineShots ?? 0} comparable screenshot(s) changed` +
           ` (${a.totalShots} in scope)` +
           (a.runId ? `, run ${a.runId}` : "") +
+          (a.baseline ? `, compared against ${baselineSaid(a.baseline)}` : "") +
           (a.flags ? `; flags: ${Object.entries(a.flags).map(([k, v]) => (v === true ? `--${k}` : `--${k} ${v}`)).join(" ")}` : ""),
       );
     } else if (a.runId) {
@@ -165,14 +167,17 @@ export function scopeSection(ctx: IssueContext): string[] {
   // The pixels-moved guard, and what it compares against. Stated because the
   // commonest failed attempt is one that changed nothing on screen.
   const run = filingRunOf(ctx);
+  const against = ctx.state.baseline
+    ? `the capture of the previous ruling (run \`${ctx.state.baseline.runId}\`, ${ctx.state.baseline.capturedAt})`
+    : ctx.frames.before.length > 0
+      ? `the frames frozen when this issue was filed (${ctx.frames.before[0]!.at})`
+      : `lookout's last capture of these routes${run ? ` (run \`${run.id}\`, finished ${run.finishedAt})` : ""}`;
   l.push(
     "Nothing passes on unchanged pixels. Every screenshot in scope is compared to",
-    "lookout's previous capture of it" +
-      (run ? ` (run \`${run.id}\`, finished ${run.finishedAt})` : "") +
-      ", and a fix that leaves every comparable screenshot byte-identical is ruled",
-    "still-open whatever the judge says. A `lookout capture` or `lookout check` of these",
-    "routes between the edit and the ruling replaces that previous capture with one",
-    "that already has the fix in it, and the ruling then sees no change.",
+    `${against}, and a fix that leaves every comparable screenshot byte-identical is`,
+    "ruled still-open whatever the judge says. A `lookout capture` or `lookout check`",
+    "between the edit and the ruling does not move that baseline: the ruling is always",
+    "measured against the previous ruling's capture, or the defect as filed.",
     "",
   );
   // A report written by an older lookout, or by hand, may carry a run with no

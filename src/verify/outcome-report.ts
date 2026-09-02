@@ -12,6 +12,7 @@ import { sheetNote } from "../capture/sheet.js";
 import { list, printJson } from "../util.js";
 import type { SheetResult } from "../capture/sheet.js";
 import type { RepoObservation } from "../fix/state.js";
+import type { BaselineDescription } from "./baseline.js";
 import type { Verdict } from "../fix/rule.js";
 
 export interface FixOutcomeArgs {
@@ -36,7 +37,7 @@ export interface FixOutcomeArgs {
   /** The issue's document, which the save just rewrote with this attempt. */
   docPath: string;
   /** The capture this ruling's screenshots were compared against. */
-  baseline: { runId: string; finishedAt: string } | null;
+  baseline: BaselineDescription;
   /** What this ruling photographed. */
   photographed: { url: string | null; routes: string[] };
   flags: Record<string, string | boolean>;
@@ -107,6 +108,13 @@ export function fixPayload(a: FixOutcomeArgs): Record<string, unknown> {
   };
 }
 
+/** What a ruling compared against, said so a reader knows whether a check since the edit could have moved it. */
+export function baselineSaid(b: BaselineDescription): string {
+  if (b.kind === "ruling") return `the previous ruling's capture (run ${b.runId}, ${b.at})`;
+  if (b.kind === "frozen") return `the frames frozen when this was filed (${b.at})`;
+  return "the workspace's last capture of these routes";
+}
+
 const MARK: Record<string, string> = { met: "x", unmet: "!", "not-verifiable": "-", pending: " " };
 const SAID: Record<string, string> = { unmet: "not met", "not-verifiable": "could not be verified", met: "met" };
 
@@ -145,7 +153,7 @@ export function printFixOutcome(args: FixOutcomeArgs & { json: boolean; payload:
       `${p.formFactors.join(", ")}; ${p.schemes.join(", ")}`,
   );
   out.push(
-    `  compared against: ${a.baseline ? `run ${a.baseline.runId}, finished ${a.baseline.finishedAt}` : "no previous capture"}; ` +
+    `  compared against: ${baselineSaid(a.baseline)}; ` +
       `${a.changedShots} of ${a.baselineShots} comparable screenshot(s) changed (${a.totalShots} in scope)`,
   );
   if (a.unclosable.length > 0) out.push(`  pixels unchanged since filing on ${a.unclosable.join(", ")}: nothing there could close`);

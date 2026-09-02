@@ -69,11 +69,26 @@ export interface AttemptRecord {
   /** The flags that narrowed this ruling's capture or judging, when any did. */
   flags?: Record<string, string | boolean>;
   observed?: RepoObservation;
+  /** What this ruling's screenshots were compared against. */
+  baseline?: { kind: "ruling" | "frozen" | "report"; runId?: string; at?: string };
+}
+
+/**
+ * The capture the next ruling is measured against: every shot of the last
+ * ruling, by hash. Anchored here rather than in the workspace because the
+ * workspace moves with every capture, including a `check` run between the
+ * edit and the ruling, which used to leave a real fix reading as no change.
+ */
+export interface RulingBaseline {
+  runId: string;
+  capturedAt: string;
+  hashes: Record<string, string>;
 }
 
 export interface ClusterState {
   id: string;
   attempts: AttemptRecord[];
+  baseline?: RulingBaseline;
 }
 
 export function statePath(resolved: ResolvedConfig, issueId: string): string {

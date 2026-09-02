@@ -34,7 +34,7 @@ const base: FixOutcomeArgs = {
   reportedNote: "rebuilt the bundle",
   observed: { head: "cafef00d", dirty: true, dirtyFiles: ["src/Header.tsx"], filesChanged: ["src/Header.tsx"] },
   docPath: "/proj/.lookout/issues/418203/Issue.md",
-  baseline: { runId: "check-1", finishedAt: "2026-08-28T14:02:11.000Z" },
+  baseline: { kind: "ruling", runId: "check-1", at: "2026-08-28T14:02:11.000Z" },
   photographed: { url: "http://127.0.0.1:5999", routes: ["/dash", "/settings"] },
   flags: { viewports: "phone" },
   costUsd: 0.12,
@@ -46,7 +46,7 @@ describe("the printed account of a ruling", () => {
     expect(out).toContain("418203: still-open (attempt 1 of 2; 1 more before it blocks)");
     expect(out).toContain("  judge: the badge still covers the heading");
     expect(out).toContain("  photographed: http://127.0.0.1:5999 at /dash, /settings; phone; dark, light");
-    expect(out).toContain("  compared against: run check-1, finished 2026-08-28T14:02:11.000Z; 1 of 6 comparable screenshot(s) changed (6 in scope)");
+    expect(out).toContain("  compared against: the previous ruling's capture (run check-1, 2026-08-28T14:02:11.000Z); 1 of 6 comparable screenshot(s) changed (6 in scope)");
     expect(out).toContain("  pixels unchanged since filing on /settings: nothing there could close");
     expect(out).toContain("    - Header icons collide with the activity row (web/app/dash/rest/phone/dark)");
     expect(out).toContain("      judge: the badge still covers the heading");
@@ -74,9 +74,11 @@ describe("the printed account of a ruling", () => {
     expect(passed).not.toContain("still open:");
   });
 
-  test("no previous capture is said as such", () => {
-    const out = capture(() => printFixOutcome({ ...base, baseline: null, baselineShots: 0, changedShots: 0, json: false, payload: fixPayload({ ...base, baseline: null }) }));
-    expect(out).toContain("  compared against: no previous capture; 0 of 0 comparable screenshot(s) changed (6 in scope)");
+  test("what the ruling compared against is said so a reader knows whether a check since the edit could have moved it", () => {
+    const frozen = capture(() => printFixOutcome({ ...base, baseline: { kind: "frozen", at: "2026-08-28T14:02:11.000Z" }, json: false, payload: fixPayload(base) }));
+    expect(frozen).toContain("  compared against: the frames frozen when this was filed (2026-08-28T14:02:11.000Z); 1 of 6");
+    const report = capture(() => printFixOutcome({ ...base, baseline: { kind: "report" }, baselineShots: 0, changedShots: 0, json: false, payload: fixPayload(base) }));
+    expect(report).toContain("  compared against: the workspace's last capture of these routes; 0 of 0 comparable screenshot(s) changed (6 in scope)");
   });
 });
 
@@ -86,7 +88,7 @@ describe("the --json payload", () => {
     expect(p.attemptsLeft).toBe(1);
     expect(p.stillOpen).toEqual(base.stillOpen);
     expect(p.photographed).toEqual({ url: "http://127.0.0.1:5999", routes: ["/dash", "/settings"], formFactors: ["phone"], schemes: ["dark", "light"] });
-    expect(p.baseline).toEqual({ runId: "check-1", finishedAt: "2026-08-28T14:02:11.000Z" });
+    expect(p.baseline).toEqual({ kind: "ruling", runId: "check-1", at: "2026-08-28T14:02:11.000Z" });
     expect(p.reported).toEqual({ commit: "cafef00d", note: "rebuilt the bundle" });
     expect(p.observed).toEqual(base.observed);
     expect(p.doc).toBe("/proj/.lookout/issues/418203/Issue.md");
