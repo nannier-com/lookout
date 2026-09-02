@@ -50,6 +50,9 @@ export function evidenceSection(ctx: IssueContext): string[] {
       l.push(`  route ${m.route}, ${m.formFactor}, ${m.scheme} scheme, state ${m.state}`);
     }
   }
+  // A list that ends without a blank line welds the next heading onto its
+  // last item, and markdown renders the two as one paragraph.
+  l.push("");
   return l;
 }
 

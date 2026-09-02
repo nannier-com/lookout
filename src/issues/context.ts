@@ -9,6 +9,7 @@
  */
 import { evidenceDir } from "../config.js";
 import { loadFrames, type FrameSet } from "./frames.js";
+import { loadState, type ClusterState } from "../fix/state.js";
 import { forgeOf, type Forge } from "../report/forge.js";
 import type { FixCluster } from "../fix/cluster.js";
 import type { IssueRecord } from "../backlog/lib.js";
@@ -26,6 +27,11 @@ export interface IssueContext {
   /** The frames frozen into this issue's own folder. */
   frames: FrameSet;
   /**
+   * Every attempt lookout has ruled on. Truth written by verify-fix, never
+   * regenerated; read here so the document can say what has been tried.
+   */
+  state: ClusterState;
+  /**
    * The repository's forge, asked for at most once and only when a section
    * needs a commit URL: it runs git, and most issues have no fix to link yet.
    */
@@ -37,7 +43,10 @@ export async function loadIssueContext(
   cluster: FixCluster,
   record?: IssueRecordView,
 ): Promise<IssueContext> {
-  const frames = await loadFrames(resolved, cluster.id);
+  const [frames, state] = await Promise.all([
+    loadFrames(resolved, cluster.id),
+    loadState(resolved, cluster.id),
+  ]);
   let forge: Promise<Forge | null> | null = null;
   return {
     resolved,
@@ -45,6 +54,7 @@ export async function loadIssueContext(
     record,
     evDir: evidenceDir(resolved),
     frames,
+    state,
     forge: () => (forge ??= forgeOf(resolved.projectDir)),
   };
 }

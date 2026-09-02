@@ -20,6 +20,13 @@
  */
 export type Verdict = "passed" | "still-open" | "blocked";
 
+/**
+ * Attempts a cluster gets before `verify-fix` blocks it. Beside the rule that
+ * spends them rather than in the verb, so the document can state the cap a
+ * fixer is working against without importing a command.
+ */
+export const DEFAULT_MAX_ATTEMPTS = 2;
+
 export interface RuleInput {
   /** Attempt number this ruling covers, 1-based. */
   attempt: number;

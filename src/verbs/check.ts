@@ -34,8 +34,8 @@ import { num, printJson, runId, str, type Parsed } from "../util.js";
 
 export type { CheckOutcome, RunCheckOptions };
 
-/** Attempts a cluster gets before `verify-fix` blocks it. */
-export const DEFAULT_MAX_ATTEMPTS = 2;
+// Lives with the verdict rule now; re-exported so existing importers keep working.
+export { DEFAULT_MAX_ATTEMPTS } from "../fix/rule.js";
 
 /**
  * One check, start to finish.

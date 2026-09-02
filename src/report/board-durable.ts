@@ -16,6 +16,7 @@ import { frameServedPath, type Frame } from "../issues/frames.js";
 import { wasPhotographed, type IssueRecord } from "../backlog/lib.js";
 import { commitUrl, forgeOf } from "./forge.js";
 import type { ClusterState } from "../fix/state.js";
+import { attemptSentences } from "../fix/attempts.js";
 import type { FixCluster } from "../fix/cluster.js";
 import type { ResolvedConfig } from "../types.js";
 import type { BoardEntry, BoardShot, BoardStep, IssueStatus } from "./board-types.js";
@@ -140,35 +141,13 @@ export function durableTimeline(state: ClusterState, foundAt: string | null): Bo
   const steps: BoardStep[] = foundAt
     ? [{ at: foundAt, kind: "found", text: "lookout filed this issue" }]
     : [];
+  // The sentences are shared with the issue document, so a fixer who reads the
+  // card and then the file recognises every line.
   for (const a of state.attempts) {
-    if (a.reported?.commit || a.reported?.note) {
-      steps.push({
-        at: a.dispatchedAt,
-        kind: "claimed",
-        text:
-          "a fix was reported" +
-          (a.reported.commit ? ` at ${a.reported.commit}` : "") +
-          (a.reported.note ? `: ${a.reported.note}` : ""),
-      });
-    }
-    // What the fix surfaced elsewhere, said plainly and without blame: these
-    // are their own issues, and this one is not answerable for them.
-    if (a.spawned && a.spawned.length > 0) {
-      steps.push({
-        at: a.dispatchedAt,
-        kind: "found",
-        text:
-          a.spawned.length === 1
-            ? `fixing this surfaced issue ${a.spawned[0]}`
-            : `fixing this surfaced issues ${a.spawned.join(", ")}`,
-      });
-    }
-    if (!a.verdict) continue;
-    steps.push({
-      at: a.dispatchedAt,
-      kind: "verdict",
-      text: `lookout ruled it ${a.verdict}` + (a.judgeNote ? `: ${a.judgeNote}` : ""),
-    });
+    const said = attemptSentences(a);
+    if (said.claimed) steps.push({ at: a.dispatchedAt, kind: "claimed", text: said.claimed });
+    if (said.surfaced) steps.push({ at: a.dispatchedAt, kind: "found", text: said.surfaced });
+    if (said.verdict) steps.push({ at: a.dispatchedAt, kind: "verdict", text: said.verdict });
   }
   return steps.sort((x, y) => x.at.localeCompare(y.at));
 }

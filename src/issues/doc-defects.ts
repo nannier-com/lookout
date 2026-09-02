@@ -91,16 +91,26 @@ export function acceptanceSection(ctx: IssueContext): string[] {
   const criteria = ctx.record?.acceptance ?? [];
   if (criteria.length === 0) return [];
   const l: string[] = [];
-  const mark = (v: string) => (v === "met" ? "x" : v === "not-verifiable" ? "-" : " ");
+  // Four marks for four verdicts. A criterion checked and failed used to draw
+  // the same empty box as one never checked, which hid the one fact a second
+  // attempt most needs: what the last ruling saw.
+  const MARK: Record<string, string> = { met: "x", unmet: "!", "not-verifiable": "-", pending: " " };
+  const SAID: Record<string, string> = { met: "met", unmet: "not met", "not-verifiable": "could not be verified" };
   l.push("## Acceptance criteria", "");
   l.push(
     "lookout rules on these itself, from fresh screenshots, when you ask it to",
-    "verify a fix. Nothing else ticks them, including you.",
+    "verify a fix. Nothing else ticks them, including you. `[x]` was met at the",
+    "last ruling, `[!]` was not, `[-]` could not be decided from the screenshots,",
+    "and `[ ]` has not been ruled on yet.",
     "",
   );
   for (const c of criteria) {
-    l.push(`- [${mark(c.verdict)}] ${c.text}`);
-    if (c.verdict === "not-verifiable" && c.note) l.push(`      not verifiable: ${c.note}`);
+    l.push(`- [${MARK[c.verdict] ?? " "}] ${c.text}`);
+    // Nested under the item rather than indented after it: an indented line
+    // with no blank line before it is a continuation of the item in markdown,
+    // and the note ran into the criterion as one sentence.
+    if (c.verdict !== "pending" && c.note) l.push(`  - ${SAID[c.verdict] ?? c.verdict}: ${c.note}`);
+    if (c.ruledAt) l.push(`  - ruled ${c.ruledAt}${c.runId ? ` by run ${c.runId}` : ""}`);
   }
   l.push("");
   return l;

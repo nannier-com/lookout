@@ -19,8 +19,12 @@ import { issueDir } from "./paths.js";
 import { loadIssueContext, type IssueRecordView } from "./context.js";
 import { acceptanceSection, placementSection, whatIsWrongSection } from "./doc-defects.js";
 import { evidenceSection, rendersSection } from "./doc-evidence.js";
+import { attemptsSection } from "./doc-attempts.js";
 import { fixSection, verifySection } from "./doc-verify.js";
+import { statusOf } from "./record.js";
+import { commitUrl } from "../report/forge.js";
 import type { FixCluster } from "../fix/cluster.js";
+import { DEFAULT_MAX_ATTEMPTS } from "../fix/rule.js";
 import { allRuleFiles } from "../fix/rules.js";
 import { clusterLabel } from "../fix/brief.js";
 import { have } from "../util.js";
@@ -63,7 +67,15 @@ export async function renderIssueDocument(
   l.push("```");
   l.push(`issue:      ${cluster.id}`);
   l.push(`folder:     ${issueDir(resolved, cluster.id)}`);
+  l.push(`status:     ${statusOf(cluster.members)}`);
+  // The adjudication or the blocked reason, when one was written: it is the
+  // one line a person wrote about this issue, and the first thing to read.
+  const reason = cluster.members.find((m) => m.reason)?.reason;
+  if (reason) l.push(`reason:     ${reason}`);
   l.push(`severity:   ${cluster.severity}`);
+  l.push(`confidence: ${cluster.members[0]?.confidence ?? "high"}`);
+  const regions = [...new Set(cluster.members.map((m) => m.region).filter(Boolean))];
+  if (regions.length > 0) l.push(`region:     ${regions.join(", ")}`);
   l.push(
     `defect:     ${cluster.category}${cluster.defects.length > 1 ? ` (${cluster.defects.length} rules)` : `/${cluster.attribute}`}`,
   );
@@ -81,9 +93,27 @@ export async function renderIssueDocument(
     l.push(`file:       ${cluster.routes.join(", ")}`);
   } else {
     l.push(`routes:     ${cluster.routes.join(", ")}`);
+    // Every route the defect has been photographed on, when that is more than
+    // the ones it is filed under: a shell defect is verified on all of them.
+    const seenOn = [...new Set(cluster.members.flatMap((m) => m.seenRoutes ?? []))].sort();
+    if (seenOn.some((r) => !cluster.routes.includes(r))) {
+      l.push(`seen on:    ${[...new Set([...cluster.routes, ...seenOn])].sort().join(", ")}`);
+    }
     l.push(`affects:    ${cluster.shotCount} screenshot(s)`);
   }
-  if (cluster.attemptsSpent > 0) l.push(`attempts:   ${cluster.attemptsSpent} already spent`);
+  if (cluster.attemptsSpent > 0) {
+    l.push(`attempts:   ${cluster.attemptsSpent} of ${DEFAULT_MAX_ATTEMPTS} spent (${DEFAULT_MAX_ATTEMPTS} is the default cap; verify-fix --max-attempts raises it)`);
+  }
+  // A regression is filed with where it came from, and the fixer of a
+  // regression starts from that commit, not from the screenshot.
+  if (record?.causedBy) {
+    const c = record.causedBy;
+    const forge = await ctx.forge();
+    const url = c.commit && forge ? commitUrl(forge, c.commit) : null;
+    l.push(
+      `caused by:  fixing issue ${c.issue}${c.commit ? ` at ${c.commit}` : ""}${url ? ` (${url})` : ""}, run ${c.runId}, ${c.at}`,
+    );
+  }
   l.push("```", "");
 
   l.push(
@@ -127,6 +157,10 @@ export async function renderIssueDocument(
   l.push(...placementSection(ctx));
   l.push(...whatIsWrongSection(ctx));
   l.push(...acceptanceSection(ctx));
+  // Between the criteria and the pictures on purpose: somebody who reads the
+  // pictures first starts planning the fix they already imagine, and the
+  // history is what says which of those plans has already failed.
+  l.push(...attemptsSection(ctx, lookoutCmd));
   l.push(...evidenceSection(ctx));
   if (cluster.channel !== "code") l.push(...rendersSection(ctx));
   l.push(...(await fixSection(ctx)));

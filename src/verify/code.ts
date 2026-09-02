@@ -105,13 +105,14 @@ export async function ruleCodeIssue(
       if (f) f.fixAttempts += 1;
     }
   }
-  await saveBacklog(resolved, backlog);
-
+  // The attempt before the save: the save rewrites the document, and the
+  // document reads the attempts.
   await recordAttempt(
     resolved,
     issueId,
     attemptRecord({ n: attempt, commit: opts.commit, note: opts.note, verdict, judgeNote: ruling.note }),
   );
+  await saveBacklog(resolved, backlog);
 
   emit(
     "verdict",

@@ -17,6 +17,8 @@ import { forgetForges } from "../src/report/forge.js";
 import { EventLog } from "../src/report/events.js";
 import type { BacklogFinding } from "../src/backlog/lib.js";
 import { statePath, type ClusterState } from "../src/fix/state.js";
+import { attemptSentences } from "../src/fix/attempts.js";
+import type { AttemptRecord } from "../src/fix/state.js";
 import { issueByKey } from "../src/issues/registry.js";
 import { loadBacklog } from "../src/verbs/backlog.js";
 import type { ResolvedConfig } from "../src/types.js";
@@ -360,5 +362,42 @@ describe("the commit behind an issue", () => {
     const r = gitProject("git@github.com:acme/app.git");
     writeBacklog(r, [finding()]);
     expect((await buildBoard(r))[0]!.fix).toBeNull();
+  });
+});
+
+describe("the record feed and the issue document say the same thing about an attempt", () => {
+  // Both surfaces print these; a fixer who reads the card and then the file
+  // has to recognise every line, so the sentences are pinned byte for byte.
+  test("the three sentences, byte for byte", () => {
+    const a: AttemptRecord = {
+      n: 1,
+      dispatchedAt: "2026-01-01T09:00:00.000Z",
+      reported: { commit: "deadbee", note: "raised the contrast" },
+      verdict: "still-open",
+      judgeNote: "the heading is still obscured",
+      spawned: ["418203"],
+    };
+    expect(attemptSentences(a)).toEqual({
+      claimed: "a fix was reported at deadbee: raised the contrast",
+      surfaced: "fixing this surfaced issue 418203",
+      verdict: "lookout ruled it still-open: the heading is still obscured",
+    });
+  });
+
+  test("a commit alone, a note alone, several surfaced issues, a verdict without a note", () => {
+    expect(attemptSentences({ n: 1, dispatchedAt: "t", reported: { commit: "deadbee" } }).claimed).toBe(
+      "a fix was reported at deadbee",
+    );
+    expect(attemptSentences({ n: 1, dispatchedAt: "t", reported: { note: "tried" } }).claimed).toBe(
+      "a fix was reported: tried",
+    );
+    expect(attemptSentences({ n: 1, dispatchedAt: "t", spawned: ["1", "2"] }).surfaced).toBe(
+      "fixing this surfaced issues 1, 2",
+    );
+    expect(attemptSentences({ n: 1, dispatchedAt: "t", verdict: "passed" }).verdict).toBe("lookout ruled it passed");
+  });
+
+  test("nothing reported, nothing surfaced, not ruled: nothing said", () => {
+    expect(attemptSentences({ n: 1, dispatchedAt: "t" })).toEqual({});
   });
 });
