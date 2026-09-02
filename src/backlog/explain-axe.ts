@@ -7,6 +7,7 @@
  * ceiling: the axe channel has its own vocabulary (impacts, tags, per-node
  * checks) and none of it is shared with the checks lookout takes itself.
  */
+import { severityFromDeterministic } from "./severity.js";
 import type { DeterministicFinding } from "../types.js";
 import type { Prose } from "./explain.js";
 
@@ -24,11 +25,26 @@ const sentence = (s: string): string => {
  * that prints the bare word is asking its reader to already know the scale.
  */
 const AXE_IMPACT: Record<string, string> = {
-  critical: "axe rates this critical, which lookout files as high: it stops somebody using assistive technology from getting at the content at all.",
-  serious: "axe rates this serious, which lookout files as high: it makes the affected content very hard to use with assistive technology.",
-  moderate: "axe rates this moderate, which lookout files as medium: it frustrates somebody using assistive technology without stopping them outright.",
-  minor: "axe rates this minor, which lookout files as medium: it is a nuisance rather than a barrier.",
+  critical: "axe rates this critical: it stops somebody using assistive technology from getting at the content at all.",
+  serious: "axe rates this serious: it makes the affected content very hard to use with assistive technology.",
+  moderate: "axe rates this moderate: it frustrates somebody using assistive technology without stopping them outright.",
+  minor: "axe rates this minor: it is a nuisance rather than a barrier.",
 };
+
+/**
+ * axe's rating, then the one lookout actually opened the finding at.
+ *
+ * Read from the same function ingestion uses rather than assumed from axe's
+ * word, because a rule can be capped: target-size is measured from an
+ * element's box, which is not its hit area, so it opens at medium however
+ * serious axe calls it. Asserting the mapping instead of reading it printed
+ * "lookout files as high" on a ticket whose own severity line said medium.
+ */
+function impactSentence(df: DeterministicFinding): string {
+  const axeWord = AXE_IMPACT[str(df.meta?.impact)];
+  if (!axeWord) return "";
+  return `${axeWord.replace(/\.$/, "")}; lookout files it as ${severityFromDeterministic(df)}.`;
+}
 
 interface AxeNode {
   element: { tag: string; attrs: Record<string, string>; text: string };
@@ -93,7 +109,7 @@ export function axeProse(df: DeterministicFinding): Prose {
   const m = df.meta ?? {};
   const rule = str(m.ruleId);
   const description = str(m.description);
-  const impact = AXE_IMPACT[str(m.impact)] ?? "";
+  const impact = impactSentence(df);
   const count = num(m.nodeCount);
   const targets = list(m.targets);
   const summaries = list(m.failureSummary);

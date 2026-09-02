@@ -11,11 +11,12 @@
  * fresh harvest, must be on-origin, must carry a filename-safe non-colliding
  * name, and must fit the cap.
  */
-import type { Page } from "playwright";
+import type { Locator, Page } from "playwright";
 import type { DeterministicFinding, NavigationConfig, StateRecipe } from "../types.js";
 import type { Affordance, AffordanceRef, PlannedState, RouteHarvest, RoutePlan } from "./store.js";
 import { validStateName } from "./store.js";
-import { DEFAULT_MAX_FOCUS, DEFAULT_MAX_HOVER, focusControl, hoverControl, type Interaction } from "./indicate.js";
+import { DEFAULT_MAX_FOCUS, DEFAULT_MAX_HOVER, focusControl, hoverControl, skipsAt, type Interaction } from "./indicate.js";
+import { FORM_FACTORS } from "../types.js";
 
 export const DEFAULT_MAX_STATES = 5;
 export const DEFAULT_MAX_CHECKS = 8;
@@ -78,6 +79,12 @@ export function synthStates(args: {
   /** Config recipe names; a hand-written recipe always wins a name collision. */
   recipeNames: readonly string[];
   routeUrl: string;
+  /**
+   * The selector this route is photographed through, when it has one. An
+   * indicator state is only meaningful inside the frame that gets captured, so
+   * the actuation needs to know what that frame is.
+   */
+  routeElement?: string | null;
 }): SynthesizedStates {
   const cap = args.navigation.maxStatesPerRoute ?? DEFAULT_MAX_STATES;
   const focusCap = args.navigation.maxFocusStatesPerRoute ?? DEFAULT_MAX_FOCUS;
@@ -112,7 +119,10 @@ export function synthStates(args: {
     if (planned.outcome === "navigation") out.suppressDesign.add(planned.name);
     if (planned.outcome === "focus" || planned.outcome === "hover") {
       out.interaction.set(planned.name, planned.outcome);
-      if (planned.outcome === "hover") out.skipAt.set(planned.name, new Set(["phone"]));
+      // The rule lives in indicate.ts and is applied here, so a test that pins
+      // it pins the behaviour capture actually obeys rather than a second copy.
+      const skips = FORM_FACTORS.filter((ff) => skipsAt(planned.outcome, ff));
+      if (skips.length > 0) out.skipAt.set(planned.name, new Set(skips));
     }
     out.affordances.set(planned.name, {
       selector: live.selector,
@@ -125,17 +135,48 @@ export function synthStates(args: {
       planned.name,
       {
         description: planned.why,
-        // In-page changes keep the route's element; overlays and navigations
-        // need the whole frame (portals render outside it, destinations are
-        // another page entirely). No restore: the loop's reload guarantees a
-        // clean rest state better than any Escape could.
+        // In-page changes and both indicator states keep the route's element;
+        // overlays and navigations need the whole frame (portals render outside
+        // it, destinations are another page entirely). No restore: the loop's
+        // reload guarantees a clean rest state better than any Escape could.
+        //
+        // Hover keeps the element rather than taking the whole frame, which it
+        // used to. Its read-back compares the shot with the route's REST shot,
+        // and a full-page hover against an element-cropped rest can never hash
+        // equal, so hover-silent was structurally unfileable on any route with
+        // an element. The cost is a tooltip that portals outside the crop,
+        // which is the narrower loss.
         element:
-          planned.outcome === "in-page-change" || planned.outcome === "focus" ? undefined : null,
-        prepare: (page) => actuate(page, live, planned, args.routeUrl),
+          planned.outcome === "in-page-change" || isIndicator(planned.outcome) ? undefined : null,
+        prepare: (page) => actuate(page, live, planned, args.routeUrl, args.routeElement ?? null),
       },
     ]);
   }
   return out;
+}
+
+/**
+ * Refuse to photograph an indicator on a control the capture will not show.
+ * No route element means the whole page is photographed and everything is in
+ * frame; a selector that no longer resolves is a skip for the same reason a
+ * hidden control is.
+ */
+async function requireInFrame(
+  page: Page,
+  target: Locator,
+  routeElement: string | null,
+  name: string,
+): Promise<void> {
+  if (!routeElement) return;
+  const inside = await target
+    .evaluate((el, sel) => Boolean(el.closest(sel)), routeElement)
+    .catch(() => false);
+  if (!inside) {
+    throw new NavSkip(
+      `"${name}" sits outside "${routeElement}", which is the frame this route is photographed ` +
+        "through, so its indicator would not be in the picture",
+    );
+  }
 }
 
 async function locate(page: Page, live: Affordance) {
@@ -148,20 +189,35 @@ async function locate(page: Page, live: Affordance) {
   return null;
 }
 
+/** The outcomes that put the keyboard or the pointer on a control and nothing else. */
+function isIndicator(o: PlannedState["outcome"]): boolean {
+  return o === "focus" || o === "hover";
+}
+
 async function actuate(
   page: Page,
   live: Affordance,
   planned: PlannedState,
   routeUrl: string,
+  routeElement: string | null,
 ): Promise<void> {
   const target = await locate(page, live);
   // Harvested at the widest form factor; a control a narrow layout hides is a
   // skip at that form factor, not a defect.
   if (!target) throw new NavSkip(`"${live.name}" not visible at this form factor`);
-  // Neither of these activates anything, so neither can navigate, and neither
-  // needs the mislabeling guard below.
-  if (planned.outcome === "focus") return focusControl(page, target, live.name);
-  if (planned.outcome === "hover") return hoverControl(page, target, live.name);
+  if (isIndicator(planned.outcome)) {
+    // The affordance harvest walks the whole document, so a planned control can
+    // sit outside the frame this route is photographed through. Photographing
+    // it anyway produces a crop identical to its rest twin and files an
+    // indicator defect against an application that has none, on a channel
+    // nothing refutes. Outside the frame is a skip, not a finding.
+    await requireInFrame(page, target, routeElement, live.name);
+    // Neither of these activates anything, so neither can navigate, and neither
+    // needs the mislabeling guard below.
+    return planned.outcome === "focus"
+      ? focusControl(page, target, live.name)
+      : hoverControl(page, target, live.name);
+  }
   if (planned.outcome === "navigation") {
     await Promise.all([
       page.waitForLoadState("load", { timeout: 15_000 }),

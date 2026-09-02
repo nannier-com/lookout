@@ -137,12 +137,3 @@ export function movesRecorded(changes: ReadonlyMap<string, PixelDiff>, cap = MAX
       ...(d.sizeChanged ? { sizeChanged: true as const } : {}),
     }));
 }
-
-/** The move that says the most about what a fix did: the largest one. */
-export function largestMove(changes: ReadonlyMap<string, PixelDiff>): { shotId: string; diff: PixelDiff } | null {
-  let best: { shotId: string; diff: PixelDiff } | null = null;
-  for (const [shotId, diff] of changes) {
-    if (!best || diff.fraction > best.diff.fraction) best = { shotId, diff };
-  }
-  return best;
-}

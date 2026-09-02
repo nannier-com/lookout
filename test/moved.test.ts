@@ -8,7 +8,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { classifyShots, largestMove, measureMoves, movesRecorded, snapshotBaseline } from "../src/verify/moved.js";
+import { classifyShots, measureMoves, movesRecorded, snapshotBaseline } from "../src/verify/moved.js";
 import type { PixelDiff } from "../src/verify/pixels.js";
 import type { ShotRecord } from "../src/types.js";
 
@@ -154,13 +154,5 @@ describe("movesRecorded", () => {
 
   test("nothing measured records nothing", () => {
     expect(movesRecorded(new Map())).toEqual([]);
-  });
-});
-
-describe("largestMove", () => {
-  test("the biggest fraction wins, and an empty map has no answer", () => {
-    expect(largestMove(new Map())).toBeNull();
-    const out = largestMove(new Map([["a", diff({ fraction: 0.1 })], ["b", diff({ fraction: 0.9 })]]));
-    expect(out!.shotId).toBe("b");
   });
 });

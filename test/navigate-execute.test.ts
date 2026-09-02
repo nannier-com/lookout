@@ -139,6 +139,64 @@ describe("synthStates", () => {
     expect(byName.get("inpage-x")!.element).toBeUndefined();
     expect(byName.get("nav-x")!.element).toBeNull();
   });
+
+  test("both indicator states are framed like the rest shot they are compared with", () => {
+    // The read-back compares an indicator shot with its own rest shot. A
+    // full-page hover against an element-cropped rest can never hash equal, so
+    // hover-silent was structurally unfileable on any route with an element.
+    const f = aff("Save"), h = aff("Pricing");
+    const out = synthStates({
+      plan: plan([
+        planned("focus-save", f, { outcome: "focus" }),
+        planned("hover-pricing", h, { outcome: "hover" }),
+      ]),
+      harvest: harvest([f, h]),
+      navigation: {},
+      recipeNames: [],
+      routeUrl: ROUTE_URL,
+    });
+    const byName = new Map(out.states);
+    expect(byName.get("focus-save")!.element).toBeUndefined();
+    expect(byName.get("hover-pricing")!.element).toBeUndefined();
+  });
+
+  test("the phone skip comes from the one rule, and covers hover alone", () => {
+    const f = aff("Save"), h = aff("Pricing"), o = aff("Menu");
+    const out = synthStates({
+      plan: plan([
+        planned("focus-save", f, { outcome: "focus" }),
+        planned("hover-pricing", h, { outcome: "hover" }),
+        planned("menu-open", o),
+      ]),
+      harvest: harvest([f, h, o]),
+      navigation: {},
+      recipeNames: [],
+      routeUrl: ROUTE_URL,
+    });
+    expect([...(out.skipAt.get("hover-pricing") ?? [])]).toEqual(["phone"]);
+    expect(out.skipAt.has("focus-save")).toBe(false);
+    expect(out.skipAt.has("menu-open")).toBe(false);
+  });
+
+  test("each indicator kind has its own budget, so clicks cannot crowd them out", () => {
+    const many = [aff("A"), aff("B"), aff("C"), aff("D"), aff("E"), aff("F"), aff("G")];
+    const out = synthStates({
+      plan: plan([
+        ...many.slice(0, 5).map((a, i) => planned(`click-${i}`, a)),
+        planned("focus-one", many[5]!, { outcome: "focus" }),
+        planned("hover-one", many[6]!, { outcome: "hover" }),
+      ]),
+      harvest: harvest(many),
+      navigation: {},
+      recipeNames: [],
+      routeUrl: ROUTE_URL,
+    });
+    const names = out.states.map(([n]) => n);
+    // Five clicks is the whole default state budget; both indicators survive it.
+    expect(names.filter((n) => n.startsWith("click-"))).toHaveLength(5);
+    expect(names).toContain("focus-one");
+    expect(names).toContain("hover-one");
+  });
 });
 
 describe("dead-interaction ingestion", () => {

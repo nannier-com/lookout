@@ -193,7 +193,12 @@ export function validateConfig(raw: unknown, path: string): LookoutConfig {
     if (n.enabled !== undefined && typeof n.enabled !== "boolean") {
       fail(path, "navigation.enabled must be a boolean");
     }
-    for (const key of ["maxStatesPerRoute", "maxChecksPerRoute"] as const) {
+    for (const key of [
+      "maxStatesPerRoute",
+      "maxChecksPerRoute",
+      "maxFocusStatesPerRoute",
+      "maxHoverStatesPerRoute",
+    ] as const) {
       if (n[key] !== undefined && (typeof n[key] !== "number" || n[key] < 0)) {
         fail(path, `navigation.${key} must be a non-negative number`);
       }

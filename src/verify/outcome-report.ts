@@ -31,8 +31,15 @@ export interface FixOutcomeArgs {
   changedShots: number;
   baselineShots: number;
   totalShots: number;
-  /** How far each changed screenshot moved, largest first; empty when nothing was measurable. */
+  /** How far each changed screenshot moved, largest first, capped at MAX_MOVES. */
   moved: ShotMove[];
+  /**
+   * How many changed screenshots were measured at all, before the cap. Carried
+   * separately because `moved.length` is the truncated list: subtracting it
+   * from `changedShots` counted every move the cap dropped as one nothing could
+   * measure, which is a different and untrue statement.
+   */
+  measuredShots: number;
   /** Routes whose pixels did not move since filing. */
   unclosable: string[];
   reportedCommit: string | null;
@@ -78,6 +85,7 @@ export function fixPayload(a: FixOutcomeArgs): Record<string, unknown> {
     baselineShots: a.baselineShots,
     totalShots: a.totalShots,
     moved: a.moved,
+    measuredShots: a.measuredShots,
     unclosable: a.unclosable,
     baseline: a.baseline,
     photographed: { ...a.photographed, formFactors, schemes },
@@ -162,8 +170,12 @@ export function printFixOutcome(args: FixOutcomeArgs & { json: boolean; payload:
   // moved by an amount nothing could measure, and the last line says so rather
   // than letting its absence read as "barely moved".
   for (const m of a.moved) out.push(`  moved: ${m.shotId}: ${m.said}`);
-  const unmeasured = a.changedShots - a.moved.length;
-  if (a.moved.length > 0 && unmeasured > 0) {
+  // Two different remainders, and conflating them told the reader that a
+  // measured move was unmeasurable.
+  const capped = a.measuredShots - a.moved.length;
+  const unmeasured = a.changedShots - a.measuredShots;
+  if (capped > 0) out.push(`  moved: ${capped} more measured, not listed`);
+  if (unmeasured > 0) {
     out.push(`  moved: ${unmeasured} more changed, by how much was not measured (no baseline pixels on hand)`);
   }
   if (a.unclosable.length > 0) out.push(`  pixels unchanged since filing on ${a.unclosable.join(", ")}: nothing there could close`);

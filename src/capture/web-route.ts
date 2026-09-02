@@ -203,9 +203,10 @@ export async function captureRoute(
           if (seen) axeSeen.set(scheme, seen);
           findings.push(...(await axeForShot(page, elementSel ?? null, { contrast: ctx.axeContrast, seen })));
         }
-        // Control size, at the width where a finger is the pointer. The scan
-        // above runs at the FIRST form factor, which is desktop, so without
-        // this the one rule whose whole subject is touch never runs anywhere.
+        // Control size, at the width where a finger is the pointer. axe ships
+        // this rule DISABLED, so the scan above never runs it however many form
+        // factors it reaches; selecting it by name here is the only thing that
+        // makes it run at all. Removing this hook stops target-size entirely.
         if (ctx.axe !== "off" && formFactor === "phone" && stateName === "rest") {
           findings.push(...(await runTargetSize(page, elementSel ?? null)));
         }
@@ -305,6 +306,7 @@ export async function captureRoute(
                 navigation: nav,
                 recipeNames: route.states,
                 routeUrl: route.url,
+                routeElement: route.element ?? null,
               });
               states.push(...synth.states);
               if (synth.states.length > 0) {

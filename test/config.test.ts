@@ -78,6 +78,12 @@ describe("validateConfig", () => {
     expect(validateConfig({ targets: t }, "t").navigation).toBeUndefined();
     expect(() => validateConfig({ targets: t, navigation: { enabled: "yes" } }, "t")).toThrow(/navigation\.enabled/);
     expect(() => validateConfig({ targets: t, navigation: { maxStatesPerRoute: -1 } }, "t")).toThrow(/maxStatesPerRoute/);
+    // The indicator caps take the same shape and so must take the same check:
+    // an unvalidated "abc" reaches both the planner's prompt and slice(0, NaN),
+    // which turns the advertised feature silently off.
+    expect(() => validateConfig({ targets: t, navigation: { maxFocusStatesPerRoute: -1 } }, "t")).toThrow(/maxFocusStatesPerRoute/);
+    expect(() => validateConfig({ targets: t, navigation: { maxHoverStatesPerRoute: "abc" } }, "t")).toThrow(/maxHoverStatesPerRoute/);
+    expect(validateConfig({ targets: t, navigation: { maxFocusStatesPerRoute: 0, maxHoverStatesPerRoute: 2 } }, "t").navigation?.maxHoverStatesPerRoute).toBe(2);
     expect(() => validateConfig({ targets: t, navigation: { exclude: [1] } }, "t")).toThrow(/navigation\.exclude/);
   });
 

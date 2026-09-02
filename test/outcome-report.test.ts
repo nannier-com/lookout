@@ -32,6 +32,7 @@ const base: FixOutcomeArgs = {
   moved: [
     { shotId: "web/app/dash/rest/phone/dark", changed: 4200, total: 1400000, fraction: 0.003, said: "0.30% of pixels changed, in one 120x60 area near the top" },
   ],
+  measuredShots: 1,
   unclosable: ["/settings"],
   reportedCommit: "cafef00d",
   reportedNote: "rebuilt the bundle",
@@ -113,13 +114,29 @@ describe("how much moved", () => {
   test("changed shots nothing could measure are said, not left to look small", () => {
     // Four screenshots changed and one was measurable. Printing only the one
     // would read as "the fix barely touched anything".
-    const args = { ...base, changedShots: 4 };
+    const args = { ...base, changedShots: 4, measuredShots: 1 };
     const out = capture(() => printFixOutcome({ ...args, json: false, payload: fixPayload(args) }));
     expect(out).toContain("3 more changed, by how much was not measured");
   });
 
+  test("moves the cap dropped are not reported as unmeasurable", () => {
+    // The list is capped at MAX_MOVES. Subtracting the truncated length from
+    // the changed count called every capped move one nothing could measure.
+    const args = { ...base, changedShots: 12, measuredShots: 12 };
+    const out = capture(() => printFixOutcome({ ...args, json: false, payload: fixPayload(args) }));
+    expect(out).toContain("11 more measured, not listed");
+    expect(out).not.toContain("was not measured");
+  });
+
+  test("both remainders can be said at once, each for its own reason", () => {
+    const args = { ...base, changedShots: 12, measuredShots: 9 };
+    const out = capture(() => printFixOutcome({ ...args, json: false, payload: fixPayload(args) }));
+    expect(out).toContain("8 more measured, not listed");
+    expect(out).toContain("3 more changed, by how much was not measured");
+  });
+
   test("nothing measured prints no moved lines at all", () => {
-    const args = { ...base, moved: [] };
+    const args = { ...base, moved: [], measuredShots: 0, changedShots: 0 };
     const out = capture(() => printFixOutcome({ ...args, json: false, payload: fixPayload(args) }));
     expect(out).not.toContain("moved:");
   });

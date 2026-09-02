@@ -217,13 +217,12 @@ export async function axeForShot(
 /**
  * How big a control is, measured at the width where it matters.
  *
- * axe ships `target-size` disabled, and lookout's own default (`--axe route`)
- * runs axe once per route at the FIRST form factor, which is desktop. So no
- * phone shot has ever been scanned, and the one rule whose whole subject is
- * touch has never run anywhere. Meanwhile the visibility panel is asked to
- * file "touch targets too small or too crowded to hit reliably" by eye, while
- * the rubric rightly forbids it the measurement that would make the finding
- * actionable.
+ * axe ships `target-size` disabled, so the ordinary scan never runs it at any
+ * form factor, however widely that scan reaches. Selecting it by name here is
+ * the only thing that makes the one rule whose whole subject is touch run at
+ * all. Meanwhile the visibility panel was being asked to judge "touch targets
+ * too small to hit reliably" by eye, while the rubric rightly forbids it the
+ * measurement that would make such a finding actionable.
  *
  * Selecting the rule by name runs it whether or not it ships enabled, which is
  * the point: this is a deliberate opt-in to one rule, not a widening of the

@@ -88,6 +88,13 @@ export interface ViewFacts {
   element?: string;
   stateDescription?: string;
   stateAffordance?: { selector: string; role: string; name: string; href: string | null; outcome?: string };
+  /**
+   * How the state was reached, when it was reached by putting the keyboard or
+   * the pointer on a control rather than by clicking one. Carried so the issue
+   * document can tell a fixer how to reproduce the screen after the capture
+   * workspace is gone; telling them to click it would show a different screen.
+   */
+  interaction?: "focus" | "hover";
   design?: string;
   designHash?: string;
   provenance?: string;

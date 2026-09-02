@@ -22,7 +22,7 @@
  *   was hovered except the manifest line that names it.
  */
 import type { Locator, Page } from "playwright";
-import { NavSkip, NavStateError } from "./execute.js";
+import { NavSkip } from "./execute.js";
 
 /** The interaction a state was captured under, when it was captured under one. */
 export type Interaction = "focus" | "hover";
@@ -52,9 +52,16 @@ export function prefixed(name: string, interaction: Interaction): string {
   return withPrefix.length <= MAX_NAME ? withPrefix : name;
 }
 
-/** Hovering is not an interaction a phone has. */
-export function skipsAt(interaction: Interaction, formFactor: string): boolean {
-  return interaction === "hover" && formFactor === "phone";
+/**
+ * Hovering is not an interaction a phone has.
+ *
+ * Takes any outcome, not just an indicator one, so the capture walk can ask it
+ * about every planned state without narrowing first. This is the one copy of
+ * the rule: execute.ts applies it, and a test that pins it pins what capture
+ * actually obeys.
+ */
+export function skipsAt(outcome: string, formFactor: string): boolean {
+  return outcome === "hover" && formFactor === "phone";
 }
 
 /**
@@ -71,7 +78,13 @@ export async function focusControl(page: Page, target: Locator, name: string): P
     (el) => el === document.activeElement && el.matches(":focus-visible"),
   );
   if (!shown) {
-    throw new NavStateError(
+    // A skip, not an error. The shot would say nothing about the application's
+    // focus indicator, and filing a capture-error for it would put lookout's
+    // own limitation in the project's backlog once per form factor and scheme,
+    // on every run. (A control that cannot take keyboard focus at all is a real
+    // accessibility defect, and one this does not catch; that belongs to the
+    // accessibility scan, not to a state recipe.)
+    throw new NavSkip(
       `focus landed on "${name}" and the browser did not show it as keyboard focus, so this ` +
         "shot would say nothing about the application's focus indicator",
     );

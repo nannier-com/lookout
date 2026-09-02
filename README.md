@@ -558,11 +558,11 @@ anything hidden on purpose; a project can exempt more with
 `checks.edgeClip.ignore`, and `--no-edge-clip` turns the whole check off for a
 run (`verify-fix` refuses that flag, for the same reason it refuses `--axe off`).
 
-Control size is measured the same way. `--axe route`, the default, scans once
-per route at the widest form factor, so no phone shot was ever scanned and
-axe's `target-size` rule (which ships disabled) had never run anywhere. It now
-runs at phone width on every rest shot, files under `a11y` as
-`axe-target-size`, and carries the measured sizes. It opens at medium rather
+Control size is measured the same way. axe ships its `target-size` rule
+disabled, so the ordinary scan never runs it at any form factor however widely
+that scan reaches. lookout selects it by name on phone rest shots, where a
+finger is the pointer, files it under `a11y` as `axe-target-size`, and carries
+the measured sizes. It opens at medium rather
 than at axe's own severity: the measurement is the element's box, which is not
 always its hit area, and nothing refutes a deterministic finding.
 
@@ -753,7 +753,7 @@ lookout.config.ts  the project's targets and recipes (at the root, in git)
                      plus signals-seen.json, the learned-from watermark
   incidents.jsonl  what went wrong with lookout itself while it was here
   ui.json          what `lookout ui` remembers: base URL, click consent
-  workspace/       screenshots + their provenance sidecars, capture-report.json,
+  workspace/       screenshots, each with its provenance and accessibility-tree sidecars, capture-report.json,
                      judge-report.json, verify-report.json, events.jsonl, the
                      narration, the contact sheets. Rebuilt by any capture.
   evidence/        the pre-0.35 workspace, still read if an older lookout left

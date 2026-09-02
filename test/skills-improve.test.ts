@@ -275,6 +275,7 @@ describe("what the frozen set claims", () => {
     const evDir = evidenceDir(r);
     const rel = join("web", "app", "root", "rest--desktop-dark.png");
     writeFileSync(join(evDir, `${rel}.provenance.json`), JSON.stringify({ version: 1, elements: [] }));
+    writeFileSync(join(evDir, `${rel}.aria.json`), JSON.stringify({ version: 1, yaml: '- button "Save"', hash: "a1" }));
     writeFileSync(
       join(evDir, "capture-report.json"),
       JSON.stringify({
@@ -316,11 +317,17 @@ describe("what the frozen set claims", () => {
     expect(c.scrollers?.[0]?.hiddenWidth).toBe(900);
     expect(c.provenance).toBe(true);
     expect(existsSync(join(r.projectDir, ".lookout", "regression", "shots", `${c.file}.provenance.json`))).toBe(true);
+    // The accessibility tree too. The integrity and text panels are GIVEN it in
+    // production, so a set frozen without it grades those two under evidence
+    // they never actually judge on.
+    expect(c.aria).toBe(true);
+    expect(existsSync(join(r.projectDir, ".lookout", "regression", "shots", `${c.file}.aria.json`))).toBe(true);
 
     // And they reach the replay's shot records, which is the whole point.
     const [replayed] = casesAsShots(set);
     expect(replayed?.deterministicFindings).toHaveLength(1);
     expect(replayed?.provenance).toContain(".provenance.json");
+    expect(replayed?.aria).toContain(".aria.json");
   });
 });
 

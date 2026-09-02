@@ -41,9 +41,19 @@ function stateLine(ctx: IssueContext, rec: ViewFacts, target: string, route: str
   const a = rec.stateAffordance;
   const why = rec.stateDescription;
   if (a) {
+    // Not every state is reached by a click. A focus or hover state activates
+    // nothing, and telling a fixer to click the control would have them
+    // reproduce a different screen from the one the finding is filed against.
+    const how =
+      rec.interaction === "focus"
+        ? "reached by giving keyboard focus to"
+        : rec.interaction === "hover"
+          ? "reached by resting the pointer on"
+          : "reached by clicking";
     return (
-      `- state \`${state}\`: ${why ?? "a state lookout drove the page into"}; reached by clicking ${a.role} "${a.name}"` +
-      ` (\`${a.selector}\`${a.href ? `, href ${a.href}` : ""})${a.outcome ? `, expecting ${a.outcome}` : ""}`
+      `- state \`${state}\`: ${why ?? "a state lookout drove the page into"}; ${how} ${a.role} "${a.name}"` +
+      ` (\`${a.selector}\`${a.href ? `, href ${a.href}` : ""})` +
+      (rec.interaction ? "" : a.outcome ? `, expecting ${a.outcome}` : "")
     );
   }
   const planned = ctx.plans?.routes[routeKey(target, route)]?.states.find((s) => s.name === state);

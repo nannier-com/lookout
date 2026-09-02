@@ -34,13 +34,43 @@ describe("trimAria", () => {
     expect(out.truncated).toBe(false);
   });
 
+  test("collapsing is idempotent: trimming a trimmed tree keeps the real count", () => {
+    // The tree is trimmed twice, once to the stored budget and again to the
+    // smaller prompt budget. A marker the text-run detector matched made the
+    // second pass count its own marker as copy and replace the real number.
+    const yaml = ["- main:", ...Array.from({ length: 20 }, (_, i) => `  - text: paragraph ${i}`)].join("\n");
+    const once = trimAria(yaml, 100);
+    const twice = trimAria(once.yaml, 100);
+    expect(twice.yaml).toBe(once.yaml);
+    expect(twice.yaml).toContain("17 more text line(s) not shown");
+  });
+
+  test("a collapsed run marks its loss at the run's own depth, even at the tail", () => {
+    // Indentation is the only depth signal inside a YAML block scalar, so a
+    // marker flushed at column 0 reads as a text node of the page root.
+    const yaml = ["- main:", ...Array.from({ length: 9 }, (_, i) => `    - text: line ${i}`)].join("\n");
+    const out = trimAria(yaml, 100);
+    const marker = out.yaml.split("\n").find((l) => l.includes("not shown"))!;
+    expect(marker.startsWith("    #")).toBe(true);
+  });
+
+  test("re-trimming carries an earlier pass's loss into the new count", () => {
+    const yaml = Array.from({ length: 400 }, (_, i) => `- button "b${i}"`).join("\n");
+    const stored = trimAria(yaml, 300);
+    const shown = trimAria(stored.yaml, 120);
+    const said = Number(/(\d+) more line/.exec(shown.yaml)![1]);
+    // 119 shown, 281 genuinely absent from the page. The old code said 181.
+    expect(shown.yaml.split("\n")).toHaveLength(120);
+    expect(said).toBe(400 - 119);
+  });
+
   test("a wall of copy collapses to its first few, counting the rest", () => {
     const yaml = ["- main:", ...Array.from({ length: 20 }, (_, i) => `  - text: paragraph ${i}`), "- button \"Save\""].join("\n");
     const out = trimAria(yaml, 100);
     expect(out.yaml).toContain("- text: paragraph 0");
     expect(out.yaml).toContain("- text: paragraph 2");
     expect(out.yaml).not.toContain("- text: paragraph 9");
-    expect(out.yaml).toContain("(17 more)");
+    expect(out.yaml).toContain("17 more text line(s) not shown");
     expect(out.yaml).toContain('- button "Save"');
   });
 

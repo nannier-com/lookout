@@ -62,6 +62,7 @@ const VIEW_KEYS: (keyof ViewFacts)[] = [
   "element",
   "stateDescription",
   "stateAffordance",
+  "interaction",
   "design",
   "designHash",
   "provenance",

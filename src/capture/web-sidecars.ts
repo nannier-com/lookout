@@ -56,10 +56,15 @@ export async function writeSidecars(args: {
         { id, runId: args.runId, capturedAt: args.capturedAt, hash: args.pngHash },
         elementSelector,
       );
+      // The path first, then the hash, and only if the write survived. The
+      // hash is a ledger input for the two panels given the tree: a record
+      // carrying ariaHash with no aria would cache a pixel-only verdict under
+      // a key asserting the tree, and the same page would keep being served it.
+      const written = (await writeShotAria(resolved, axes, sidecar)).rel;
+      refs.aria = written;
       refs.ariaHash = sidecar.hash;
-      refs.aria = (await writeShotAria(resolved, axes, sidecar)).rel;
     } catch (e) {
-      args.progress(`aria snapshot failed on ${id}: ${(e as Error).message.slice(0, 120)}`);
+      args.progress(`aria sidecar failed on ${id}: ${(e as Error).message.slice(0, 120)}`);
     }
   }
 

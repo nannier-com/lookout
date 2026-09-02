@@ -40,7 +40,8 @@ context before deciding. Do not read other files.
 
 ## What to plan
 
-**States** (at most {{maxStates}}): affordances whose actuation shows the
+**States** (at most {{maxStates}} of the three click outcomes below, plus their
+own budgets for `focus` and `hover`): affordances whose actuation shows the
 judges something the rest shot cannot. Prefer breadth over near-duplicates:
 one representative menu beats three variants of the same dropdown. Each state
 declares its outcome:

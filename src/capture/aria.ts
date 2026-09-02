@@ -59,6 +59,25 @@ export function truncationLine(remaining: number): string {
 }
 
 /**
+ * A collapsed run of copy, marked so a second pass cannot mistake it for copy.
+ *
+ * The tree is trimmed twice: once to the stored budget and again to the smaller
+ * prompt budget. The marker used to be spelled `- text: ...`, which the text-run
+ * detector then matched, so the second pass counted its own marker as part of a
+ * new run and replaced "(57 more)" with "(1 more)". Every count the judge read
+ * was understated, in exactly the direction this file exists to prevent.
+ */
+function collapseLine(indent: number, dropped: number): string {
+  return `${" ".repeat(indent)}# ... ${dropped} more text line(s) not shown`;
+}
+
+/** How many lines a marker says are missing, or 0 when the line is not one. */
+function elidedBy(line: string): number {
+  const m = /# \.\.\. (\d+) more (?:text )?line\(s\) not shown/.exec(line);
+  return m ? Number(m[1]) : 0;
+}
+
+/**
  * Trim a tree to a line budget.
  *
  * Long lines are cut, runs of plain text are collapsed to their first few, and
@@ -69,30 +88,47 @@ export function trimAria(yaml: string, maxLines: number): { yaml: string; lines:
   const kept: string[] = [];
   let run = 0;
   let collapsed = 0;
+  // What an earlier pass already dropped, so trimming a trimmed tree reports
+  // the whole loss rather than only this pass's share of it.
+  let alreadyElided = 0;
+  // The indent of the run being collapsed, captured when the run starts. Read
+  // off the last KEPT line it used to be, which is the marker itself once a run
+  // ends the tree, so a tail run marked its loss at the page root.
+  let runIndent = 0;
+  const flush = () => {
+    if (collapsed === 0) return;
+    kept.push(collapseLine(runIndent, collapsed));
+    collapsed = 0;
+  };
   for (const line of raw) {
     const isText = /^\s*- text:/.test(line);
     if (isText) {
       run += 1;
+      if (run === 1) runIndent = indentOf(line);
       if (run > MAX_TEXT_RUN) {
         collapsed += 1;
         continue;
       }
     } else {
-      if (collapsed > 0) {
-        kept.push(`${" ".repeat(indentOf(kept[kept.length - 1] ?? ""))}- text: ... (${collapsed} more)`);
-        collapsed = 0;
-      }
+      flush();
       run = 0;
+      alreadyElided += elidedBy(line);
     }
     kept.push(line.length > MAX_LINE_CHARS ? `${line.slice(0, MAX_LINE_CHARS)}...` : line);
   }
-  if (collapsed > 0) kept.push(`- text: ... (${collapsed} more)`);
+  flush();
 
   if (kept.length <= maxLines) {
-    return { yaml: kept.join("\n"), lines: kept.length, truncated: false };
+    return { yaml: kept.join("\n"), lines: kept.length, truncated: alreadyElided > 0 };
   }
   const head = kept.slice(0, maxLines - 1);
-  head.push(truncationLine(kept.length - head.length));
+  // Everything this pass drops, plus everything an earlier pass dropped that
+  // sat inside the part now cut away. A marker is not a line of the page, so
+  // it contributes what it says was missing and never itself.
+  const tail = kept.slice(head.length);
+  const droppedNow = tail.filter((l) => elidedBy(l) === 0).length;
+  const carried = tail.reduce((n, l) => n + elidedBy(l), 0);
+  head.push(truncationLine(droppedNow + carried));
   return { yaml: head.join("\n"), lines: head.length, truncated: true };
 }
 

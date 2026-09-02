@@ -251,7 +251,7 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
   // 4. Rule.
   //
   // The load-bearing guard: nothing may PASS on unchanged pixels. If every
-  // screenshot in the scope is byte-identical to the previous run, no change
+  // screenshot in the scope is identical to the previous run pixel for pixel, no change
   // reached the rendered output, so a cluster whose findings happen to be
   // absent this time was not fixed, it was judged differently. Passing there
   // would let judge variance alone close real defects, which would make the
@@ -404,6 +404,7 @@ ${issueId}: not ruled. ${what}`);
     baselineShots,
     totalShots: shotsById.size,
     moved: movesRecorded(changes),
+    measuredShots: changes.size,
     unclosable: unclosableRoutes,
     reportedCommit: reportedCommit ?? null,
     reportedNote: reportedNote ?? null,

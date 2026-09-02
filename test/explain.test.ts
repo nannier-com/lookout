@@ -8,9 +8,9 @@ import { explainDeterministic } from "../src/backlog/explain.js";
 import { DETERMINISTIC_TYPES } from "../src/backlog/ingest.js";
 import type { DeterministicFinding } from "../src/types.js";
 
-const axe = (meta: Record<string, unknown>): DeterministicFinding => ({
+const axe = (meta: Record<string, unknown>, severity: DeterministicFinding["severity"] = "warning"): DeterministicFinding => ({
   type: "axe-violation",
-  severity: "warning",
+  severity,
   message: "heading-order: Heading levels should only increase by one",
   meta: {
     ruleId: "heading-order",
@@ -233,7 +233,15 @@ describe("every check has a title that is not its message", () => {
   });
 
   test("axe's impact sentence names the severity lookout files it under", () => {
-    expect(explainDeterministic(axe({ impact: "moderate" })).problem).toContain("axe rates this moderate, which lookout files as medium");
-    expect(explainDeterministic(axe({ impact: "critical" })).problem).toContain("axe rates this critical, which lookout files as high");
+    expect(explainDeterministic(axe({ impact: "moderate" })).problem).toContain("axe rates this moderate: it frustrates somebody using assistive technology without stopping them outright; lookout files it as medium.");
+    // Capture files a critical axe violation as an error, which ingestion opens
+    // at high; the sentence must read that, not axe's own word.
+    expect(explainDeterministic(axe({ impact: "critical" }, "error")).problem).toContain("lookout files it as high.");
+    // And the one rule lookout caps: axe calls target-size serious, which would
+    // open at high, and the ticket used to say so beside a severity line
+    // reading medium.
+    expect(
+      explainDeterministic(axe({ impact: "serious", ruleId: "target-size" }, "error")).problem,
+    ).toContain("lookout files it as medium.");
   });
 });

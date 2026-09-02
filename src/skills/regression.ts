@@ -79,6 +79,14 @@ export interface RegressionCase {
   scrollers?: ShotRecord["scrollers"];
   /** True when the shot's provenance sidecar was copied beside it. */
   provenance?: boolean;
+  /**
+   * True when the shot's accessibility-tree sidecar was copied beside it.
+   *
+   * Same argument as the findings above, and it applies harder: the integrity
+   * and text panels are GIVEN the tree in production, so a replay without it
+   * grades those two under evidence they never actually judge on.
+   */
+  aria?: boolean;
   mustNotFile: RegressionClaim[];
   mustFile: RegressionClaim[];
 }
@@ -266,21 +274,24 @@ export async function freezeRegressionSet(
     // production, so a replay without it is answering a different question.
     // Best effort, exactly like the sidecar's own capture: a case that cannot
     // carry one still grades everything else.
-    let provenance = false;
-    if (existsSync(`${src}.provenance.json`)) {
+    const copySidecar = async (suffix: string): Promise<boolean> => {
+      if (!existsSync(`${src}.${suffix}`)) return false;
       try {
-        await copyFile(`${src}.provenance.json`, join(dir, "shots", `${file}.provenance.json`));
-        provenance = true;
+        await copyFile(`${src}.${suffix}`, join(dir, "shots", `${file}.${suffix}`));
+        return true;
       } catch {
-        provenance = false;
+        return false;
       }
-    }
+    };
+    const provenance = await copySidecar("provenance.json");
+    const aria = await copySidecar("aria.json");
     const size = statSync(src).size;
     const shot = measured.get(candidate.case.shotId);
     cases.push({
       ...candidate.case,
       file,
       ...(provenance ? { provenance } : {}),
+      ...(aria ? { aria } : {}),
       ...(shot?.deterministicFindings.length ? { deterministicFindings: shot.deterministicFindings } : {}),
       ...(shot?.scrollers?.length ? { scrollers: shot.scrollers } : {}),
       // Dimensions are only ever printed in the manifest the judge reads; the
@@ -319,6 +330,7 @@ export function casesAsShots(set: RegressionSet, runId = "regression"): ShotReco
     // The sidecar sits beside the copied PNG under the same name, which is the
     // convention loadSidecarBeside reads.
     ...(c.provenance ? { provenance: `${join("shots", c.file)}.provenance.json` } : {}),
+    ...(c.aria ? { aria: `${join("shots", c.file)}.aria.json` } : {}),
     capturedAt: set.frozenAt,
     runId,
     deterministicFindings: c.deterministicFindings ?? [],
