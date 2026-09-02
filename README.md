@@ -594,6 +594,12 @@ Geometry, visibility and craft are not shown it. It is evidence about what
 exists, and they rule on how things look, so it would cost them prompt and
 return nothing.
 
+A tree already shown in a batch is named rather than repeated. On a real admin
+panel that halved them rather than reducing them to one: within a six-shot view
+group, desktop and tablet shared a tree, phone differed because its layout does,
+and dark and light differed by a single line, the theme toggle naming the scheme
+it switches to.
+
 The tree is a judge input for the two panels given it, so it enters their cached
 verdicts' identity the way a design hand-off does: change an `aria-label` and
 those two re-judge while the other three serve from cache, even though not one

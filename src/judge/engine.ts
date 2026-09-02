@@ -148,9 +148,15 @@ export interface JudgeContext {
 
 /**
  * One shot's accessibility tree for the manifest, indented under a block
- * scalar. A tree already shown in this batch is named rather than repeated:
- * a view group is the same page at several sizes and schemes, so its members
- * usually share one tree, and printing it six times would crowd out the images.
+ * scalar. A tree already shown in this batch is named rather than repeated.
+ *
+ * How much that saves, measured on a real admin panel: a six-shot group came
+ * back with four distinct trees, not one. Desktop and tablet collapsed because
+ * they render the same layout, phone differed because its layout does, and
+ * dark and light differed by a single line, the theme toggle naming the scheme
+ * it switches TO. So the dedupe halves the trees in a prompt rather than
+ * reducing them to one, and a group's trees are a few thousand characters
+ * beside six images and a rubric.
  */
 function ariaBlock(shot: ShotRecord, ctx: JudgeContext, shownBy: Map<string, string>): string {
   const tree = ctx.aria?.get(shot.id);
