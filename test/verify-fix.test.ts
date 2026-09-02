@@ -8,7 +8,7 @@ import { describe, expect, test } from "bun:test";
 import { emptyBacklog, type Backlog, type BacklogFinding } from "../src/backlog/lib.js";
 import { reconcileIssues, issueByKey } from "../src/issues/registry.js";
 import { clusterKeyOf } from "../src/fix/cluster.js";
-import { baselineHashes, noOpenWork, withoutByDesign } from "../src/verbs/verify-fix.js";
+import { baselineHashes, noOpenWork, verifyFix, withoutByDesign } from "../src/verbs/verify-fix.js";
 import { LookoutError } from "../src/types.js";
 
 function finding(over: Partial<BacklogFinding> = {}): BacklogFinding {
@@ -159,5 +159,18 @@ describe("the baseline the pixels-moved guard rules on", () => {
   test("a shot nothing has ever seen has no baseline, so it cannot count as changed", () => {
     const base = baselineHashes([], [finding()]);
     expect(base.has("web/app/settings/rest/desktop/dark")).toBe(false);
+  });
+});
+
+describe("flags that would make the ruling meaningless are refused before anything runs", () => {
+  test("--no-capture rules on stale pixels", async () => {
+    await expect(verifyFix({ flags: { issue: "418203", "no-capture": true }, positionals: [] })).rejects.toThrow(
+      /cannot rule with --no-capture/,
+    );
+  });
+  test("--axe off rules every accessibility criterion met without the check", async () => {
+    await expect(verifyFix({ flags: { issue: "418203", axe: "off" }, positionals: [] })).rejects.toThrow(
+      /cannot rule with --axe off/,
+    );
   });
 });

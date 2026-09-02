@@ -107,6 +107,15 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
     throw new LookoutError("verify-fix needs --issue <id>", "ids come from `lookout status` or the UI");
   }
   const maxAttempts = num(parsed.flags["max-attempts"]) ?? DEFAULT_MAX_ATTEMPTS;
+  // Two flags make a ruling meaningless rather than narrow: one rules on the
+  // last capture instead of a fresh one, the other rules every accessibility
+  // criterion met without running the check. Refused before anything runs.
+  if (parsed.flags["no-capture"]) {
+    throw new LookoutError("verify-fix cannot rule with --no-capture", "a ruling on stale pixels is not a ruling; drop the flag");
+  }
+  if (str(parsed.flags.axe) === "off") {
+    throw new LookoutError("verify-fix cannot rule with --axe off", "every accessibility criterion would be met without the check running; drop the flag");
+  }
 
   const preResolved = await loadConfig({
     configPath: str(parsed.flags.config),
@@ -174,6 +183,13 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
   // has no record of, because a check run since the edit has already moved it.
   const base = await loadIssueBaseline(preResolved, cluster, priorReport?.shots ?? [], Object.values(before.findings));
   const priorHashes = base.hashes;
+  // A settle different from the filing capture's moves pixels for reasons
+  // unrelated to the fix. Said, not refused: a slow render sometimes needs it.
+  const filedSettle = priorReport?.runs.find((r) => cluster.members.some((m) => m.evidence[m.evidence.length - 1]?.runId === r.id))?.flags?.settleMs;
+  const askedSettle = num(parsed.flags.settle);
+  if (typeof filedSettle === "number" && askedSettle !== undefined && askedSettle !== filedSettle) {
+    emit("note", `--settle ${askedSettle} differs from the ${filedSettle} the filing capture used; pixels may move for reasons unrelated to the fix`, { filedSettle, askedSettle });
+  }
 
   // The last moment the defect still exists in a file. The capture below writes
   // each view back to the path it came from, so a frame not copied aside now is
