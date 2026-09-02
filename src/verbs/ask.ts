@@ -11,6 +11,7 @@
 import { join } from "node:path";
 import { evidenceDir } from "../config.js";
 import { invokeClaude } from "../judge/engine.js";
+import { manifestOf, preparePieces } from "../judge/manifest.js";
 import { loadSkill, renderSkill } from "../skills/load.js";
 import { LookoutError } from "../types.js";
 import { printJson, str, type Parsed } from "../util.js";
@@ -39,12 +40,7 @@ export async function ask(parsed: Parsed): Promise<number> {
   if (shots.length === 0) throw new LookoutError("no shots captured for the question's scope");
 
   const evDir = evidenceDir(resolved);
-  const manifest = shots
-    .map(
-      (s) =>
-        `- shotId: ${s.id}\n  file: ${evDir}/${s.path}\n  route: ${s.route}  state: ${s.state}  formFactor: ${s.formFactor} (${s.width}x${s.height})  scheme: ${s.scheme}`,
-    )
-    .join("\n");
+  const manifest = manifestOf(shots, evDir, await preparePieces(evDir, shots));
 
   const skill = await loadSkill(resolved, "fact-check");
   const prompt = renderSkill(skill.text, {

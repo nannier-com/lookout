@@ -14,6 +14,7 @@
  * opposite reasons.
  */
 import type { ShotRecord } from "../types.js";
+import { pieceLines, preparePieces, type Pieces } from "./manifest.js";
 import { renderSkill } from "../skills/load.js";
 import {
   extractJson,
@@ -110,6 +111,7 @@ export function buildRefutePrompt(
   findings: AiFinding[],
   shotsById: Map<string, ShotRecord>,
   evidenceDir: string,
+  pieces?: Pieces,
 ): string {
   const groups = groupShots([...shotsById.values()]);
   // Where each shot's primary sits, so a sibling can point at it by index
@@ -121,11 +123,12 @@ export function buildRefutePrompt(
   const lines = findings.map((f, i) => {
     const shot = shotsById.get(f.shotId);
     const members = shot ? groups.get(viewGroupId(shot)) ?? [] : [];
-    const evidence = members.map(
-      (m) =>
-        `     - ${evidenceDir}/${m.path}  (${m.formFactor}, ${m.scheme}` +
+    const evidence = members.flatMap((m) => [
+      `     - ${evidenceDir}/${m.path}  (${m.formFactor}, ${m.scheme}` +
         (m.id === f.shotId ? ", the shot this was filed on)" : ")"),
-    );
+      // A tall member is read in pieces, like the judge read it.
+      ...pieceLines(m, evidenceDir, pieces, "       "),
+    ]);
     // A sibling is the same claim about a different shot, and it is ruled on
     // its OWN evidence: the judge said the defect is here too, and this is
     // where that is confirmed or killed. It prints short (the claim, not the
@@ -195,7 +198,7 @@ export async function verifyFindings(
     return { confirmed: rest, refuted: [], repaired: [], droppedCriteria: [] };
   }
 
-  const prompt = buildRefutePrompt(skillText, serious, shotsById, evidenceDir);
+  const prompt = buildRefutePrompt(skillText, serious, shotsById, evidenceDir, await preparePieces(evidenceDir, [...shotsById.values()]));
 
   // The same one-retry the judge gets: a model that wraps its JSON in prose
   // is still answering, and one that fails twice is recorded rather than

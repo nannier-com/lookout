@@ -93,3 +93,40 @@ describe("the ALREADY FILED aid travels", () => {
     expect(prompt).toContain("shell-header  [layout-overflow/header-avatar-clipped]");
   });
 });
+
+describe("the batch header says what is in front of the judge", () => {
+  const six = (["desktop", "tablet", "phone"] as const).flatMap((formFactor) =>
+    (["dark", "light"] as const).map((scheme) => ({
+      ...base,
+      formFactor,
+      scheme,
+      id: `web/app/root/rest/${formFactor}/${scheme}`,
+      route: "/",
+      routeName: "root",
+      path: `web/app/root/rest--${formFactor}-${scheme}.png`,
+    })),
+  );
+
+  test("a full view reads as every form factor and both schemes", () => {
+    const prompt = buildJudgePrompt(rubric.text, "p", six, "/ev");
+    expect(prompt).toContain("formFactors: desktop, tablet, phone\nschemes: dark, light");
+    expect(prompt).not.toContain("not captured");
+    expect(prompt.indexOf("=== SHOTS")).toBeLessThan(prompt.indexOf("formFactors:"));
+    expect(prompt.indexOf("formFactors:")).toBeLessThan(prompt.indexOf("- shotId:"));
+  });
+
+  test("a narrowed batch names the form factors and schemes it lacks", () => {
+    const two = six.filter((s) => s.scheme === "dark" && s.formFactor !== "tablet");
+    const prompt = buildJudgePrompt(rubric.text, "p", two, "/ev");
+    expect(prompt).toContain("formFactors: desktop, phone (not captured: tablet)");
+    expect(prompt).toContain("schemes: dark (not captured: light)");
+  });
+
+  test("a tall shot's pieces are named under it when the caller cut them", () => {
+    const tall = { ...six[0]!, height: 11202 };
+    const pieces = new Map([[tall.id, ["web/app/root/rest--desktop-dark.p1of2.png", "web/app/root/rest--desktop-dark.p2of2.png"]]]);
+    const prompt = buildJudgePrompt(rubric.text, "p", [tall], "/ev", { pieces });
+    expect(prompt).toContain("read these 2 pieces top to bottom instead");
+    expect(prompt).toContain("/ev/web/app/root/rest--desktop-dark.p2of2.png  (piece 2 of 2)");
+  });
+});

@@ -5,6 +5,7 @@
  * visually testable, reads the screenshots, and rules on each criterion.
  */
 import { LookoutError, type ShotRecord } from "../types.js";
+import { manifestOf, preparePieces, type Pieces } from "./manifest.js";
 import { renderSkill } from "../skills/load.js";
 import { extractJson, invokeClaude, RETRY_SUFFIX } from "./engine.js";
 
@@ -35,13 +36,9 @@ export function buildVerifyPrompt(
   criteriaText: string,
   shots: ShotRecord[],
   evidenceDir: string,
+  pieces?: Pieces,
 ): string {
-  const manifest = shots
-    .map(
-      (s) =>
-        `- shotId: ${s.id}\n  file: ${evidenceDir}/${s.path}\n  route: ${s.route}  state: ${s.state}  formFactor: ${s.formFactor}  scheme: ${s.scheme}  size: ${s.width}x${s.height}`,
-    )
-    .join("\n");
+  const manifest = manifestOf(shots, evidenceDir, pieces);
   return renderSkill(skillText, {
     project,
     criteria: criteriaText,
@@ -66,7 +63,7 @@ export async function verifyCriteria(
     );
   }
 
-  const prompt = buildVerifyPrompt(skillText, project, criteriaText, shots, evidenceDir);
+  const prompt = buildVerifyPrompt(skillText, project, criteriaText, shots, evidenceDir, await preparePieces(evidenceDir, shots));
 
   // The same one-retry the judge and the refuter get: an unruled criterion
   // refuses a pass downstream, so a reply that merely wrapped its JSON in

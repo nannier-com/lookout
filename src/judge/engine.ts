@@ -15,6 +15,7 @@ import type { Category } from "./rubric.js";
 
 import { extractJson, invokeClaude } from "./claude.js";
 import { scrollerLine, signalsLine } from "./signals-line.js";
+import { manifestOf, preparePieces, type Pieces } from "./manifest.js";
 import { closeCall, narrating, openCall, say } from "../report/narration.js";
 import { ingestJudgeReply, type ContractLapse, type PanelLane } from "./reply.js";
 
@@ -112,6 +113,11 @@ export interface JudgeContext {
    * is what the transitional monolith and the regression replay want.
    */
   panel?: PanelLane;
+  /**
+   * The pieces tall shots are read in, from `preparePieces`. Absent, every
+   * shot is read whole, which is right for a prompt built for its text alone.
+   */
+  pieces?: Pieces;
 }
 
 export function buildJudgePrompt(
@@ -121,19 +127,22 @@ export function buildJudgePrompt(
   evidenceDir: string,
   ctx: JudgeContext = {},
 ): string {
-  const manifest = shots
-    .map(
-      (s) =>
-        `- shotId: ${s.id}\n  file: ${evidenceDir}/${s.path}\n  route: ${s.route} (${s.routeName})  state: ${s.state}  formFactor: ${s.formFactor}  scheme: ${s.scheme}  size: ${s.width}x${s.height}` +
-        (s.design ? `\n  design: ${s.design}` : "") +
-        (s.animated ? "\n  note: this view animates live; the still is one frame of it" : "") +
-        // What scrolls in this frame, said before the signals: it changes how
-        // to read everything else about the shot, because content past the
-        // edge of a scroller is reachable rather than lost.
-        (scrollerLine(s) ? `\n  note: something in this view ${scrollerLine(s)}` : "") +
-        (signalsLine(s) ? `\n  signals: ${signalsLine(s)}` : ""),
-    )
-    .join("\n");
+  // The shared description of each shot (its id, file, axes and pieces) with
+  // what only the judge is told after it: the hand-off, the animation note,
+  // what scrolls, and the signals.
+  const manifest = manifestOf(
+    shots,
+    evidenceDir,
+    ctx.pieces,
+    (s) =>
+      (s.design ? `\n  design: ${s.design}` : "") +
+      (s.animated ? "\n  note: this view animates live; the still is one frame of it" : "") +
+      // What scrolls in this frame, said before the signals: it changes how
+      // to read everything else about the shot, because content past the
+      // edge of a scroller is reachable rather than lost.
+      (scrollerLine(s) ? `\n  note: something in this view ${scrollerLine(s)}` : "") +
+      (signalsLine(s) ? `\n  signals: ${signalsLine(s)}` : ""),
+  );
 
   // Instructions for comparing against a design hand-off are a quarter of the
   // rubric and mean nothing without one, so a batch with no `design:` reference
@@ -204,7 +213,9 @@ export async function judgeBatch(
   ctx: JudgeContext = {},
 ): Promise<JudgeBatchResult> {
   const started = Date.now();
-  const prompt = buildJudgePrompt(skillText, project, shots, evidenceDir, ctx);
+  // Tall shots are cut into readable pieces before the prompt names them.
+  const pieces = ctx.pieces ?? (await preparePieces(evidenceDir, shots));
+  const prompt = buildJudgePrompt(skillText, project, shots, evidenceDir, { ...ctx, pieces });
   // Who is speaking, for anything reading the run as it happens. The lane's
   // name where there is one, because that is what the page counts progress in.
   const voice = ctx.panel?.name ?? "judge";
