@@ -7,8 +7,9 @@
  * the record reaches both verify-fix and the source-scan ruling at once.
  */
 import { loadState, saveState, type AttemptRecord, type RepoObservation, type RulingBaseline } from "../fix/state.js";
+import { rulingBaselineOf } from "./baseline.js";
 import type { Verdict } from "../fix/rule.js";
-import type { ResolvedConfig } from "../types.js";
+import type { ResolvedConfig, ShotRecord } from "../types.js";
 import { execFileAsync, nowIso } from "../util.js";
 
 export interface JudgeNoteInput {
@@ -162,6 +163,74 @@ export function attemptRecord(a: AttemptInput): AttemptRecord {
     ...(a.observed ? { observed: a.observed } : {}),
     ...(a.baseline ? { baseline: a.baseline } : {}),
   };
+}
+
+/**
+ * One ruling, recorded: what the repository looked like, the attempt itself,
+ * and this capture becoming the baseline the next ruling is measured against.
+ *
+ * Assembled here rather than in the verb, because both the shape of the record
+ * and the order of the writes are facts about the record, not about the
+ * command. The two derived lists come back out because the outcome report
+ * prints the same ones.
+ */
+export async function recordRuling(a: {
+  resolved: ResolvedConfig;
+  issueId: string;
+  n: number;
+  commit?: string | null;
+  note?: string | null;
+  verdict: Verdict;
+  judgeNote: string;
+  spawned: string[];
+  runId: string;
+  shotsById: ReadonlyMap<string, ShotRecord>;
+  changedShots: ReadonlySet<string>;
+  baselineShots: number;
+  stillOpen: { title: string; observed: string; evidence: { shotId: string }[] }[];
+  unclosable: { route: string }[];
+  criteria: { id: string; text: string; verdict: string; note?: string }[];
+  contactSheet: string | null;
+  flags: Record<string, string | boolean>;
+  baseline: AttemptRecord["baseline"];
+}): Promise<{
+  stillOpen: { title: string; shotId: string; observed: string }[];
+  unclosable: string[];
+  observed?: RepoObservation;
+}> {
+  const previous = await previousAttempt(a.resolved, a.issueId);
+  const observed = await observeRepo(a.resolved.projectDir, previous?.reported?.commit, a.commit);
+  const stillOpen = a.stillOpen.map((f) => ({
+    title: f.title,
+    shotId: f.evidence[0]?.shotId ?? "",
+    observed: f.observed,
+  }));
+  const unclosable = [...new Set(a.unclosable.map((m) => m.route))];
+  await recordAttempt(
+    a.resolved,
+    a.issueId,
+    attemptRecord({
+      n: a.n,
+      commit: a.commit,
+      note: a.note,
+      verdict: a.verdict,
+      judgeNote: a.judgeNote,
+      spawned: a.spawned,
+      runId: a.runId,
+      totalShots: a.shotsById.size,
+      changedShots: a.changedShots.size,
+      baselineShots: a.baselineShots,
+      stillOpen,
+      unclosable,
+      criteria: a.criteria.map((c) => ({ id: c.id, text: c.text, verdict: c.verdict, ...(c.note ? { note: c.note } : {}) })),
+      contactSheet: a.contactSheet,
+      flags: narrowingFlags(a.flags),
+      observed,
+      baseline: a.baseline,
+    }),
+    rulingBaselineOf(a.shotsById),
+  );
+  return { stillOpen, unclosable, ...(observed ? { observed } : {}) };
 }
 
 /** The last attempt recorded for an issue, for what the next one is measured against. */
