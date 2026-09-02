@@ -378,3 +378,131 @@ describe("the other issues on the same screenshot are named", () => {
     expect(markdown).not.toContain("## Also on this screenshot");
   });
 });
+
+describe("how to see it", () => {
+  const sidecar = (over: Record<string, unknown> = {}) => ({
+    version: 1,
+    note: "fixture",
+    shotId: "web/app/dash/rest/phone/dark",
+    runId: "r1",
+    capturedAt: "2026-08-28T14:02:11.000Z",
+    shotHash: "h1",
+    origin: "document",
+    image: { width: 780, height: 1688 },
+    devicePixelRatio: 2,
+    viewport: { width: 390, height: 844 },
+    scroll: { x: 0, y: 0 },
+    document: { width: 390, height: 844 },
+    originBox: { x: 0, y: 0, w: 390, h: 844 },
+    elements: [
+      { tag: "header", id: null, testid: null, role: "banner", classes: ["top"], text: "Recent activity",
+        cssPath: "body > header", landmark: true, box: { x: 0, y: 0, w: 390, h: 64 },
+        components: ["Header", "AppShell"], source: { file: "src/Header.tsx", line: 12 } },
+    ],
+    resolved: {},
+    truncated: false,
+    ...over,
+  });
+
+  function withConfig(r: ResolvedConfig): void {
+    r.config = {
+      targets: [{ name: "app", url: "http://127.0.0.1:5999", routes: [{ path: "/dash", element: "main", design: "design/dash.png" }] }],
+      scheme: { mode: "url-param", param: "theme" },
+      viewports: { phone: { width: 400, height: 800 } },
+    } as ResolvedConfig["config"];
+  }
+
+  test("each view names its url, viewport, scheme mechanism, element and design, marked as derived", async () => {
+    const { r, backlog, id } = await withBacklog([finding()]);
+    withConfig(r);
+    const md = await render(r, backlog, id);
+    expect(md).toContain("## How to see it");
+    expect(md).toContain("### /dash, phone, dark scheme, state rest");
+    expect(md).toContain("- url: http://127.0.0.1:5999/dash?theme=dark (per the current config)");
+    expect(md).toContain("- viewport: 400×800 css px at 2× (the screenshot is 800 px wide) (per the current config)");
+    expect(md).toContain("- scheme via: the `theme` url parameter, already in the url above");
+    expect(md).toContain("- element: only `main` was photographed, not the whole page (per the current config)");
+    expect(md).toContain(`- design hand-off: ${join(r.projectDir, "design", "dash.png")}; the judge compared this view to it one to one`);
+    expect(md).toContain(`- workspace screenshot: ${join(evidenceDir(r), "web/app/dash/rest--phone-dark.png")}; overwritten by every capture`);
+  });
+
+  test("a state other than rest says what it is and what was clicked to reach it", async () => {
+    const { r, backlog, id } = await withBacklog([finding({ state: "menu-open" })]);
+    withConfig(r);
+    writeFileSync(
+      join(r.projectDir, ".lookout", "navigation.json"),
+      JSON.stringify({
+        version: 1,
+        routes: {
+          "app|/dash": {
+            signature: "s", plannedAt: "t", skillVersion: 2, checks: [], skipped: [], suggestions: [],
+            states: [{ name: "menu-open", affordance: { selector: "header button", role: "button", name: "Menu", href: null }, outcome: "overlay", risk: "safe", why: "the navigation drawer open" }],
+          },
+        },
+      }),
+    );
+    const md = await render(r, backlog, id);
+    expect(md).toContain("### /dash, phone, dark scheme, state menu-open");
+    expect(md).toContain('- state `menu-open`: the navigation drawer open; reached by clicking button "Menu" (`header button`), expecting overlay');
+  });
+
+  test("a state with no plan behind it is still named as a recipe", async () => {
+    const { r, backlog, id } = await withBacklog([finding({ state: "signed-in" })]);
+    withConfig(r);
+    const md = await render(r, backlog, id);
+    expect(md).toContain("- state `signed-in`: a recipe named in the config; lookout drives the page into it before photographing");
+  });
+
+  test("the sidecar is named beside the view, and names the elements under where it renders", async () => {
+    const { r, backlog, id } = await withBacklog([finding()]);
+    withConfig(r);
+    const rel = "web/app/dash/rest--phone-dark.png";
+    mkdirSync(join(evidenceDir(r), "web", "app", "dash"), { recursive: true });
+    writeFileSync(join(evidenceDir(r), `${rel}.provenance.json`), JSON.stringify(sidecar()));
+    writeFileSync(
+      join(evidenceDir(r), "capture-report.json"),
+      JSON.stringify({
+        version: 1, project: "app", createdAt: "t", updatedAt: "t",
+        runs: [{ id: "r1", kind: "web", startedAt: "t", finishedAt: "t", flags: {}, failures: [], skips: [] }],
+        shots: [{ id: "web/app/dash/rest/phone/dark", target: "app", route: "/dash", routeName: "dash", state: "rest", platform: "web",
+          formFactor: "phone", scheme: "dark", path: rel, hash: "h1", bytes: 1, width: 780, height: 1688, animated: false,
+          design: "/abs/design.png", designHash: "d1", provenance: `${rel}.provenance.json`,
+          capturedAt: "2026-08-28T14:02:11.000Z", runId: "r1", deterministicFindings: [] }],
+      }),
+    );
+    const md = await render(r, backlog, id);
+    expect(md).toContain(`- provenance sidecar: ${join(evidenceDir(r), `${rel}.provenance.json`)} (1 elements, each with its css path`);
+    // Recorded wins over derived: the report's design, with its hash.
+    expect(md).toContain("- design hand-off: /abs/design.png (sha256 d1)");
+    expect(md).toContain("- captured 2026-08-28T14:02:11.000Z by run r1");
+    // A judged finding carries no renderedBy, and used to get no section at all.
+    expect(md).toContain("## Where it renders");
+    expect(md).toContain("- Header < AppShell  src/Header.tsx:12  (header \"Recent activity\")");
+  });
+
+  test("a re-captured sidecar says positions may have moved", async () => {
+    const { r, backlog, id } = await withBacklog([finding()]);
+    withConfig(r);
+    const rel = "web/app/dash/rest--phone-dark.png";
+    mkdirSync(join(evidenceDir(r), "web", "app", "dash"), { recursive: true });
+    writeFileSync(join(evidenceDir(r), `${rel}.provenance.json`), JSON.stringify(sidecar({ shotHash: "h9" })));
+    const md = await render(r, backlog, id);
+    expect(md).toContain("re-captured since this evidence, so positions may have moved");
+  });
+});
+
+describe("artifacts", () => {
+  test("the config is always named; the rest only when on disk", async () => {
+    const { r, backlog, id } = await withBacklog([finding()]);
+    const before = await render(r, backlog, id);
+    expect(before).toContain("## Artifacts");
+    expect(before).toContain(`- config: ${r.configPath}`);
+    expect(before).toContain(`- backlog: ${join(r.projectDir, ".lookout", "backlog.json")}`);
+    expect(before).not.toContain("- capture report:");
+    writeFileSync(join(evidenceDir(r), "capture-report.json"), JSON.stringify({ version: 1, project: "app", createdAt: "t", updatedAt: "t", runs: [], shots: [] }));
+    writeFileSync(join(evidenceDir(r), `verify-${id}.png`), "");
+    const after = await render(r, backlog, id);
+    expect(after).toContain(`- capture report: ${join(evidenceDir(r), "capture-report.json")}`);
+    expect(after).toContain(`- contact sheet of the last verify-fix of this issue: ${join(evidenceDir(r), `verify-${id}.png`)}`);
+  });
+});

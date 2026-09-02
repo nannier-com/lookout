@@ -8,6 +8,13 @@
  * room for: that a judge's account repeated word for word, and what a blocked
  * issue's next ruling will count as.
  */
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { lookoutDir } from "../config.js";
+import { reportPath } from "../capture/store.js";
+import { ledgerPath } from "../judge/ledger.js";
+import { navigationPath } from "../navigate/store.js";
+import { eventsPath } from "../report/events.js";
 import { attemptSentences } from "../fix/attempts.js";
 import { clusterScope, configuredRoutesOf, SHELL_MAX_ROUTES, SHELL_MIN_ROUTES } from "../fix/cluster.js";
 import { DEFAULT_MAX_ATTEMPTS } from "../fix/rule.js";
@@ -144,5 +151,38 @@ export function scopeSection(ctx: IssueContext): string[] {
     "- `--headed` shows the browser; `--json` prints the ruling as JSON.",
     "",
   );
+  return l;
+}
+
+/**
+ * Where everything lookout wrote about this lives, absolute. The config is
+ * always named; the rest only when it is on disk, because the capture
+ * workspace is rebuilt by every capture and a path to a file that is gone is
+ * a wrong answer, not a pointer.
+ */
+export function artifactsSection(ctx: IssueContext): string[] {
+  const { cluster, resolved, evDir } = ctx;
+  const lk = lookoutDir(resolved);
+  const rows: [string, string, boolean][] = [
+    ["config", resolved.configPath ?? join(resolved.projectDir, "lookout.config.ts"), true],
+    ["backlog", join(lk, "backlog.json"), false],
+    ["judge ledger", ledgerPath(resolved), false],
+    ["navigation plan", navigationPath(resolved), false],
+    ["capture report", reportPath(resolved), false],
+    ["judge report", join(evDir, "judge-report.json"), false],
+    ["run log", eventsPath(resolved), false],
+    ["contact sheet of the last check", join(evDir, "contact-sheet.png"), false],
+    ["contact sheet of the last verify-fix of this issue", join(evDir, `verify-${cluster.id}.png`), false],
+  ];
+  const l: string[] = ["## Artifacts", ""];
+  l.push(
+    "Where everything lookout wrote about this lives. The files under the project's",
+    "`.lookout/` are durable; the capture workspace is rebuilt by every capture.",
+    "",
+  );
+  for (const [name, path, always] of rows) {
+    if (always || existsSync(path)) l.push(`- ${name}: ${path}`);
+  }
+  l.push("");
   return l;
 }

@@ -7,6 +7,7 @@ import { isAbsolute, join } from "node:path";
 import { frameAbsPath } from "./frames.js";
 import { issueIdsByKey } from "./registry.js";
 import { clusterKeyOf } from "../fix/cluster.js";
+import { provenanceBrief } from "../design/provenance-brief.js";
 import type { IssueContext } from "./context.js";
 
 /** Siblings listed inline before the document points at the backlog instead. */
@@ -86,9 +87,12 @@ export function rendersSection(ctx: IssueContext): string[] {
     const line = r.component && r.cssPath ? `${head}\n  in the page at \`${r.cssPath}\`` : head;
     rendered.set(line, line);
   }
-  if (rendered.size === 0) return [];
+  // Every element the sidecars can name on these screenshots, whether or not
+  // a check joined the finding to one. The judge's findings never carry a
+  // renderedBy, so before this they had no section at all.
+  const brief = provenanceBrief(ctx.evDir, cluster);
+  if (rendered.size === 0 && !brief) return [];
   return [
-    "",
     "## Where it renders",
     "",
     "Recorded from the running page at capture time: the element each check",
@@ -97,9 +101,18 @@ export function rendersSection(ctx: IssueContext): string[] {
     "the fix belongs.",
     "",
     ...rendered.values(),
-    // Without this the next heading is welded to the last list item and
-    // markdown renders the two as one paragraph.
-    "",
+    ...(rendered.size > 0 ? [""] : []),
+    ...(brief
+      ? [
+          "The elements the sidecars can name on these screenshots, largest first,",
+          "source hints before bare component chains:",
+          "",
+          brief,
+          // Without this the next heading is welded to the last list item and
+          // markdown renders the two as one paragraph.
+          "",
+        ]
+      : []),
   ];
 }
 

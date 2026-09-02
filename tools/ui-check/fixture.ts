@@ -525,12 +525,6 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
   // because that is where lookout would put them: the folder follows the
   // record's `archived` field, and the intentional issue here carries the older
   // adjudication instead, which never moved a folder.
-  //
-  // The documents are lookout's own rendering, not a stub with the header
-  // lines the gate greps for: a fixture that stubbed them would never show
-  // anyone what the renderer draws for an issue with attempts, a sibling, or
-  // a ruled criterion. Rendered last, once every file a section reads exists.
-  await writeDocuments(resolved, backlog, lk, [INTENTIONAL_ISSUE]);
 
   // The run log: a check that finished, then a verify-fix of the open issue
   // that has not, so one card is mid-ruling with a live feed under it. The
@@ -820,6 +814,13 @@ export async function buildFixture(root: string): Promise<{ project: string; hom
       `${subject}\n\nFound by \`lookout self-heal\` reading the incident log. Not pushed: that is a person's call.`,
     ]);
   }
+
+  // The documents are lookout's own rendering, not a stub with the header
+  // lines the gate greps for: a fixture that stubbed them would never show
+  // anyone what the renderer draws for an issue with attempts, a sibling, or
+  // a ruled criterion. Rendered last, once every file a section reads exists:
+  // the capture report, the plans, the sidecar, the state.
+  await writeDocuments(resolved, backlog, lk, [INTENTIONAL_ISSUE]);
 
   return { project, home, checkout };
 }

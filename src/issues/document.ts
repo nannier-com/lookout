@@ -19,7 +19,8 @@ import { issueDir } from "./paths.js";
 import { loadIssueContext, type IssueExtras, type IssueRecordView } from "./context.js";
 import { acceptanceSection, placementSection, whatIsWrongSection } from "./doc-defects.js";
 import { evidenceSection, rendersSection, siblingsSection } from "./doc-evidence.js";
-import { attemptsSection, scopeSection } from "./doc-attempts.js";
+import { artifactsSection, attemptsSection, scopeSection } from "./doc-attempts.js";
+import { howToSeeSection } from "./doc-views.js";
 import { fixSection, verifySection } from "./doc-verify.js";
 import { statusOf } from "./record.js";
 import { commitUrl } from "../report/forge.js";
@@ -163,9 +164,12 @@ export async function renderIssueDocument(
   // history is what says which of those plans has already failed.
   l.push(...attemptsSection(ctx, lookoutCmd));
   l.push(...evidenceSection(ctx));
-  if (cluster.channel !== "code") l.push(...rendersSection(ctx), ...siblingsSection(ctx));
+  if (cluster.channel !== "code") {
+    l.push(...howToSeeSection(ctx), ...rendersSection(ctx), ...siblingsSection(ctx));
+  }
   l.push(...scopeSection(ctx));
   l.push(...(await fixSection(ctx)));
+  l.push(...artifactsSection(ctx));
   l.push(...verifySection(ctx, lookoutCmd));
 
   return { markdown: l.join("\n"), label };
