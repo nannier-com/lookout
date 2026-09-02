@@ -74,8 +74,10 @@ export function howToSeeSection(ctx: IssueContext): string[] {
     if (seen.has(key)) continue;
     seen.add(key);
     const shot = shotOf(ctx, ev.shotId);
-    // The workspace's record of the shot, else what the finding kept of it.
-    const rec: ViewFacts = shot ?? m.view ?? {};
+    // What the finding kept of the view, under whatever the workspace still
+    // records about the shot: two sources of the same facts, the fresher one
+    // winning field by field rather than the whole record at once.
+    const rec: ViewFacts = { ...(m.view ?? {}), ...(shot ?? {}) };
     const route = routes.find((r) => r.path === m.route);
     const ff = m.formFactor as FormFactor;
     const vp = rec.viewport ?? resolved.config.viewports?.[ff] ?? DEFAULT_VIEWPORTS[ff];

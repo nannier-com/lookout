@@ -115,3 +115,44 @@ describe("the other checks say why their measurement matters", () => {
     }
   });
 });
+
+describe("an accessibility violation whose capture kept the elements", () => {
+  const rich = () =>
+    axe({
+      tags: ["cat.semantics", "wcag2a", "wcag21aa", "best-practice"],
+      nodes: [
+        { target: "#root > div > h4", element: { tag: "h4", attrs: {}, text: "Overview" }, checks: ["Heading order invalid"] },
+        { target: "main h5", element: { tag: "h5", attrs: { id: "recent" }, text: "Recent activity" }, checks: ["Heading order invalid", "Level skipped"] },
+      ],
+    });
+
+  test("names the elements as a person would point at them, not their selectors", () => {
+    const { problem, observed } = explainDeterministic(rich());
+    expect(problem).toContain('It fired on 2 elements on this screen: the `<h4>` reading "Overview", the `<h5 id="recent">` reading "Recent activity".');
+    expect(problem).not.toContain("`#root > div > h4`");
+    // The selectors are still the record's, for the agent that resolves them.
+    expect(observed).toContain("`#root > div > h4`");
+  });
+
+  test("says which standard the rule belongs to, from axe's own tags", () => {
+    const { problem } = explainDeterministic(rich());
+    const [plain] = problem.split("\n\n");
+    expect(plain).toContain("It is a WCAG 2.0 level A requirement.");
+    const advice = explainDeterministic(axe({ tags: ["best-practice", "cat.semantics"], nodes: [] }));
+    expect(advice.problem).toContain("It is an axe best-practice rule rather than a WCAG requirement.");
+    expect(explainDeterministic(axe({ tags: [], nodes: [] })).problem).not.toContain("requirement");
+  });
+
+  test("writes one sentence per check, per element, in place of the flattened summary", () => {
+    const { problem } = explainDeterministic(rich());
+    expect(problem).toContain('What axe checked on the `<h4>` reading "Overview": Heading order invalid.');
+    expect(problem).toContain('What axe checked on the `<h5 id="recent">` reading "Recent activity": Heading order invalid. Level skipped.');
+    expect(problem).not.toContain("axe's own account of what to change");
+  });
+
+  test("a capture that kept no elements reads as before", () => {
+    const { problem } = explainDeterministic(axe({}));
+    expect(problem).toContain("It fired on 2 elements on this screen: `#root > div > h4`, `main h5`.");
+    expect(problem).toContain("axe's own account of what to change: Fix any of the following: Heading order invalid.");
+  });
+});

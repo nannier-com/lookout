@@ -51,6 +51,57 @@ const AXE_IMPACT: Record<string, string> = {
   minor: "axe rates this minor, meaning it is a nuisance rather than a barrier.",
 };
 
+interface AxeNode {
+  element: { tag: string; attrs: Record<string, string>; text: string };
+  checks: string[];
+}
+
+/** The failing elements the capture kept, in the shape axe.ts writes them. */
+function axeNodes(v: unknown): AxeNode[] {
+  if (!Array.isArray(v)) return [];
+  const out: AxeNode[] = [];
+  for (const n of v) {
+    if (typeof n !== "object" || n === null) continue;
+    const el = (n as { element?: { tag?: unknown; attrs?: unknown; text?: unknown } }).element;
+    if (!el || typeof el.tag !== "string") continue;
+    out.push({
+      element: {
+        tag: el.tag,
+        attrs: typeof el.attrs === "object" && el.attrs !== null ? (el.attrs as Record<string, string>) : {},
+        text: typeof el.text === "string" ? el.text : "",
+      },
+      checks: list((n as { checks?: unknown }).checks),
+    });
+  }
+  return out;
+}
+
+/** An element as a person would point at it: its tag, the one attribute that names it, the words on it. */
+function elementPhrase(e: AxeNode["element"]): string {
+  const naming = ["id", "aria-label", "alt", "name", "data-testid"].find((k) => e.attrs[k]);
+  const attr = naming ? ` ${naming}="${e.attrs[naming]}"` : "";
+  const text = e.text ? ` reading "${e.text.length > 40 ? `${e.text.slice(0, 40)}…` : e.text}"` : "";
+  return `the \`<${e.tag}${attr}>\`${text}`;
+}
+
+/**
+ * Which standard the rule belongs to, from axe's own tags: a WCAG conformance
+ * level is a requirement, a best-practice tag alone is advice. Nothing about
+ * policy or law, which would be invention.
+ */
+function standardOf(tags: string[]): string {
+  const levels = tags
+    .map((t) => /^wcag(\d)(\d)?(a{1,3})$/.exec(t))
+    .filter((r): r is RegExpExecArray => r !== null)
+    .map((r) => ({ version: r[2] ? `${r[1]}.${r[2]}` : `${r[1]}.0`, level: r[3]!.toUpperCase() }));
+  if (levels.length > 0) {
+    const best = levels.sort((a, b) => a.version.localeCompare(b.version))[0]!;
+    return `It is a WCAG ${best.version} level ${best.level} requirement.`;
+  }
+  if (tags.includes("best-practice")) return "It is an axe best-practice rule rather than a WCAG requirement.";
+  return "";
+}
+
 /**
  * An accessibility violation, said twice.
  *
@@ -70,11 +121,22 @@ function axeProse(df: DeterministicFinding): Prose {
   const helpUrl = str(m.helpUrl);
 
   const marked = targets.map((t) => `\`${t}\``);
+  const nodes = axeNodes(m.nodes);
+  // The elements as a person would point at them when the capture kept their
+  // markup; the selectors, which only an agent can resolve, otherwise.
+  const named = nodes.slice(0, 3).map((n) => elementPhrase(n.element));
   const where =
     count > 0
       ? `It fired on ${count} element${count === 1 ? "" : "s"} on this screen` +
-        (marked.length > 0 ? `: ${marked.join(", ")}.` : ".")
+        (named.length > 0 ? `: ${named.join(", ")}.` : marked.length > 0 ? `: ${marked.join(", ")}.` : ".")
       : "";
+  const standard = standardOf(list(m.tags));
+  // The sentence each check wrote, per element: the structured form of the
+  // summary axe flattens, and what says exactly which part of the rule failed.
+  const checked = nodes
+    .filter((n) => n.checks.length > 0)
+    .slice(0, 3)
+    .map((n) => `What axe checked on ${elementPhrase(n.element)}: ${n.checks.map(sentence).join(" ")}`);
 
   // The message is "<rule id>: <axe's one-line help>". The id is already in the
   // ticket's metadata block and in `expected`, so the detail half prints the
@@ -86,6 +148,7 @@ function axeProse(df: DeterministicFinding): Prose {
     "This is a rule about how the page is built rather than how it looks, so the",
     "screenshot may well look correct: the problem is what somebody navigating with",
     "a screen reader or a keyboard gets instead of what a sighted mouse user gets.",
+    standard,
     impact,
   ]
     .filter(Boolean)
@@ -95,10 +158,13 @@ function axeProse(df: DeterministicFinding): Prose {
     rule ? `The failing rule is \`${rule}\`: ${sentence(help)}` : sentence(help),
     where,
     // axe's summaries are multi-line and unpunctuated. Flattened and terminated
-    // here, or they run straight into the reference link after them.
-    summaries.length > 0
-      ? `axe's own account of what to change: ${summaries.map((s) => sentence(s.replace(/\s+/g, " "))).join(" ")}`
-      : "",
+    // here, or they run straight into the reference link after them. The
+    // per-check sentences replace them whenever the capture kept those.
+    checked.length > 0
+      ? checked.join(" ")
+      : summaries.length > 0
+        ? `axe's own account of what to change: ${summaries.map((s) => sentence(s.replace(/\s+/g, " "))).join(" ")}`
+        : "",
     helpUrl ? `Reference: ${helpUrl}` : "",
   ]
     .filter(Boolean)
