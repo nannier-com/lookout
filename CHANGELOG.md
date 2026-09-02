@@ -1,5 +1,15 @@
 # @nannier-com/lookout
 
+## 0.46.0
+
+### Minor Changes
+
+- f206f88: Minor justification (new user-visible capability): **accessibility checks now cover the phone and tablet layouts.** The axe scan used to run once per route at the widest form factor, so a hamburger button with no accessible name, or content a media query pushes off screen, was never checked. Under the default `--axe route` the scan now runs at every form factor's rest shot: a violation is filed at the widest form factor that shows it and, at each narrower one, only the nodes the wider layouts did not show, so a phone-only defect is filed once and a defect shared by every width is not filed three times. `--axe all` files every violation on every form factor; `--axe off` is unchanged. Measured on a one-route page: 4 s with the scan at three form factors against 3 s with it off. Animation sampling and the navigation harvest deliberately stay at the widest form factor, where the full set of controls is visible.
+
+### Patch Changes
+
+- 5694777: **`lookout ask` photographs every form factor, and the words say what a run walks.** Since the verb landed it captured desktop and phone only and never said so; tablet is where a two-column layout most often breaks. It now walks every form factor of the project's fold, dark only as before, and `--viewports` still narrows. The README gains a "Form factors: two folds" section, `lookout protocol` says what a capture photographs in either fold and what narrowing a ruling costs, `lookout help` lists `--viewports`, `--schemes` and `--platforms`, the fact-checker names an uncaptured form factor as a reason evidence cannot answer, and the config `lookout init` writes names the three presets, the fold and the native block's keys.
+
 ## 0.45.10
 
 ### Patch Changes
