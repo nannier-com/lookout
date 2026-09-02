@@ -30,6 +30,8 @@ afterEach(() => {
   delete process.env.MOCK_FAIL_PANEL;
   delete process.env.MOCK_JUDGE_CATEGORY;
   delete process.env.MOCK_ARGV_FILE;
+  delete process.env.MOCK_JUDGE_SIBLINGS;
+  delete process.env.MOCK_VERIFY_CONFIRM_ALL;
 });
 
 function shot(id: string): ShotRecord {
@@ -165,6 +167,55 @@ describe("per-panel isolation", () => {
     await expect(
       recordOutcome({ resolved: r, scope: { shots: [s] } as CheckScope, plan, pass, log: silent }),
     ).rejects.toThrow(LookoutError);
+  });
+});
+
+describe("shots a defect was seen on, not merely mentioned in", () => {
+  test("a named sibling is judged, refutable on its own, and lets the pair cache", async () => {
+    const r = project();
+    const group = ["desktop", "phone"].map((ff) => shot(`web/app/home/rest/${ff}/dark`));
+    const a = stubPanel("panel-a", ["contrast"]);
+    const plan = planOf([a], [group]);
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    process.env.MOCK_JUDGE_SIBLINGS = "1";
+
+    const pass = await drive(r, plan, group);
+    // The judge filed on the first shot and named the second. Both are ruled
+    // on, and the default refuter kills the second: a sibling is a claim about
+    // its own shot, not a rider on somebody else's verdict.
+    expect(pass.uncacheable.size).toBe(0);
+    expect(pass.confirmed.map((f) => f.shotId)).toEqual([group[0]!.id]);
+    expect(pass.refuted.map((f) => f.shotId)).toEqual([group[1]!.id]);
+
+    const outcome = await recordOutcome({
+      resolved: r,
+      scope: { shots: group } as CheckScope,
+      plan,
+      pass,
+      log: silent,
+    });
+    // The whole point: no shot is left unruled, so the verdict is cacheable
+    // and the panel call is not re-bought on the next run.
+    expect(outcome.unjudged).toBe(0);
+    const back = await loadLedger(r);
+    expect(back.entries[ledgerKey(groupHash(group), identityOf(a))]?.verdict).toBe("findings");
+  });
+
+  test("when every sibling stands, each shot carries its own finding", async () => {
+    const r = project();
+    const group = ["desktop", "phone"].map((ff) => shot(`web/app/home/rest/${ff}/dark`));
+    const a = stubPanel("panel-a", ["contrast"]);
+    const plan = planOf([a], [group]);
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    process.env.MOCK_JUDGE_SIBLINGS = "1";
+    process.env.MOCK_VERIFY_CONFIRM_ALL = "1";
+
+    const pass = await drive(r, plan, group);
+    expect(pass.confirmed.map((f) => f.shotId).sort()).toEqual(group.map((s) => s.id).sort());
+    // One defect, one name: the copies keep the primary's lane and attribute,
+    // which is what the cluster key fuses back into a single issue.
+    expect(new Set(pass.confirmed.map((f) => `${f.category}/${f.attribute}`)).size).toBe(1);
+    expect(pass.confirmed.filter((f) => f.siblingOf).map((f) => f.siblingOf)).toEqual([group[0]!.id]);
   });
 });
 

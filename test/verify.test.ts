@@ -121,6 +121,32 @@ describe("what the refuter is shown", () => {
     expect(prompt).not.toContain("every shot of this view");
   });
 
+  test("a sibling is put in front of the refuter as its own shot to rule on", () => {
+    // The judge filed once and named the other shots; ingestion made each one a
+    // finding. The refuter must be able to kill an over-listed sibling without
+    // touching the primary, so a sibling arrives with its own file, its own
+    // index, and an instruction saying so.
+    const dark = shot("web/app/x/rest/desktop/dark");
+    const light = shot("web/app/x/rest/desktop/light");
+    const shotsById = new Map([
+      [dark.id, dark],
+      [light.id, light],
+    ]);
+    const prompt = buildRefutePrompt(
+      refute.text,
+      [finding(), finding({ shotId: light.id, siblingOf: dark.id })],
+      shotsById,
+      "/ev",
+    );
+    expect(prompt).toContain("#1 shotId: web/app/x/rest/desktop/light");
+    expect(prompt).toContain("/ev/web/app/x/rest/desktop/light.png");
+    expect(prompt).toContain("says THIS shot shows the same defect");
+    expect(prompt).toContain("(#0)");
+    // The claim travels; the paragraph does not, once per shot.
+    expect(prompt.match(/problem: p/g)?.length).toBe(1);
+    expect(prompt.match(/every shot of this view/g)?.length).toBe(1);
+  });
+
   test("shots of other views are not offered as evidence for this one", () => {
     const own = shot("web/app/x/rest/desktop/dark");
     const other = shot("web/app/elsewhere/rest/desktop/dark");

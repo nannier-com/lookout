@@ -143,11 +143,15 @@ already recorded on the shot. An account menu dropped from the app bar is
 5. For state shots (overlays open, menus expanded), check placement, backdrop,
    and that the revealed surface is complete and styled.
 6. File one finding per distinct defect, on the most representative shot of this
-   view; name the other affected shots in the problem text instead of
-   duplicating. A defect in persistent chrome is filed here, from this view, in
-   the ordinary way: lookout merges one defect reported from several views into
-   one piece of work, and a batch that stands down because the chrome "belongs
-   to every screen" loses the defect altogether.
+   view, and list every OTHER shot of this view that shows the SAME defect in
+   `alsoShotIds`. Naming them in the problem text as well is welcome; the list
+   is what lookout reads, because a shot you mentioned only in prose is a shot
+   nothing recorded you as having ruled on. A shot showing a DIFFERENT defect
+   gets its own finding, never a place in this list. A defect in persistent
+   chrome is filed here, from this view, in the ordinary way: lookout merges
+   one defect reported from several views into one piece of work, and a batch
+   that stands down because the chrome "belongs to every screen" loses the
+   defect altogether.
 7. Cite what you can SEE, and for a band-2 finding cite the principle too.
    Expected values come from this rubric, the project extension below, or visual
    comparison within the evidence; never from invented numeric specs.
@@ -184,6 +188,7 @@ Reply with ONLY one fenced json block, no prose before or after:
   "findings": [
     {
       "shotId": "<id from the manifest>",
+      "alsoShotIds": ["<other shots of THIS view showing this SAME defect; omit or [] when none>"],
       "category": "<one from the vocabulary>",
       "attribute": "<kebab-case aspect>",
       "region": "content | shell-nav | shell-header | shell-footer",
@@ -200,9 +205,12 @@ Reply with ONLY one fenced json block, no prose before or after:
 }
 ```
 
-Every shot you were given must appear either in a finding or in cleanShotIds.
-A shot in neither is read as one you did not rule on, and it will be judged
-again rather than trusted. An empty findings array is a valid and common result.
+Every shot you were given must be accounted for exactly one of three ways: as a
+finding's `shotId`, in some finding's `alsoShotIds`, or in `cleanShotIds`. A
+shot in none of them is read as one you did not rule on, and it will be judged
+again rather than trusted. So a shot that shows a defect you filed elsewhere
+belongs in that finding's `alsoShotIds`, never in `cleanShotIds`, and never
+only in the prose. An empty findings array is a valid and common result.
 
 ## The problem field carries both readers
 

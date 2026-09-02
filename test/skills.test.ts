@@ -160,14 +160,19 @@ describe("a renamed skill keeps the lessons a project learned under the old name
 
   test("the current directory wins when a project has both", async () => {
     const resolved = project();
-    amend(resolved, "visual-judge", "---\nname: visual-judge\nversion: 9\n---\n\nthe old one\n");
+    // The retired layer's version is deliberately far above anything the
+    // shipped skill will ever reach: it used to be 9, which the base caught up
+    // with, and a sentinel a version bump can collide with stops testing
+    // anything the day it does.
+    amend(resolved, "visual-judge", "---\nname: visual-judge\nversion: 999\n---\n\nthe old one\n");
     amend(resolved, "judge-core", "---\nname: judge-core\nversion: 4\n---\n\nthe current one\n");
     const layered = await loadSkill(resolved, "judge-core");
     expect(layered.text).toContain("the current one");
     expect(layered.text).not.toContain("the old one");
     // The retired layer is not consulted at all, so its version cannot raise
-    // the composed one: this is max(base, current layer), never the old 9.
-    expect(layered.version).not.toBe(9);
+    // the composed one: this is max(base, current layer), never the old 999.
+    const shipped = await loadSkill(null, "judge-core");
+    expect(layered.version).toBe(Math.max(shipped.version, 4));
   });
 
   test("a skill that was never renamed has no legacy directory", () => {

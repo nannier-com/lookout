@@ -48,6 +48,35 @@ export interface IngestedReply {
   degraded: ContractLapse[];
 }
 
+/**
+ * The other shots of this view the judge says show the SAME defect.
+ *
+ * Filtered to the batch, and to shots other than the one the finding was filed
+ * on: a sibling naming the primary would expand into a duplicate of it, and a
+ * sibling outside the batch is a shot this call never saw. An id that survives
+ * neither is counted, never fatal, because the finding itself is still a real
+ * defect on a real shot.
+ */
+function siblingIds(
+  raw: Record<string, unknown>,
+  primary: string,
+  known: ReadonlySet<string>,
+): { ids: string[]; unknown: number } {
+  const listed = Array.isArray(raw.alsoShotIds) ? raw.alsoShotIds : [];
+  const ids = new Set<string>();
+  let bad = 0;
+  for (const value of listed) {
+    const id = String(value ?? "");
+    if (id === primary) continue;
+    if (!known.has(id)) {
+      bad++;
+      continue;
+    }
+    ids.add(id);
+  }
+  return { ids: [...ids], unknown: bad };
+}
+
 export function ingestJudgeReply(
   parsed: unknown,
   args: { shots: ShotRecord[]; project: string; panel?: PanelLane },
@@ -56,6 +85,9 @@ export function ingestJudgeReply(
   const known = new Set(shots.map((s) => s.id));
   const findings: AiFinding[] = [];
   const rejected: { reason: string; raw: unknown }[] = [];
+  // Sibling ids naming a shot outside the batch: counted per reply, because one
+  // stray id is a slip and a reply full of them is a contract failure.
+  let badSiblings = 0;
   // Counted rather than rejected: a region outside the closed set degrades to
   // "content" so the finding survives, but a judge that keeps mangling the
   // field is a contract failure worth one incident per batch, not silence.
@@ -88,7 +120,7 @@ export function ingestJudgeReply(
       rejected.push({ reason: `unknown shotId "${shotId}"`, raw: f });
       continue;
     }
-    findings.push({
+    const finding: AiFinding = {
       shotId,
       category: category as Category,
       // The category's OWNER, not the caller: before the pipeline judges one
@@ -113,7 +145,19 @@ export function ingestJudgeReply(
         .filter((a): a is string => typeof a === "string" && a.trim().length > 0)
         .slice(0, 6)
         .map((a) => a.trim().slice(0, 300)),
-    });
+    };
+    findings.push(finding);
+    // One sighting per shot. The judge names the other shots of this view that
+    // show the same defect and lookout expands them here, before the refuter
+    // and before the accounting below: a sibling then has its own evidence to
+    // be refuted on, its own fingerprint (form factor and scheme are part of
+    // one), and its own row in the accounting, which is the whole point. The
+    // cluster key fuses them back into one issue.
+    const siblings = siblingIds(r, shotId, known);
+    badSiblings += siblings.unknown;
+    for (const id of siblings.ids) {
+      findings.push({ ...finding, shotId: id, siblingOf: shotId });
+    }
   }
   const cleanShotIds = (Array.isArray(obj.cleanShotIds) ? obj.cleanShotIds : [])
     .map(String)
@@ -141,7 +185,10 @@ export function ingestJudgeReply(
   // the precise one. A reply that skipped the plain half still describes a
   // defect, so it is filed as written; what is recorded is that the contract
   // did not land, per finding, so the lesson reaches the right panel.
-  const degraded: ContractLapse[] = findings.flatMap((f) => {
+  // Primaries only: a sibling carries its primary's prose verbatim, so counting
+  // both would report one badly written problem as two and teach the panel a
+  // lesson twice as loud as the evidence for it.
+  const degraded: ContractLapse[] = findings.filter((f) => !f.siblingOf).flatMap((f) => {
     const lapses = problemLapses(f);
     return lapses.length > 0 ? [{ shotId: f.shotId, category: f.category, title: f.title, judge: f.judge ?? panelOf(f.category).name, lapses }] : [];
   });
@@ -154,6 +201,17 @@ export function ingestJudgeReply(
         .map((d) => `"${d.title}" (${d.lapses.join(", ")})`)
         .join("; ")
         .slice(0, 300)}`,
+      project,
+      judge: panel?.name,
+    });
+  }
+
+  if (badSiblings > 0) {
+    recordIncident({
+      at: new Date().toISOString(),
+      kind: "judge-rejected",
+      verb: "check",
+      message: `${badSiblings} sibling shot id(s) named a shot outside this batch; the findings stand without them`,
       project,
       judge: panel?.name,
     });

@@ -88,6 +88,12 @@ export function buildRefutePrompt(
   evidenceDir: string,
 ): string {
   const groups = groupShots([...shotsById.values()]);
+  // Where each shot's primary sits, so a sibling can point at it by index
+  // instead of repeating a claim the refuter is already reading.
+  const primaryIndex = new Map<string, number>();
+  findings.forEach((f, i) => {
+    if (!f.siblingOf) primaryIndex.set(`${f.shotId}|${f.category}|${f.attribute}`, i);
+  });
   const lines = findings.map((f, i) => {
     const shot = shotsById.get(f.shotId);
     const members = shot ? groups.get(viewGroupId(shot)) ?? [] : [];
@@ -96,6 +102,22 @@ export function buildRefutePrompt(
         `     - ${evidenceDir}/${m.path}  (${m.formFactor}, ${m.scheme}` +
         (m.id === f.shotId ? ", the shot this was filed on)" : ")"),
     );
+    // A sibling is the same claim about a different shot, and it is ruled on
+    // its OWN evidence: the judge said the defect is here too, and this is
+    // where that is confirmed or killed. It prints short (the claim, not the
+    // whole finding, and no view listing the primary already carries) so a
+    // six-shot view does not spend six copies of one paragraph.
+    if (f.siblingOf) {
+      const of = primaryIndex.get(`${f.siblingOf}|${f.category}|${f.attribute}`);
+      return [
+        `#${i} shotId: ${f.shotId}`,
+        `   file: ${shot ? `${evidenceDir}/${shot.path}` : "(missing)"}`,
+        `   view: ${shot ? `${shot.route} ${shot.state} (${shot.formFactor}, ${shot.scheme})` : "(unknown)"}`,
+        `   claim [${f.severity}/${f.category}/${f.attribute}]: ${f.title}`,
+        `   the judge filed this on ${f.siblingOf}${of === undefined ? "" : ` (#${of})`} and says THIS shot shows the same defect.`,
+        "   Rule on this shot: is the defect visible here? Refuting it here does not refute it there.",
+      ].join("\n");
+    }
     return [
       `#${i} shotId: ${f.shotId}`,
       `   file: ${shot ? `${evidenceDir}/${shot.path}` : "(missing)"}`,
@@ -204,7 +226,12 @@ export async function verifyFindings(
       const composed = withPlainHalf(f.problem, v.plain, f.title, f.attribute);
       if (composed) {
         problem = composed;
-        repaired.push({ shotId: f.shotId, category: f.category, attribute: f.attribute, title: f.title, ...(f.judge ? { judge: f.judge } : {}), plain: v.plain.trim() });
+        // Recorded on the primary only. A sibling carries its primary's prose,
+        // so counting each one would report a single badly written problem as
+        // four and teach the panel a lesson four times the size of its cause.
+        if (!f.siblingOf) {
+          repaired.push({ shotId: f.shotId, category: f.category, attribute: f.attribute, title: f.title, ...(f.judge ? { judge: f.judge } : {}), plain: v.plain.trim() });
+        }
       }
     }
     confirmed.push({ ...f, problem, verified, verifierNote: v?.note });

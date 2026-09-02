@@ -30,6 +30,18 @@ export interface AiFinding {
   judge?: string;
   attribute: string;
   /**
+   * The shot this finding was copied from, when the judge listed this one in
+   * that finding's `alsoShotIds`.
+   *
+   * A defect visible on four shots of a view is one defect and four sightings.
+   * The judge files it once and names the rest; ingestion expands each named
+   * shot into its own finding so the shot is accounted for, the refuter can
+   * kill an over-listed sibling on its own evidence, and the fingerprint (which
+   * carries form factor and scheme) stays the identity it has always been.
+   * Present only on the copies, never on the shot the judge chose.
+   */
+  siblingOf?: string;
+  /**
    * Which part of the frame the defect lives in. Never trusted blindly: an
    * unknown or missing value degrades to "content", the route-scoped default,
    * because a mangled region must cost precision, not the finding.

@@ -27,3 +27,66 @@ describe("a thin problem", () => {
     expect(r.degraded).toEqual([{ shotId: SHOT, category: "contrast", title: "Body text is too faint to read", judge: panelOf("contrast").name, lapses: ["title-again"] }]);
   });
 });
+
+// A defect visible on four shots of a view is one defect and four sightings.
+// The judge files it once and names the rest; these hold the expansion that
+// makes each named shot a ruled-on shot rather than a line of prose.
+describe("sibling shots", () => {
+  const other = { ...shot, id: "web/app/home/rest/phone/dark", formFactor: "phone" } as ShotRecord;
+  const third = { ...shot, id: "web/app/home/rest/desktop/light", scheme: "light" } as ShotRecord;
+  const finding = { ...base, title: "Body text is too faint to read", problem: "The paragraph under the heading is grey on grey and a person has to squint.\n\nBody text at 3.1:1 against the card: contrast, body-text." };
+
+  test("each named shot becomes its own finding, marked as a copy", () => {
+    const r = ingestJudgeReply(
+      { findings: [{ ...finding, alsoShotIds: [other.id, third.id] }], cleanShotIds: [] },
+      { shots: [shot, other, third], project: "p", panel: panelOf("contrast") },
+    );
+    expect(r.findings.map((f) => f.shotId)).toEqual([SHOT, other.id, third.id]);
+    expect(r.findings.map((f) => f.siblingOf)).toEqual([undefined, SHOT, SHOT]);
+    // The copies are the same defect: same lane, same name, same prose.
+    for (const f of r.findings) {
+      expect(f.category).toBe("contrast");
+      expect(f.attribute).toBe("body-text");
+      expect(f.problem).toBe(r.findings[0]!.problem);
+    }
+  });
+
+  test("a named shot is accounted for, so nothing is left unruled", () => {
+    const r = ingestJudgeReply(
+      { findings: [{ ...finding, alsoShotIds: [other.id] }], cleanShotIds: [third.id] },
+      { shots: [shot, other, third], project: "p", panel: panelOf("contrast") },
+    );
+    expect(r.unaccounted).toEqual([]);
+  });
+
+  test("a shot outside this batch is dropped and the finding stands", () => {
+    const r = ingestJudgeReply(
+      { findings: [{ ...finding, alsoShotIds: ["web/app/other/rest/desktop/dark", other.id] }], cleanShotIds: [third.id] },
+      { shots: [shot, other, third], project: "p", panel: panelOf("contrast") },
+    );
+    expect(r.findings.map((f) => f.shotId)).toEqual([SHOT, other.id]);
+    expect(r.rejected).toEqual([]);
+    expect(r.unaccounted).toEqual([]);
+  });
+
+  test("naming its own shot, or naming one twice, adds nothing", () => {
+    const r = ingestJudgeReply(
+      { findings: [{ ...finding, alsoShotIds: [SHOT, other.id, other.id] }], cleanShotIds: [third.id] },
+      { shots: [shot, other, third], project: "p", panel: panelOf("contrast") },
+    );
+    expect(r.findings.map((f) => f.shotId)).toEqual([SHOT, other.id]);
+  });
+
+  test("a thin problem is counted once, not once per shot it was seen on", () => {
+    const r = ingestJudgeReply(
+      {
+        findings: [{ ...base, title: "Body text is too faint to read", problem: "body text is too faint to read", alsoShotIds: [other.id, third.id] }],
+        cleanShotIds: [],
+      },
+      { shots: [shot, other, third], project: "p", panel: panelOf("contrast") },
+    );
+    expect(r.findings.length).toBe(3);
+    expect(r.degraded.length).toBe(1);
+    expect(r.degraded[0]?.shotId).toBe(SHOT);
+  });
+});

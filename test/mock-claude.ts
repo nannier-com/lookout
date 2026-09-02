@@ -272,6 +272,12 @@ if (mode === "placement") {
               observed: "mock",
               acceptance: ["Body text is legible against the card background."],
               confidence: "high",
+              // MOCK_JUDGE_SIBLINGS files the defect once and names every other
+              // shot of the view as showing it too, which is the shape the
+              // output contract asks for and the one a real judge kept
+              // expressing in prose instead. With it set, cleanShotIds is
+              // empty and the batch is still fully accounted for.
+              ...(process.env.MOCK_JUDGE_SIBLINGS ? { alsoShotIds: rest } : {}),
             },
             {
               shotId: first,
@@ -291,7 +297,14 @@ if (mode === "placement") {
         : [],
       // MOCK_SKIP_LAST drops a shot from both lists, which is a judge quietly
       // failing to rule on it: the case the output contract exists to catch.
-      cleanShotIds: process.env.MOCK_SKIP_LAST ? rest.slice(0, -1) : rest,
+      // Under MOCK_JUDGE_SIBLINGS the rest are accounted for by the finding
+      // that names them, so listing them clean as well would contradict it.
+      cleanShotIds:
+        first && process.env.MOCK_JUDGE_SIBLINGS
+          ? []
+          : process.env.MOCK_SKIP_LAST
+            ? rest.slice(0, -1)
+            : rest,
     }) +
     "\n```";
 } else if (mode === "verify") {
@@ -308,8 +321,13 @@ if (mode === "placement") {
     JSON.stringify({
       verdicts: indices.map((i) => ({
         index: i,
-        verdict: i === 0 ? "confirmed" : "refuted",
-        note: i === 0 ? "plainly visible" : "not visible in evidence",
+        // MOCK_VERIFY_CONFIRM_ALL is the ordinary case for a defect the judge
+        // saw on several shots of one view: every sibling really does show it.
+        // The default (confirm 0, refute the rest) is the opposite case, and
+        // both have to be reachable, since the whole point of expanding a
+        // sibling is that it can be killed on its own evidence.
+        verdict: i === 0 || process.env.MOCK_VERIFY_CONFIRM_ALL ? "confirmed" : "refuted",
+        note: i === 0 || process.env.MOCK_VERIFY_CONFIRM_ALL ? "plainly visible" : "not visible in evidence",
         // MOCK_VERIFY_PLAIN supplies the plain half for the confirmed finding,
         // so the adoption path is reachable without a hand-written reply.
         ...(i === 0 && process.env.MOCK_VERIFY_PLAIN ? { plain: process.env.MOCK_VERIFY_PLAIN } : {}),
