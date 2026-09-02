@@ -276,6 +276,9 @@ async function drive(): Promise<number> {
   check("folding narrows it to the rail's width", (await widthOf(".stream")) === railWide,
     `${await widthOf(".stream")}px vs rail ${railWide}px`);
   check("the transcript goes with it", !(await page.locator("#streamLog").isVisible()));
+  // The queue is the second half of this column now, and a section that failed
+  // to fold would paint its rows on top of the fold button in a 56px strip.
+  check("the queue goes with it", !(await page.locator("#queueList").isVisible()));
   check("the board takes the width back",
     (await page.evaluate(() => getComputedStyle(document.body).paddingRight)) === `${railWide}px`);
   check("the way back out is still there", await page.locator("#streamFold").isVisible());
@@ -285,7 +288,39 @@ async function drive(): Promise<number> {
   await page.click("#streamFold");
   await page.waitForTimeout(400);
   check("unfolding puts the transcript back", await page.locator("#streamLog").isVisible());
+  check("and the queue with it", await page.locator("#queueList").isVisible());
   check("and the column with it", (await widthOf(".stream")) === openWide);
+
+  // The queue. What it has to do is come back with fewer rows when the X is
+  // pressed, and let a card's play button put one in without opening anything.
+  const qrows = async (): Promise<number> => page.locator("#queueList .qrow").count();
+  const queued = await qrows();
+  check("the queue has rows", queued > 0, `${queued}`);
+  check("the head is marked as the one being worked on",
+    (await page.locator("#queueList .qrow.head").count()) === 1);
+  check("a handoff that failed says why",
+    (await page.locator("#queueList .qrow.failed .qstate").first().innerText()).length > 0);
+  check("the head offers to have lookout rule on it",
+    (await page.locator("#queueList .qrow.head .qrule").count()) === 1);
+  await page.locator("#queueList .qrow .qx").first().click();
+  await page.waitForTimeout(1800);
+  check("the X takes a row out", (await qrows()) === queued - 1, `${await qrows()} vs ${queued}`);
+  check("and the count follows",
+    (await page.locator("#queueCount").innerText()).trim() === String(queued - 1));
+
+  // Pressing play queues rather than launching: the row count goes up, and the
+  // card's own button comes back pressed.
+  const card = page.locator('.card .launch[data-queue]').first();
+  if (await card.count()) {
+    const id = await card.getAttribute("data-queue");
+    const was = await qrows();
+    await card.click();
+    await page.waitForTimeout(1800);
+    check("pressing play adds a row rather than opening anything", (await qrows()) === was + 1,
+      `${await qrows()} vs ${was}`);
+    check("and the card's button comes back pressed",
+      (await page.locator('.card .launch[data-unqueue="' + id + '"]').count()) === 1);
+  }
 
   await page.click('[data-view="learning"]');
   await page.waitForTimeout(1200);
@@ -395,7 +430,10 @@ if (command === "fixture") {
   // Inherit stdio so the ui's own startup lines are visible; this blocks.
   const child = spawn(process.execPath, [join(ROOT, "src", "cli.ts"), "ui", "--port", String(PORT)], {
     cwd: project,
-    env: { ...process.env, LOOKOUT_CHECKOUT: checkout },
+    // The gate drives a real server against the fixture, and the fixture has a
+    // queue in it. Without this the pump would hand its head over for real and
+    // open a Terminal window on whoever ran the gate.
+    env: { ...process.env, LOOKOUT_CHECKOUT: checkout, LOOKOUT_NO_HANDOFF: "1" },
     stdio: "inherit",
   });
   process.on("SIGINT", () => child.kill("SIGINT"));

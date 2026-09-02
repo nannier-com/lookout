@@ -492,6 +492,37 @@ export async function buildFixture(root: string): Promise<{ project: string; che
   } as unknown as Backlog;
   writeFileSync(join(lk, "backlog.json"), JSON.stringify(backlog, null, 2));
 
+  // A queue with something in every state a row can be in: the head handed off
+  // and waiting on a ruling, one waiting its turn behind it, and one whose
+  // handoff could not happen and says why.
+  //
+  // Every entry carries `handedOffAt`, including the ones that are not the
+  // head. `serve` runs the real server against this fixture, and a head that
+  // had never been handed over would be handed over for real, opening a
+  // Terminal window on whichever machine is running the gate. The environment
+  // switch below is the belt; this is the braces.
+  writeFileSync(
+    join(lk, "queue.json"),
+    JSON.stringify(
+      {
+        items: [
+          { issue: STILL_OPEN_ISSUE, tool: "claude-code", queuedAt: AT, handedOffAt: AT, handedOffAtAttempt: 2 },
+          { issue: OPEN_ISSUE, tool: "claude-code", queuedAt: AT, handedOffAt: AT, handedOffAtAttempt: 0 },
+          {
+            issue: EXPLAINED_ISSUE,
+            tool: "codex",
+            queuedAt: AT,
+            handedOffAt: AT,
+            failedAt: AT,
+            lastReason: "codex is not on PATH",
+          },
+        ],
+      },
+      null,
+      2,
+    ) + "\n",
+  );
+
   // What two rulings recorded about the issue with attempts. Truth, not a
   // projection: lookout never regenerates this file.
   mkdirSync(join(lk, "issues", STILL_OPEN_ISSUE), { recursive: true });
