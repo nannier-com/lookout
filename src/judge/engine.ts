@@ -15,7 +15,7 @@ import type { Category } from "./rubric.js";
 
 import { extractJson, invokeClaude } from "./claude.js";
 import { scrollerLine, signalsLine } from "./signals-line.js";
-import { manifestOf, preparePieces, type Pieces } from "./manifest.js";
+import { manifestOf, preparePieces, wasRead, type Pieces } from "./manifest.js";
 import { closeCall, narrating, openCall, say } from "../report/narration.js";
 import { ingestJudgeReply, type ContractLapse, type PanelLane } from "./reply.js";
 
@@ -72,6 +72,12 @@ export interface JudgeBatchResult {
    * the difference between "clean" and "not looked at".
    */
   unaccounted: string[];
+  /**
+   * Shots the reply called clean without the model ever opening their file
+   * (or every piece of it). Already folded into `unaccounted`, so they are
+   * left uncached and judged again; listed apart so the run can say why.
+   */
+  unread: string[];
   rejected: { reason: string; raw: unknown }[];
   /** Findings filed although their problem is written for one reader. */
   degraded: ContractLapse[];
@@ -227,6 +233,9 @@ export async function judgeBatch(
   let text = "";
   let costUsd: number | undefined;
   let parsed: unknown;
+  // What the model opened, across both attempts: a file read before a reply
+  // that failed to parse was still read.
+  const reads: string[] = [];
   for (let attempt = 0; attempt < 2; attempt++) {
     const call = openCall(
       voice,
@@ -249,6 +258,7 @@ export async function judgeBatch(
       closeCall(call, voice);
     }
     text = res.text;
+    reads.push(...res.reads);
     costUsd = (costUsd ?? 0) + (res.costUsd ?? 0);
     try {
       parsed = extractJson(text);
@@ -273,8 +283,33 @@ export async function judgeBatch(
   }
 
   const ingested = ingestJudgeReply(parsed, { shots, project, panel: ctx.panel });
+  // A shot called clean that the model never opened is not clean; it is a
+  // shot nobody ruled on. It joins the unaccounted, which leaves the pair out
+  // of the cache and judges it again next run, and the incident names the
+  // form factors, because a panel that keeps skipping the phone shots has
+  // instructions that are not landing.
+  const unread = ingested.cleanShotIds.filter((id) => {
+    const shot = shots.find((s) => s.id === id);
+    return shot !== undefined && !wasRead(shot, evidenceDir, pieces, reads);
+  });
+  if (unread.length > 0) {
+    const where = [...new Set(unread.map((id) => shots.find((s) => s.id === id)?.formFactor ?? "?"))];
+    recordIncident({
+      at: new Date().toISOString(),
+      kind: "judge-rejected",
+      verb: "check",
+      message:
+        `${unread.length} shot(s) marked clean without being read (${where.join(", ")}): ` +
+        unread.join(", ").slice(0, 300),
+      project,
+      judge: ctx.panel?.name,
+    });
+  }
   return {
     ...ingested,
+    cleanShotIds: ingested.cleanShotIds.filter((id) => !unread.includes(id)),
+    unaccounted: [...ingested.unaccounted, ...unread],
+    unread,
     raw: text,
     costUsd,
     durationMs: Date.now() - started,

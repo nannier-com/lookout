@@ -22,7 +22,7 @@
  * the shot's hash changes.
  */
 import { readFile, unlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
   DEFAULT_VIEWPORTS,
   DEVICE_SCALE_FACTOR,
@@ -156,6 +156,27 @@ export function pieceLines(shot: ShotRecord, evidenceDir: string, pieces: Pieces
       (rest > 0 ? ` (the page continues ${rest} px below the last piece)` : ""),
     ...files.map((rel, i) => `${indent}  - ${evidenceDir}/${rel}  (piece ${i + 1} of ${files.length})`),
   ];
+}
+
+/** The files a model has to open to have looked at a shot: its pieces when it has them, else the file. */
+export function filesOf(shot: Pick<ShotRecord, "id" | "path">, pieces?: Pieces): readonly string[] {
+  const cut = pieces?.get(shot.id);
+  return cut && cut.length > 0 ? cut : [shot.path];
+}
+
+/**
+ * Whether a model opened every file a shot is read from. A Read names a
+ * path as the model typed it, absolute or relative to the evidence
+ * directory it was run in, so both spellings are resolved before comparing.
+ */
+export function wasRead(
+  shot: Pick<ShotRecord, "id" | "path">,
+  evidenceDir: string,
+  pieces: Pieces | undefined,
+  reads: readonly string[],
+): boolean {
+  const opened = new Set(reads.map((r) => resolve(evidenceDir, r)));
+  return filesOf(shot, pieces).every((rel) => opened.has(resolve(evidenceDir, rel)));
 }
 
 /** A shot's entry in a manifest: its id, its file, its axes and, when cut, its pieces. */

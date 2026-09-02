@@ -16,6 +16,7 @@ import type { ContractLapse } from "../judge/reply.js";
 import { LookoutError, type ResolvedConfig, type ShotRecord } from "../types.js";
 import { runId } from "../util.js";
 import { workKey, type JudgePass } from "./batches.js";
+import { tallyFormFactors, type FormFactorTally } from "./tally.js";
 import type { JudgePlan } from "./plan.js";
 import type { CheckScope } from "./scope.js";
 
@@ -59,6 +60,8 @@ export interface CheckOutcome {
    * run writes down more than a number.
    */
   unaccounted: { panel: string; groupId: string; shotIds: string[] }[];
+  /** What this run judged, per platform and form factor; the phone shots are counted apart from the desktop ones. */
+  formFactors: FormFactorTally[];
   /** Panel calls whose judge subprocess failed. The run continued without them. */
   failedBatches: { panel: string; shots: number; message: string }[];
   deterministicErrors: number;
@@ -185,6 +188,12 @@ export async function recordOutcome(args: {
     rejected: pass.rejected,
     unjudged: unjudgedIds.size,
     unaccounted: pass.unaccounted,
+    formFactors: tallyFormFactors(
+      scope.shots,
+      new Set(plan.toJudgeShots.map((s) => s.id)),
+      new Set(allFindings.map((f) => f.shotId)),
+      unjudgedIds,
+    ),
     failedBatches: pass.failedBatches,
     deterministicErrors,
     costUsd: Number(pass.costUsd.toFixed(4)),

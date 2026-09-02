@@ -47,6 +47,13 @@ export class ReplyStream {
   private everything = "";
   /** The terminal message, once the CLI has sent it. */
   result: ResultLine | null = null;
+  /**
+   * Every file the model asked the Read tool for, in order, whether or not
+   * anybody is narrating. What a judge looked at is part of its verdict: a
+   * shot it called clean without opening is not clean, and only this list
+   * can say so.
+   */
+  readonly reads: string[] = [];
 
   constructor(private readonly onSay?: (say: JudgeSay) => void) {}
 
@@ -81,6 +88,7 @@ export class ReplyStream {
       this.result = d as ResultLine;
       return;
     }
+    if (d["type"] === "assistant") this.reads.push(...readsOf(d["message"]));
     if (!this.onSay) return;
     const say = narrate(d);
     if (say) this.onSay(say);
@@ -132,6 +140,20 @@ function fromTurn(message: unknown): JudgeSay | null {
     return { kind: "tool", text: `${name} ${subject(part["input"])}`.trim() };
   }
   return null;
+}
+
+/** Every file a turn asked the Read tool for, in the order it asked. */
+function readsOf(message: unknown): string[] {
+  if (!isObject(message)) return [];
+  const content = message["content"];
+  if (!Array.isArray(content)) return [];
+  const files: string[] = [];
+  for (const part of content) {
+    if (!isObject(part) || part["type"] !== "tool_use" || part["name"] !== "Read") continue;
+    const input = part["input"];
+    if (isObject(input) && typeof input["file_path"] === "string") files.push(input["file_path"]);
+  }
+  return files;
 }
 
 /** The one part of a tool's input worth showing: what it was pointed at. */

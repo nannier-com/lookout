@@ -209,6 +209,7 @@ export async function judgeInBatches(args: {
       const fresh: AiFinding[] = [];
       let durationMs = 0;
       let rejectedHere = 0;
+      let unreadHere = 0;
       let panelIndex = 0;
       for (const item of job.items) {
         const panelName = item.panel.def.name;
@@ -273,6 +274,7 @@ export async function judgeInBatches(args: {
           uncacheable.add(workKey(item));
           unaccounted.push({ panel: panelName, groupId: job.groupId, shotIds: res.unaccounted });
         }
+        unreadHere += res.unread.length;
         fresh.push(...res.findings);
       }
       rejectedCount += rejectedHere;
@@ -325,6 +327,7 @@ export async function judgeInBatches(args: {
         `  batch ${i + 1}/${jobs.length}: ${job.shots.length} shot(s), ${job.items.length} panel(s), ` +
           `${jobFindings.length} finding(s)` +
           (rejectedHere ? `, ${rejectedHere} rejected` : "") +
+          (unreadHere ? `, ${unreadHere} called clean without being read (judged again next run)` : "") +
           ` (${(durationMs / 1000).toFixed(0)}s)`,
       );
       emit("batch", `batch ${i + 1}/${jobs.length}: ${jobFindings.length} finding(s)`, {

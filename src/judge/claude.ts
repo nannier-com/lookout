@@ -62,7 +62,7 @@ const MAX_STDERR = 4000;
  * per judging phase to exactly that. Reading the stream means the end of the
  * answer is something lookout sees rather than something it waits for.
  */
-export function invokeClaude(inv: JudgeInvocation): Promise<{ text: string; costUsd?: number }> {
+export function invokeClaude(inv: JudgeInvocation): Promise<{ text: string; costUsd?: number; reads: string[] }> {
   const args = [
     "-p",
     inv.prompt,
@@ -88,7 +88,7 @@ export function invokeClaude(inv: JudgeInvocation): Promise<{ text: string; cost
     // Settling is one-way, and it does not wait for the pipes. A child that has
     // said its last word is done whether or not something else still holds its
     // stdout, so it is killed rather than waited on.
-    const done = (err: LookoutError | null, value?: { text: string; costUsd?: number }): void => {
+    const done = (err: LookoutError | null, value?: { text: string; costUsd?: number; reads: string[] }): void => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
@@ -101,7 +101,7 @@ export function invokeClaude(inv: JudgeInvocation): Promise<{ text: string; cost
     const conclude = (code: number | null): void => {
       reply.end();
       if (reply.result) {
-        unwrap(reply.result, done);
+        unwrap(reply.result, done, reply.reads);
         return;
       }
       if (code !== 0) {
@@ -129,7 +129,7 @@ export function invokeClaude(inv: JudgeInvocation): Promise<{ text: string; cost
     child.stdout?.on("data", (chunk: string) => {
       reply.push(chunk);
       // The whole point: the result line IS the end of the answer.
-      if (reply.result) unwrap(reply.result, done);
+      if (reply.result) unwrap(reply.result, done, reply.reads);
     });
     child.stderr?.setEncoding("utf8");
     child.stderr?.on("data", (chunk: string) => {
@@ -155,7 +155,8 @@ export function invokeClaude(inv: JudgeInvocation): Promise<{ text: string; cost
 /** The result message, turned into an answer or into the reason there is none. */
 function unwrap(
   r: ResultLine,
-  done: (err: LookoutError | null, value?: { text: string; costUsd?: number }) => void,
+  done: (err: LookoutError | null, value?: { text: string; costUsd?: number; reads: string[] }) => void,
+  reads: string[],
 ): void {
   if (typeof r.result !== "string") {
     done(new LookoutError(`claude -p returned no result (subtype: ${r.subtype ?? "?"})`));
@@ -172,7 +173,7 @@ function unwrap(
     );
     return;
   }
-  done(null, { text: r.result, costUsd: r.total_cost_usd });
+  done(null, { text: r.result, costUsd: r.total_cost_usd, reads });
 }
 
 /** Extract the last fenced json block (or a bare object) from a reply. */

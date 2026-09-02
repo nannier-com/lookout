@@ -24,6 +24,7 @@ import { recordOutcome, type CheckOutcome } from "../check/outcome.js";
 import { planJudging } from "../check/plan.js";
 import { maybeRefreshNavigation } from "../check/navigate.js";
 import { resolveScope } from "../check/scope.js";
+import { tallyLines } from "../check/tally.js";
 import { SEVERITIES } from "../judge/rubric.js";
 import { emit, EventLog, setCurrentLog } from "../report/events.js";
 import { Narration, setCurrentNarration } from "../report/narration.js";
@@ -283,6 +284,10 @@ export async function check(parsed: Parsed): Promise<number> {
         `; ${outcome.findings.length} finding(s), ${outcome.refuted.length} refuted; ` +
         `${outcome.deterministicErrors} deterministic error(s); ~$${outcome.costUsd}`,
     );
+    // Per form factor, because "12 judged" says nothing about whether the
+    // phone shots were among them, and a form factor nobody ruled on is the
+    // one number here that changes what the reader does next.
+    for (const line of tallyLines(outcome.formFactors)) console.log(`  ${line}`);
     for (const f of outcome.findings) {
       const shot = shotsById.get(f.shotId);
       console.log(

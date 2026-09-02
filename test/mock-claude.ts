@@ -13,7 +13,11 @@
 //           gate, and its control round cannot be exercised by a double that
 //           answers the same way with and without the amendment.
 //           MOCK_JUDGE_FLAKY_FILE files nothing on the first call and normally
-//           after, which is the run-to-run spread the gate has to survive
+//           after, which is the run-to-run spread the gate has to survive.
+//           Every file the prompt lists is opened with a Read turn, as a real
+//           judge's would be; MOCK_JUDGE_READS=first opens only the first, so
+//           the unread-shot rule (clean without reading is not clean) is
+//           exercised
 //   improve emit a skill amendment; MOCK_AMENDMENT overrides the body
 //   heal    edit a file in cwd (MOCK_HEAL_FILE) and report the fix, so the
 //           gates and the revert path can be exercised end to end
@@ -372,16 +376,27 @@ if (mode === "placement") {
   result = "Yes. The mock says so.\nConfidence: high";
 }
 
+// The real CLI reports every tool call as an assistant turn whether or not
+// partials were asked for, and lookout reads those turns to learn which
+// screenshots a judge actually opened: a shot called clean without being read
+// is judged again. So the double opens every file the prompt lists, and every
+// piece of a tall one, the way a judge that did its job would. With
+// MOCK_JUDGE_READS=first it opens only the first, which is how the unread
+// rule is tested.
+const say = (o: unknown) => console.log(JSON.stringify(o));
+say({ type: "system", subtype: "init", cwd: process.cwd() });
+const listed = [
+  ...[...promptText.matchAll(/^ {2,7}file: (.+)$/gm)].map((m) => m[1]!),
+  ...[...promptText.matchAll(/^ {4,7}- (\S+\.p\d+of\d+\.png)/gm)].map((m) => m[1]!),
+];
+const opened = process.env.MOCK_JUDGE_READS === "first" ? listed.slice(0, 1) : listed;
+for (const file of opened.length > 0 ? opened : [shotIds[0] ?? "shot.png"]) {
+  say({ type: "assistant", message: { content: [{ type: "tool_use", name: "Read", input: { file_path: file } }] } });
+}
 // The real CLI streams when asked to, so the double does too: a caller that
 // passed --include-partial-messages is one whose narration path is under test,
 // and a double that answered only at the end could not exercise it.
 if (argv.includes("--include-partial-messages")) {
-  const say = (o: unknown) => console.log(JSON.stringify(o));
-  say({ type: "system", subtype: "init", cwd: process.cwd() });
-  say({
-    type: "assistant",
-    message: { content: [{ type: "tool_use", name: "Read", input: { file_path: shotIds[0] ?? "shot.png" } }] },
-  });
   // In thirds, so a consumer that has to reassemble deltas is actually made to.
   const size = Math.max(1, Math.ceil(result.length / 3));
   for (let i = 0; i < result.length; i += size) {
