@@ -141,3 +141,59 @@ describe("the rubric reads the batch header", () => {
     expect(prompt).toContain("What a device shot (iOS, Android) must do");
   });
 });
+
+describe("the accessibility tree in the manifest", () => {
+  const shots: ShotRecord[] = [
+    { ...base, id: "dark", route: "/a", routeName: "/a", path: "a.png" },
+    { ...base, id: "light", scheme: "light", route: "/a", routeName: "/a", path: "b.png" },
+    { ...base, id: "other", route: "/c", routeName: "/c", path: "c.png" },
+  ];
+  const tree = '- banner:\n  - heading "Dashboard" [level=1]\n- button "Save"';
+
+  test("a shot's tree is carried under its own line, indented", () => {
+    const prompt = buildJudgePrompt(rubric.text, "proj", shots, "/ev", {
+      aria: new Map([["dark", { yaml: tree, hash: "t1" }]]),
+    });
+    expect(prompt).toContain("  aria: |");
+    expect(prompt).toContain('    - heading "Dashboard" [level=1]');
+  });
+
+  test("a repeat of the same tree names the shot that carried it", () => {
+    // A view group is one page at several sizes and schemes, so its members
+    // usually share a tree. Six copies would crowd out the images.
+    const prompt = buildJudgePrompt(rubric.text, "proj", shots, "/ev", {
+      aria: new Map([
+        ["dark", { yaml: tree, hash: "t1" }],
+        ["light", { yaml: tree, hash: "t1" }],
+      ]),
+    });
+    expect(prompt).toContain("aria: same tree as dark");
+    expect(prompt.match(/aria: \|/g)).toHaveLength(1);
+  });
+
+  test("a different tree is carried in full, not deduplicated", () => {
+    const prompt = buildJudgePrompt(rubric.text, "proj", shots, "/ev", {
+      aria: new Map([
+        ["dark", { yaml: tree, hash: "t1" }],
+        ["other", { yaml: '- button "Cancel"', hash: "t2" }],
+      ]),
+    });
+    expect(prompt.match(/aria: \|/g)).toHaveLength(2);
+    expect(prompt).toContain('    - button "Cancel"');
+  });
+
+  test("a shot with no tree promises none, and no placeholder survives", () => {
+    const prompt = buildJudgePrompt(rubric.text, "proj", shots, "/ev", {
+      aria: new Map([["dark", { yaml: tree, hash: "t1" }]]),
+    });
+    const otherLine = prompt.split("\n").find((l) => l.includes("shotId: other"));
+    expect(otherLine).toBeDefined();
+    expect(prompt).not.toContain("{{");
+  });
+
+  test("no trees at all leaves the manifest exactly as it was", () => {
+    expect(buildJudgePrompt(rubric.text, "proj", shots, "/ev", { aria: new Map() })).toBe(
+      buildJudgePrompt(rubric.text, "proj", shots, "/ev"),
+    );
+  });
+});

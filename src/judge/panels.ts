@@ -21,13 +21,23 @@ export interface PanelDef {
   categories: readonly Category[];
   /** Judges only view groups where a shot carries a design reference. */
   designOnly?: boolean;
+  /**
+   * Given the shot's accessibility tree as evidence.
+   *
+   * Only the two panels that can act on it. The tree says what exists and what
+   * a control is named, which settles an anatomy claim (is that field really
+   * unlabelled) and a content claim (does that string really read `undefined`).
+   * It says nothing about how anything looks, so geometry, visibility and craft
+   * would pay for it in every prompt and get nothing back.
+   */
+  ariaEvidence?: boolean;
 }
 
 export const PANELS: readonly PanelDef[] = [
-  { name: "judge-integrity", categories: ["render-failure", "states", "anatomy"] },
+  { name: "judge-integrity", categories: ["render-failure", "states", "anatomy"], ariaEvidence: true },
   { name: "judge-geometry", categories: ["layout-overflow", "alignment", "spacing", "responsive"] },
   { name: "judge-visibility", categories: ["color-scheme", "contrast", "a11y"] },
-  { name: "judge-text", categories: ["typography", "content"] },
+  { name: "judge-text", categories: ["typography", "content"], ariaEvidence: true },
   { name: "judge-craft", categories: ["hierarchy", "composition", "consistency"] },
   { name: "judge-design-parity", categories: ["design-parity"], designOnly: true },
 ];

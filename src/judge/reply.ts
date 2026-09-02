@@ -24,6 +24,8 @@ import type { AiFinding } from "./engine.js";
 export interface PanelLane {
   name: string;
   categories: readonly Category[];
+  /** Whether this lane is shown each shot's accessibility tree. */
+  aria?: boolean;
 }
 
 /** A finding that survived ingestion with a problem written for one reader. */

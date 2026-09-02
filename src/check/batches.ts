@@ -232,7 +232,11 @@ export async function judgeInBatches(args: {
             prior: [...plan.prior, ...filedSoFar].filter((p) =>
               (item.panel.def.categories as readonly string[]).includes(p.category),
             ),
-            panel: { name: panelName, categories: item.panel.def.categories },
+            panel: {
+              name: panelName,
+              categories: item.panel.def.categories,
+              ...(item.panel.def.ariaEvidence ? { aria: true } : {}),
+            },
           });
         } catch (e) {
           const message = e instanceof Error ? e.message : String(e);

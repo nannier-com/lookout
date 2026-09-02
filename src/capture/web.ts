@@ -48,6 +48,8 @@ export interface WebCaptureOptions {
   headless: boolean;
   /** Per-shot rendering-provenance sidecars; on unless config or flag opts out. */
   provenance: boolean;
+  /** Per-shot accessibility-tree sidecars; on unless config or flag opts out. */
+  aria: boolean;
   /**
    * The clipped-content measurement. On unless --no-edge-clip says otherwise:
    * it costs one page.evaluate and no model money, and what it measures is the

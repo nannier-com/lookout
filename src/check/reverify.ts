@@ -64,11 +64,11 @@ export async function reverifyCached(args: {
   const inWork = new Set(plan.toJudge.map((item) => workKey(item)));
   const candidates: { key: string; shots: ShotRecord[]; panel: PanelRubric }[] = [];
   for (const [groupId, group] of groupShots([...shotsById.values()])) {
-    const hash = groupHash(group);
     for (const panel of plan.panels) {
       if (panel.def.designOnly && !group.some((s) => s.design)) continue;
       if (inWork.has(`${groupId}|${panel.def.name}`)) continue;
-      const key = ledgerKey(hash, plan.identities.get(panel.def.name)!);
+      const identity = plan.identities.get(panel.def.name)!;
+      const key = ledgerKey(groupHash(group, { aria: identity.aria }), identity);
       const entry = plan.ledger.entries[key];
       if (entry?.findings?.some((f) => !f.verified)) candidates.push({ key, shots: group, panel });
     }

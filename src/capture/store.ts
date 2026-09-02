@@ -137,6 +137,25 @@ export function sidecarRelPath(a: ShotAxes): string {
   return `${shotRelPath(a)}.provenance.json`;
 }
 
+/** The accessibility-tree sidecar beside a shot, by the same convention. */
+export function ariaRelPath(a: ShotAxes): string {
+  return `${shotRelPath(a)}.aria.json`;
+}
+
+export async function writeShotAria(
+  resolved: ResolvedConfig,
+  axes: ShotAxes,
+  sidecar: unknown,
+): Promise<{ rel: string; abs: string }> {
+  const rel = ariaRelPath(axes);
+  const abs = join(evidenceDir(resolved), rel);
+  await mkdir(dirname(abs), { recursive: true });
+  const tmp = `${abs}.tmp`;
+  await writeFile(tmp, JSON.stringify(sidecar, null, 2));
+  await rename(tmp, abs);
+  return { rel, abs };
+}
+
 export async function writeShotSidecar(
   resolved: ResolvedConfig,
   axes: ShotAxes,

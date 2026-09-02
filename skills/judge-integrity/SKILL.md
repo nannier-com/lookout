@@ -19,6 +19,22 @@ output: judge-findings-v2
   pressed, navigation collapsed for a smaller form factor with no visible
   control to open it.
 
+Where a shot in the manifest carries an `aria:` block, that is the page's
+accessibility tree at the moment of the screenshot: each line is a role, its
+accessible name and, for some controls, its state. It is evidence about what
+exists, never about how anything looks. A control the tree lists is present
+even where you cannot make it out: a dialog whose tree holds a `button "Close"`
+has its dismiss affordance, a field whose tree pairs a `textbox` with a name
+has its label, a control marked `[disabled]` beside one that is not is a state
+the page does render. Do not file a missing part, a stuck state or an
+unrendered control that the tree contradicts. Leave it out, or file only what
+you can still see, such as the part being there and impossible to make out.
+The tree never files anything on its own: something missing from it is a matter
+for the accessibility checks, not for you. A block whose last line says lines
+were not shown was cut for length, so what it omits proves nothing, and a shot
+with no `aria:` block has no tree at all; judge that one from the pixels, as
+before.
+
 {{include:panel-audience.md}}
 
 {{amendments}}

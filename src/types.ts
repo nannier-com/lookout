@@ -298,6 +298,13 @@ export interface LookoutConfig {
    * KB, and a failure is swallowed without costing the shot.
    */
   provenance?: boolean;
+  /**
+   * Per-shot accessibility-tree sidecars, and the tree reaching the two judge
+   * panels that can act on it. Default TRUE, for the same reasons as
+   * `provenance` above: one browser call, no model money, and a failure costs
+   * the sidecar rather than the shot.
+   */
+  aria?: boolean;
 }
 
 /**
@@ -411,6 +418,19 @@ export interface ShotRecord {
    * fingerprint, so its presence or absence never re-judges anything.
    */
   provenance?: string;
+  /**
+   * Evidence-relative path of the shot's accessibility-tree sidecar, when one
+   * was captured. Web only: a native capture has no DOM, so the field is
+   * absent rather than empty and no prompt promises a tree.
+   */
+  aria?: string;
+  /**
+   * sha256 of the tree that sidecar holds. A judge input for the panels that
+   * are given it, so it enters their view group's ledger hash the way
+   * `designHash` does: a cached anatomy verdict must not outlive the evidence
+   * it was formed with.
+   */
+  ariaHash?: string;
   /**
    * How the view was photographed, for whoever has to put the same screen in
    * front of themselves. Recorded by web capture; older reports carry none.

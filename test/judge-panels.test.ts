@@ -8,7 +8,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { loadSkill, sharedSkillDir } from "../src/skills/load.js";
+import { loadSkill, sharedSkillDir, shippedSkillDir } from "../src/skills/load.js";
 import { CATEGORIES, loadJudges, loadRubric } from "../src/judge/rubric.js";
 import { applicablePanels, isJudgeFamily, licensedSkills, panelOf, PANELS } from "../src/judge/panels.js";
 import { tmpProject } from "./tmp-project.js";
@@ -162,5 +162,26 @@ describe("the shared panel paragraph", () => {
     const shared = readFileSync(join(sharedSkillDir(), "panel-audience.md"), "utf8");
     expect(shared).toContain("for both readers");
     for (const line of shared.split("\n")) expect({ line, bullet: /^- [a-z0-9-]+:/.test(line) }).toEqual({ line, bullet: false });
+  });
+});
+
+describe("the accessibility tree reaches only the panels that can act on it", () => {
+  test("integrity and text are given it; the other four are not", () => {
+    expect(PANELS.filter((p) => p.ariaEvidence).map((p) => p.name).sort()).toEqual([
+      "judge-integrity",
+      "judge-text",
+    ]);
+  });
+
+  test("and each of those two says in its own words what the tree is for", () => {
+    for (const panel of PANELS) {
+      const text = readFileSync(join(shippedSkillDir(panel.name), "SKILL.md"), "utf8");
+      // The prose and the registry cannot drift: a panel handed the tree with
+      // nothing telling it what the block is would read it as page content.
+      expect({ panel: panel.name, says: text.includes("accessibility tree") }).toEqual({
+        panel: panel.name,
+        says: panel.ariaEvidence === true,
+      });
+    }
   });
 });

@@ -18,6 +18,7 @@ import type { Category } from "./rubric.js";
 import { extractJson, invokeClaude } from "./claude.js";
 import { scrollerLine, signalsLine } from "./signals-line.js";
 import { manifestOf, preparePieces, wasRead, type Pieces } from "./manifest.js";
+import { loadAriaFor } from "./aria-evidence.js";
 import { closeCall, narrating, openCall, say } from "../report/narration.js";
 import { ingestJudgeReply, type ContractLapse, type PanelLane } from "./reply.js";
 
@@ -111,6 +112,12 @@ export interface PriorFinding {
   settled?: true;
 }
 
+/** One shot's accessibility tree, as the prompt builder takes it. */
+export interface AriaEvidence {
+  yaml: string;
+  hash: string;
+}
+
 export interface JudgeContext {
   /** Hand-off instructions, carried only when a shot has a `design:` reference. */
   handoff?: string;
@@ -122,10 +129,34 @@ export interface JudgeContext {
    */
   panel?: PanelLane;
   /**
+   * Each shot's accessibility tree, by shot id, for the lanes given it. Loaded
+   * by judgeBatch when the lane asks and the caller has not supplied it.
+   */
+  aria?: ReadonlyMap<string, AriaEvidence>;
+  /**
    * The pieces tall shots are read in, from `preparePieces`. Absent, every
    * shot is read whole, which is right for a prompt built for its text alone.
    */
   pieces?: Pieces;
+}
+
+/**
+ * One shot's accessibility tree for the manifest, indented under a block
+ * scalar. A tree already shown in this batch is named rather than repeated:
+ * a view group is the same page at several sizes and schemes, so its members
+ * usually share one tree, and printing it six times would crowd out the images.
+ */
+function ariaBlock(shot: ShotRecord, ctx: JudgeContext, shownBy: Map<string, string>): string {
+  const tree = ctx.aria?.get(shot.id);
+  if (!tree) return "";
+  const already = shownBy.get(tree.hash);
+  if (already) return `\n  aria: same tree as ${already}`;
+  shownBy.set(tree.hash, shot.id);
+  const body = tree.yaml
+    .split("\n")
+    .map((l) => `    ${l}`)
+    .join("\n");
+  return `\n  aria: |\n${body}`;
 }
 
 export function buildJudgePrompt(
@@ -135,6 +166,7 @@ export function buildJudgePrompt(
   evidenceDir: string,
   ctx: JudgeContext = {},
 ): string {
+  const ariaShownBy = new Map<string, string>();
   // The shared description of each shot (its id, file, axes and pieces) with
   // what only the judge is told after it: the hand-off, the animation note,
   // what scrolls, and the signals.
@@ -149,7 +181,10 @@ export function buildJudgePrompt(
       // to read everything else about the shot, because content past the
       // edge of a scroller is reachable rather than lost.
       (scrollerLine(s) ? `\n  note: something in this view ${scrollerLine(s)}` : "") +
-      (signalsLine(s) ? `\n  signals: ${signalsLine(s)}` : ""),
+      (signalsLine(s) ? `\n  signals: ${signalsLine(s)}` : "") +
+      // Last, and only for the lanes given it: the tree is the longest thing on
+      // a shot's line, so everything a judge always needs comes before it.
+      ariaBlock(s, ctx, ariaShownBy),
   );
 
   // Instructions for comparing against a design hand-off are a quarter of the
@@ -223,7 +258,10 @@ export async function judgeBatch(
   const started = Date.now();
   // Tall shots are cut into readable pieces before the prompt names them.
   const pieces = ctx.pieces ?? (await preparePieces(evidenceDir, shots));
-  const prompt = buildJudgePrompt(skillText, project, shots, evidenceDir, { ...ctx, pieces });
+  // The accessibility trees, for the lanes that are given them. Read here
+  // rather than by every caller: what a lane is shown is a fact about the lane.
+  const aria = ctx.aria ?? (ctx.panel?.aria ? await loadAriaFor(shots, evidenceDir) : undefined);
+  const prompt = buildJudgePrompt(skillText, project, shots, evidenceDir, { ...ctx, pieces, ...(aria ? { aria } : {}) });
   // Who is speaking, for anything reading the run as it happens. The lane's
   // name where there is one, because that is what the page counts progress in.
   const voice = ctx.panel?.name ?? "judge";

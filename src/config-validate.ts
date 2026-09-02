@@ -266,6 +266,9 @@ export function validateConfig(raw: unknown, path: string): LookoutConfig {
     };
   }
 
+  if (raw.aria !== undefined && typeof raw.aria !== "boolean") {
+    fail(path, "aria must be a boolean");
+  }
   if (raw.provenance !== undefined && typeof raw.provenance !== "boolean") {
     fail(path, "provenance must be a boolean");
   }

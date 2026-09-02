@@ -25,8 +25,8 @@ import {
 import { axeForShot, runTargetSize, type AxeSeen } from "./axe.js";
 import { checkEdgeClipping, type ScrollerNote } from "./check-clip.js";
 import { checkCollisions } from "./checks-collide.js";
-import { shotId, writeShotFile, writeShotSidecar, type ShotAxes } from "./store.js";
-import { attachProvenance, buildSidecar, collectProvenanceInPage, selectorsOf } from "./provenance.js";
+import { shotId, writeShotFile, type ShotAxes } from "./store.js";
+import { writeSidecars } from "./web-sidecars.js";
 import { resolveElement, schemeUrl, setScheme, settle } from "./web-page.js";
 import { harvestRoute } from "../navigate/harvest.js";
 import { NavSkip, runNavChecks, synthStates, type SynthesizedStates } from "../navigate/execute.js";
@@ -213,34 +213,26 @@ export async function captureRoute(
         const pngHash = sha256(png);
         const capturedAt = nowIso();
 
-        // Rendering provenance, while the page still shows what the PNG shows.
-        // A failed walk costs the sidecar, never the shot.
-        let provenanceRel: string | undefined;
-        if (ctx.provenance && route.provenance !== false) {
-          try {
-            const raw = await page.evaluate(collectProvenanceInPage, {
-              rootSelector: element ? elementSel ?? null : null,
-              maxElements: 800,
-              // The deterministic findings' own selectors, joined against the
-              // live DOM while it still shows what the PNG shows.
-              resolve: findings.flatMap(selectorsOf),
-            });
-            const sidecar = buildSidecar(raw, {
-              id: shotId(axes),
-              runId: ctx.runId,
-              capturedAt,
-              hash: pngHash,
-              origin: element ? "element" : "document",
-              image: { width: meta.width ?? 0, height: meta.height ?? 0 },
-            });
-            attachProvenance(findings, sidecar);
-            provenanceRel = (await writeShotSidecar(resolved, axes, sidecar)).rel;
-          } catch (e) {
-            ctx.progress(
-              `provenance failed on ${shotId(axes)}: ${(e as Error).message.slice(0, 120)}`,
-            );
-          }
-        }
+        // What goes beside the shot: the accessibility tree and the rendering
+        // provenance, both taken while the page still shows what the PNG shows,
+        // and both costing only themselves when they fail.
+        const sidecars = await writeSidecars({
+          resolved,
+          page,
+          element,
+          elementSelector: elementSel ?? null,
+          axes,
+          runId: ctx.runId,
+          capturedAt,
+          pngHash,
+          image: { width: meta.width ?? 0, height: meta.height ?? 0 },
+          findings,
+          want: {
+            provenance: ctx.provenance && route.provenance !== false,
+            aria: ctx.aria,
+          },
+          progress: ctx.progress,
+        });
 
         ctx.shots.push({
           id: shotId(axes),
@@ -258,7 +250,9 @@ export async function captureRoute(
           height: meta.height ?? 0,
           animated,
           ...(scrollers.length > 0 ? { scrollers } : {}),
-          ...(provenanceRel ? { provenance: provenanceRel } : {}),
+          ...(sidecars.provenance ? { provenance: sidecars.provenance } : {}),
+          ...(sidecars.aria ? { aria: sidecars.aria } : {}),
+          ...(sidecars.ariaHash ? { ariaHash: sidecars.ariaHash } : {}),
           // A navigation state's pixels show another page; the route's design
           // reference describes its rest render, so it must not ride along or
           // design-parity would judge the wrong screen against it.

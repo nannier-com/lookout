@@ -113,6 +113,7 @@ export async function planJudging(
         refuteText: refute.text,
         handoffText: p.handoff,
         model,
+        ...(p.def.ariaEvidence ? { aria: true } : {}),
       }),
     ]),
   );
@@ -134,10 +135,12 @@ export async function planJudging(
     // forever (and wrote entries nothing could ever read); re-judging the
     // same bytes buys only judge variance. The flag's real job is context:
     // the judge prompt marks the shot as one frame of a moving view.
-    const hash = groupHash(group);
     let allServed = true;
     for (const panel of applicableOf(allPanels, group)) {
       const identity = identities.get(panel.def.name)!;
+      // Per panel, not per group: a panel shown the accessibility tree keys on
+      // it, and one that is not keys exactly as it always did.
+      const hash = groupHash(group, { aria: identity.aria });
       // --no-cache: serve nothing, still WRITE fresh verdicts. The model is in
       // the ledger key and a fresh verdict is the best entry there is, so a
       // forced re-judge repairs the cache rather than bypassing it. (The

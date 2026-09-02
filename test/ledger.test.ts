@@ -53,6 +53,22 @@ describe("group hash", () => {
     expect(groupHash([a, b])).toBe(legacy);
   });
 
+  test("the accessibility tree changes the hash only for a panel shown it", () => {
+    const withTree = [shot({ ariaHash: "a1" })];
+    // The panels not given the tree must key exactly as they always did, or
+    // shipping this would re-judge every group of every project.
+    expect(groupHash(withTree)).toBe(groupHash([shot()]));
+    expect(groupHash(withTree, { aria: true })).not.toBe(groupHash(withTree));
+    expect(groupHash([shot({ ariaHash: "a2" })], { aria: true })).not.toBe(
+      groupHash(withTree, { aria: true }),
+    );
+  });
+
+  test("asking for the tree on a group that has none changes nothing", () => {
+    // A native capture has no DOM. Its groups must not fork a second key.
+    expect(groupHash([shot()], { aria: true })).toBe(groupHash([shot()]));
+  });
+
   test("a swapped design image changes the group hash; same design does not", () => {
     const base = [shot({ design: "/designs/home.png", designHash: "d1" })];
     const same = [shot({ design: "/designs/home.png", designHash: "d1" })];

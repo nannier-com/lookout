@@ -146,7 +146,11 @@ export async function replayRegression(
     for (const judge of active) {
       const res = await judgeBatch(judge.text, resolved.project, batch, dir, model, {
         handoff: judge.handoff,
-        panel: { name: judge.def.name, categories: judge.def.categories },
+        panel: {
+          name: judge.def.name,
+          categories: judge.def.categories,
+          ...(judge.def.ariaEvidence ? { aria: true } : {}),
+        },
       });
       costUsd += res.costUsd ?? 0;
       fresh.push(...res.findings);

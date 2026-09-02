@@ -127,7 +127,12 @@ export async function recordOutcome(args: {
     ]);
   }
   if (args.fullScope) {
-    const live = new Set([...groupShots(scope.shots).values()].map((g) => groupHash(g)));
+    // Both variants of every group: an aria-shown panel keys its verdicts on a
+    // different hash of the same shots, and a prune set holding only the plain
+    // one would drop those entries on every full-scope run.
+    const live = new Set(
+      [...groupShots(scope.shots).values()].flatMap((g) => [groupHash(g), groupHash(g, { aria: true })]),
+    );
     const dropped = pruneLedger(plan.ledger, live);
     if (dropped > 0) log(`ledger: pruned ${dropped} unreachable cached verdict(s)`);
   }

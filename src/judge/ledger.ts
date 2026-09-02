@@ -78,10 +78,23 @@ export function ledgerPath(resolved: ResolvedConfig): string {
  * too: the judge compares the build against that image, so swapping the file
  * is a changed input even when the app's pixels held still. Conditional on
  * purpose, so groups without designs keep the hashes they have always had.
+ *
+ * The accessibility tree is the same argument for the two panels given it: a
+ * cached anatomy or content verdict must not outlive the evidence it was formed
+ * with. It is conditional twice over, on the panel asking and on the shot
+ * having one, so a group hashes exactly as it always did for every panel that
+ * is not shown a tree.
  */
-export function groupHash(shots: ShotRecord[]): string {
+export function groupHash(shots: ShotRecord[], opts: { aria?: boolean } = {}): string {
   const parts = shots
-    .map((s) => (s.designHash ? `${s.id}@${s.hash}@d:${s.designHash}` : `${s.id}@${s.hash}`))
+    .map((s) => {
+      let part = `${s.id}@${s.hash}`;
+      if (s.designHash) part += `@d:${s.designHash}`;
+      // Only for the panels shown the tree, and only where a shot has one, so
+      // every group whose key does not depend on it keeps the key it has.
+      if (opts.aria && s.ariaHash) part += `@a:${s.ariaHash}`;
+      return part;
+    })
     .sort()
     .join("\n");
   return sha256(new TextEncoder().encode(parts));
@@ -109,6 +122,13 @@ export interface PanelIdentity {
   /** Short sha256 over every instruction text that can change a verdict. */
   promptHash: string;
   model: string;
+  /**
+   * Whether this panel is shown the accessibility tree, and so whether the
+   * tree belongs in its groups' hashes. Part of the identity rather than a
+   * loose argument, because every call site that keys a verdict must agree
+   * with the one that reads it back.
+   */
+  aria?: boolean;
 }
 
 export function panelIdentity(opts: {
@@ -125,6 +145,8 @@ export function panelIdentity(opts: {
    */
   handoffText: string;
   model: string;
+  /** Whether this panel is shown the accessibility tree. */
+  aria?: boolean;
 }): PanelIdentity {
   // NUL-separated: a prompt is markdown and never holds one, so no two texts
   // can slide across the boundary and hash the same as a different tuple.
@@ -141,6 +163,7 @@ export function panelIdentity(opts: {
     version: opts.version,
     promptHash: sha256(new TextEncoder().encode(joined)).slice(0, 12),
     model: opts.model,
+    ...(opts.aria ? { aria: true as const } : {}),
   };
 }
 
@@ -180,7 +203,7 @@ export function recordVerdicts(
 ): void {
   for (const { shots, findings, reply } of judged) {
     if (shots.length === 0) continue;
-    ledger.entries[ledgerKey(groupHash(shots), id)] = {
+    ledger.entries[ledgerKey(groupHash(shots, { aria: id.aria }), id)] = {
       verdict: findings.length === 0 ? "clean" : "findings",
       ...(findings.length > 0 ? { findings } : {}),
       panel: id.panel,

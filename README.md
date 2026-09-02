@@ -575,6 +575,32 @@ positioned out of flow is excluded, along with everything inside it, because
 that is how an overlay, a dropdown and a sticky bar are built, and covering
 something is their job.
 
+### The one piece of evidence that is not a picture
+
+Every web shot is captured with the page's accessibility tree beside it, written
+as `<shot>.png.aria.json` and holding what the browser exposed: each meaningful
+element as a role, its accessible name, and for some controls its state. It is
+given to two judge panels only. Integrity rules on a control missing an expected
+part, and text rules on what a string says; both were inferring from pixels
+things the tree simply states. A dialog whose tree holds a `button "Close"` has
+its dismiss affordance whatever the picture suggested, a `textbox "Email
+address"` has its label, and a paragraph the layout cut off with an ellipsis
+reads whole in the tree, which turns "that looks truncated" into a finding worth
+filing. Their skills say so in as many words, and say the other half too: a
+finding the tree contradicts is not filed, the tree says nothing about how
+anything looks, and a tree cut for length proves nothing by what it leaves out.
+
+Geometry, visibility and craft are not shown it. It is evidence about what
+exists, and they rule on how things look, so it would cost them prompt and
+return nothing.
+
+The tree is a judge input for the two panels given it, so it enters their cached
+verdicts' identity the way a design hand-off does: change an `aria-label` and
+those two re-judge while the other three serve from cache, even though not one
+pixel moved. Native captures have no DOM, so they carry no sidecar and their
+prompts promise none. `aria: false` in the config, or `--no-aria` for one run,
+turns the whole thing off.
+
 ### Skills that improve themselves
 
 ```bash
