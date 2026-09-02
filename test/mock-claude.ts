@@ -331,6 +331,17 @@ if (mode === "placement") {
         // MOCK_VERIFY_PLAIN supplies the plain half for the confirmed finding,
         // so the adoption path is reachable without a hand-written reply.
         ...(i === 0 && process.env.MOCK_VERIFY_PLAIN ? { plain: process.env.MOCK_VERIFY_PLAIN } : {}),
+        // MOCK_VERIFY_CRITERIA rules the confirmed finding's first criterion
+        // undecidable (with a rewrite) and its second already-passing, which
+        // is both filing-time paths in one reply.
+        ...(i === 0 && process.env.MOCK_VERIFY_CRITERIA
+          ? {
+              criteria: [
+                { n: 1, verdict: "undecidable-from-pixels", rewrite: "Body text is legible against the card at desktop width." },
+                { n: 2, verdict: "passes-on-the-defective-shot" },
+              ],
+            }
+          : {}),
       })),
     }) +
     "\n```";

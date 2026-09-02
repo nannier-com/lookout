@@ -28,7 +28,14 @@ import { configuredScope, type ScopeCheck } from "../config-scope.js";
 import { flatShotName } from "../issues/paths.js";
 import { wasPhotographed, type Backlog, type BacklogFinding } from "../backlog/lib.js";
 import { panelOf } from "../judge/panels.js";
-import type { FormFactor, PlatformKind, ResolvedConfig, Scheme, ShotRecord } from "../types.js";
+import type {
+  DeterministicFinding,
+  FormFactor,
+  PlatformKind,
+  ResolvedConfig,
+  Scheme,
+  ShotRecord,
+} from "../types.js";
 
 /** Mirrors the acceptance verifier's cap: one judgement, one context. */
 export const MAX_FROZEN_SHOTS = 20;
@@ -60,6 +67,18 @@ export interface RegressionCase {
   platform: PlatformKind;
   width: number;
   height: number;
+  /**
+   * What lookout measured on this shot, and what scrolls in it.
+   *
+   * Carried because the refuter's prompt carries them in production, and a
+   * gate that grades an amendment under different evidence than the run it is
+   * grading is not grading that run. Optional: sets frozen before this field
+   * existed still replay, with the evidence they were frozen with.
+   */
+  deterministicFindings?: DeterministicFinding[];
+  scrollers?: ShotRecord["scrollers"];
+  /** True when the shot's provenance sidecar was copied beside it. */
+  provenance?: boolean;
   mustNotFile: RegressionClaim[];
   mustFile: RegressionClaim[];
 }
@@ -220,6 +239,13 @@ export async function freezeRegressionSet(
   const dir = regressionDir(resolved);
   await mkdir(join(dir, "shots"), { recursive: true });
 
+  // The capture report, for what was MEASURED on each frozen shot. The claims
+  // come from the backlog, which records what was judged and never how the
+  // page was built, and the refuter reads both in production.
+  const { loadReport } = await import("../capture/store.js");
+  const report = await loadReport(resolved);
+  const measured = new Map((report?.shots ?? []).map((sh) => [sh.id, sh]));
+
   const scoped = claimsByShot(backlog, await configuredScope(resolved));
   const outOfScope = claimsByShot(backlog, () => true).size - scoped.size;
   const candidates = [...scoped.values()].sort(
@@ -236,10 +262,27 @@ export async function freezeRegressionSet(
     if (!existsSync(src)) continue;
     const file = flatShotName(candidate.path);
     await copyFile(src, join(dir, "shots", file));
+    // The sidecar beside it, when there is one: the refuter reads it in
+    // production, so a replay without it is answering a different question.
+    // Best effort, exactly like the sidecar's own capture: a case that cannot
+    // carry one still grades everything else.
+    let provenance = false;
+    if (existsSync(`${src}.provenance.json`)) {
+      try {
+        await copyFile(`${src}.provenance.json`, join(dir, "shots", `${file}.provenance.json`));
+        provenance = true;
+      } catch {
+        provenance = false;
+      }
+    }
     const size = statSync(src).size;
+    const shot = measured.get(candidate.case.shotId);
     cases.push({
       ...candidate.case,
       file,
+      ...(provenance ? { provenance } : {}),
+      ...(shot?.deterministicFindings.length ? { deterministicFindings: shot.deterministicFindings } : {}),
+      ...(shot?.scrollers?.length ? { scrollers: shot.scrollers } : {}),
       // Dimensions are only ever printed in the manifest the judge reads; the
       // bytes are what it actually looks at.
       width: 0,
@@ -272,8 +315,12 @@ export function casesAsShots(set: RegressionSet, runId = "regression"): ShotReco
     width: c.width,
     height: c.height,
     animated: false,
+    ...(c.scrollers ? { scrollers: c.scrollers } : {}),
+    // The sidecar sits beside the copied PNG under the same name, which is the
+    // convention loadSidecarBeside reads.
+    ...(c.provenance ? { provenance: `${join("shots", c.file)}.provenance.json` } : {}),
     capturedAt: set.frozenAt,
     runId,
-    deterministicFindings: [],
+    deterministicFindings: c.deterministicFindings ?? [],
   }));
 }

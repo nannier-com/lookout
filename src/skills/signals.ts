@@ -88,6 +88,7 @@ interface JudgeReport {
   refuted?: { title: string; shotId: string; verifierNote: string; judge?: string }[];
   rejected?: number;
   degraded?: { shotId: string; category: string; title: string; judge?: string; lapses?: string[] }[];
+  droppedCriteria?: { shotId: string; category: string; judge?: string; text: string; reason: string; rewrite?: string }[];
   unaccounted?: { panel: string; groupId: string; shotIds: string[] }[];
   findings?: { shotId?: string; title?: string; problem?: string }[];
 }
@@ -128,6 +129,33 @@ export async function gatherSignals(resolved: ResolvedConfig): Promise<Signal[]>
           key: keyOf("rejected", report.runId ?? "unknown-run"),
         });
       }
+      // An acceptance criterion the refuter could not let stand: one no
+      // screenshot could settle, or one already true on the defective shot.
+      // Both are authoring lessons for the panel that wrote them, and both
+      // used to surface only a fix cycle later as a not-verifiable verdict.
+      const dropped = new Map<string, NonNullable<JudgeReport["droppedCriteria"]>>();
+      for (const c of report.droppedCriteria ?? []) {
+        const panel = c.judge ?? CORE_JUDGE;
+        dropped.set(panel, [...(dropped.get(panel) ?? []), c]);
+      }
+      for (const [panel, entries] of dropped) {
+        signals.push({
+          skill: panel,
+          kind: "not-verifiable",
+          summary: `${entries.length} acceptance criterion(s) could not be decided from the screenshot they were written against`,
+          detail: entries
+            .slice(0, 6)
+            .map(
+              (c) =>
+                `"${c.text}" (${c.reason === "passes-on-the-defective-shot" ? "already true on the shot the defect is on" : "nothing photographable could settle it"})` +
+                (c.rewrite ? `; the verifier offered: "${c.rewrite}"` : ""),
+            )
+            .join("\n"),
+          source: `judge-report.json (run ${report.runId ?? "?"})`,
+          key: keyOf("not-verifiable", `${report.runId ?? "unknown-run"}|filing|${panel}`),
+        });
+      }
+
       // A shot the panel answered about and then ruled on in neither list.
       // One signal per panel per run, because a reply that dropped four shots
       // dropped them under one set of instructions. Where the panel's own

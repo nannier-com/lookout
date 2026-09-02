@@ -20,7 +20,7 @@ import { join } from "node:path";
 import { evidenceDir } from "../config.js";
 import { judgeBatch, type AiFinding, type ContractLapse, type PriorFinding } from "../judge/engine.js";
 import { groupHash } from "../judge/ledger.js";
-import { verifyFindings, type RepairedFinding, type VerifiedFinding } from "../judge/verify.js";
+import { verifyFindings, type DroppedCriterion, type RepairedFinding, type VerifiedFinding } from "../judge/verify.js";
 import { recordIncident } from "../skills/incidents.js";
 import { emit } from "../report/events.js";
 import type { JudgePlan, PanelWork } from "./plan.js";
@@ -70,6 +70,8 @@ export interface JudgePass {
   batchCount: number;
   /** Findings whose plain half the refuter supplied, with the panel that skipped it. */
   repaired: RepairedFinding[];
+  /** Acceptance criteria dropped or rewritten at filing time, with their panel. */
+  droppedCriteria: DroppedCriterion[];
   /** Findings filed with a problem written for one reader, with the panel that wrote it. */
   degraded: ContractLapse[];
   /**
@@ -179,6 +181,7 @@ export async function judgeInBatches(args: {
   const filedKeys = new Set<string>();
   const replies = new Map<string, string>();
   const repaired: RepairedFinding[] = [];
+  const droppedCriteria: DroppedCriterion[] = [];
   const degraded: ContractLapse[] = [];
   const failedBatches: { panel: string; shots: number; message: string }[] = [];
   let rejectedCount = 0;
@@ -285,6 +288,7 @@ export async function judgeInBatches(args: {
           const v = await verifyFindings(plan.refute.text, fresh, shotsById, evDir, plan.model);
           jobFindings = v.confirmed;
           repaired.push(...v.repaired);
+          droppedCriteria.push(...v.droppedCriteria);
           refuted.push(...v.refuted);
           costUsd += v.costUsd ?? 0;
         } catch (e) {
@@ -379,6 +383,7 @@ export async function judgeInBatches(args: {
     batchCount: plan.toJudge.length,
     replies,
     repaired,
+    droppedCriteria,
     degraded,
   };
 }

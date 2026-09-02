@@ -280,11 +280,13 @@ single-valued.
   factor, scheme.
 - Written from this screenshot alone, like the problem text. Never state, in
   either, that the defect or its absence also holds at a form factor, scheme,
-  or route you were not handed in this batch: verification rules each claim
-  from the pixels of the view it names, so a claim reaching past its evidence
-  can never be ruled anything but not verifiable. If the defect looks likely
-  to generalise, that is a hypothesis; the way to make it checkable is to
-  judge the other screenshot and file its own finding.
+  or route you were not handed in this batch. You were handed a whole view:
+  every form factor and both schemes of one route and state. A criterion
+  naming another form factor from THIS batch is inside your evidence and is
+  fine; one naming a route or a state you never saw is a claim reaching past
+  it, and verification rules each claim from the pixels of the view it names.
+  If the defect looks likely to generalise, that is a hypothesis; the way to
+  make it checkable is to judge the other screenshot and file its own finding.
 - For a design-quality finding, make it observable rather than aesthetic: "the
   card title is visibly larger or heavier than its metadata" is checkable, "the
   card has better hierarchy" is not.

@@ -24,7 +24,8 @@ import {
   type AiFinding,
 } from "./engine.js";
 import { recordIncident } from "../skills/incidents.js";
-import { scrollerLine } from "./signals-line.js";
+import { scrollerLine, signalsLine } from "./signals-line.js";
+import { measuredBrief } from "./measured.js";
 import { problemLapses, withPlainHalf } from "../backlog/prose.js";
 import { closeCall, narrating, openCall, say } from "../report/narration.js";
 
@@ -64,8 +65,30 @@ export interface RepairedFinding {
   plain: string;
 }
 
+/** One acceptance criterion the refuter could not let stand, and why. */
+export interface DroppedCriterion {
+  shotId: string;
+  category: string;
+  attribute: string;
+  judge?: string;
+  text: string;
+  reason: "undecidable-from-pixels" | "passes-on-the-defective-shot";
+  /** The observable replacement the refuter supplied, when it could. */
+  rewrite?: string;
+}
+
 export interface VerifyResult {
   confirmed: VerifiedFinding[];
+  /**
+   * Criteria dropped or rewritten at filing time.
+   *
+   * A criterion that cannot be decided from a screenshot does not fail a
+   * verify-fix: it comes back not-verifiable, blocks nothing, and quietly
+   * degrades the ruling to "the defect was not re-filed". Catching it here
+   * costs nothing, because the refuter is already reading this finding and
+   * this shot.
+   */
+  droppedCriteria: DroppedCriterion[];
   /** The plain halves the refuter supplied, so the panel that skipped them can learn. */
   repaired: RepairedFinding[];
   refuted: (AiFinding & { verifierNote: string })[];
@@ -127,10 +150,29 @@ export function buildRefutePrompt(
       `   problem: ${f.problem}`,
       `   expected: ${f.expected}`,
       `   observed: ${f.observed}`,
+      // Numbered so a verdict can point at one. The refuter is the last
+      // participant holding this finding and this screenshot together, which
+      // makes it the only one that can say whether a criterion is decidable
+      // before somebody spends a fix cycle discovering it is not.
+      // Guarded because a finding can arrive from the ledger, which is JSON on
+      // disk written by an older lookout: a verdict cached before acceptance
+      // criteria existed has no array at all, and refute-on-read hands those
+      // straight back to this prompt.
+      ...((f.acceptance ?? []).length > 0
+        ? ["   acceptance criteria:", ...f.acceptance.map((c, n) => `     ${n + 1}. ${c}`)]
+        : []),
+      // What lookout measured about this shot, which is the one kind of number
+      // in this prompt that was not written by a model. A refuter told to lean
+      // refuted when uncertain will kill a real defect it cannot see in a
+      // still; these are the facts that settle several of those either way.
+      ...(shot && signalsLine(shot, 6) ? [`   measured on this shot: ${signalsLine(shot, 6)}`] : []),
       // Whether anything in the frame scrolls, which is the difference between
       // content a reader can reach and content that is gone. A refuter that
       // cannot tell them apart guesses, and guessing here kills real defects.
       ...(shot && scrollerLine(shot) ? [`   measured: something in this view ${scrollerLine(shot)}`] : []),
+      ...(shot && measuredBrief(shot, evidenceDir)
+        ? [`   measured: ${measuredBrief(shot, evidenceDir)}`]
+        : []),
       // Only worth saying when there is more than the shot itself to look at.
       ...(evidence.length > 1 ? ["   every shot of this view:", ...evidence] : []),
     ].join("\n");
@@ -150,7 +192,7 @@ export async function verifyFindings(
     .filter((f) => !needsRefuting(f))
     .map((f) => ({ ...f, verified: false }));
   if (serious.length === 0) {
-    return { confirmed: rest, refuted: [], repaired: [] };
+    return { confirmed: rest, refuted: [], repaired: [], droppedCriteria: [] };
   }
 
   const prompt = buildRefutePrompt(skillText, serious, shotsById, evidenceDir);
@@ -159,7 +201,13 @@ export async function verifyFindings(
   // is still answering, and one that fails twice is recorded rather than
   // silently shrugged off. The refuter used to have neither, so the judge's
   // failure was an incident and the refuter's was invisible.
-  let verdicts: { index: number; verdict: string; note?: string; plain?: string }[] = [];
+  let verdicts: {
+    index: number;
+    verdict: string;
+    note?: string;
+    plain?: string;
+    criteria?: { n?: number; verdict?: string; rewrite?: string }[];
+  }[] = [];
   let costUsd = 0;
   let parsedOk = false;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -181,7 +229,7 @@ export async function verifyFindings(
     try {
       const parsed = extractJson(res.text) as { verdicts?: unknown };
       if (Array.isArray(parsed.verdicts)) {
-        verdicts = parsed.verdicts as { index: number; verdict: string; note?: string; plain?: string }[];
+        verdicts = parsed.verdicts as typeof verdicts;
       }
       parsedOk = true;
       break;
@@ -204,6 +252,7 @@ export async function verifyFindings(
       confirmed: [...serious.map((f) => ({ ...f, verified: false })), ...rest],
       refuted: [],
       repaired: [],
+      droppedCriteria: [],
       costUsd,
     };
   }
@@ -211,6 +260,7 @@ export async function verifyFindings(
   const confirmed: VerifiedFinding[] = [...rest];
   const refuted: (AiFinding & { verifierNote: string })[] = [];
   const repaired: RepairedFinding[] = [];
+  const droppedCriteria: DroppedCriterion[] = [];
   serious.forEach((f, i) => {
     const v = verdicts.find((x) => x.index === i);
     if (v && v.verdict === "refuted") {
@@ -239,7 +289,41 @@ export async function verifyFindings(
         }
       }
     }
-    confirmed.push({ ...f, problem, verified, verifierNote: v?.note });
+    // Criteria the refuter could not let stand. A criterion that no screenshot
+    // can settle blocks nothing downstream and silently degrades a verify-fix
+    // to "the defect was not re-filed"; one already true on the defective shot
+    // would read as met while the defect stood. Both are better replaced or
+    // dropped here, where the evidence is still in hand. A finding left with
+    // none falls back to `expected`, which the rubric requires be checkable
+    // from the pixels for exactly this reason.
+    let acceptance = f.acceptance;
+    if (verified && Array.isArray(v?.criteria) && (f.acceptance ?? []).length > 0) {
+      const ruling = new Map<number, { verdict?: string; rewrite?: string }>();
+      for (const c of v.criteria) {
+        if (typeof c?.n === "number") ruling.set(c.n, { verdict: c.verdict, rewrite: c.rewrite });
+      }
+      acceptance = f.acceptance.flatMap((text, i) => {
+        const r = ruling.get(i + 1);
+        if (!r || r.verdict === "stands" || r.verdict === undefined) return [text];
+        if (r.verdict !== "undecidable-from-pixels" && r.verdict !== "passes-on-the-defective-shot") {
+          return [text];
+        }
+        const rewrite = typeof r.rewrite === "string" ? r.rewrite.trim().slice(0, 300) : "";
+        droppedCriteria.push({
+          shotId: f.shotId,
+          category: f.category,
+          attribute: f.attribute,
+          ...(f.judge ? { judge: f.judge } : {}),
+          text,
+          reason: r.verdict,
+          ...(rewrite ? { rewrite } : {}),
+        });
+        // A rewrite is preferred over a drop: the judge had something to say
+        // and only said it unobservably.
+        return rewrite && r.verdict === "undecidable-from-pixels" ? [rewrite] : [];
+      });
+    }
+    confirmed.push({ ...f, problem, acceptance, verified, verifierNote: v?.note });
   });
-  return { confirmed, refuted, repaired, costUsd };
+  return { confirmed, refuted, repaired, droppedCriteria, costUsd };
 }

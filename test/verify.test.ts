@@ -61,6 +61,7 @@ function finding(over: Partial<AiFinding> = {}): AiFinding {
 // the mock can pick its mode from the prompt. Leaving it behind made those fail
 // from here.
 afterEach(() => {
+  delete process.env.MOCK_VERIFY_CRITERIA;
   delete process.env.LOOKOUT_CLAUDE_BIN;
   delete process.env.MOCK_MODE;
 });
@@ -183,6 +184,58 @@ describe("what the refuter is shown", () => {
       "/ev",
     );
     expect(prompt).not.toContain("elsewhere");
+  });
+
+  test("what lookout measured is put in front of the refuter", async () => {
+    // The refutation this exists to prevent: told to lean refuted when
+    // uncertain, the verifier dismissed a control whose box lookout had
+    // measured outside the page as a deliberate mobile simplification.
+    const s = shot("web/app/x/rest/phone/dark", {
+      deterministicFindings: [
+        { type: "edge-clipped", severity: "error", message: '"Account" is cut off at the edge of the screen' },
+      ],
+    });
+    const prompt = buildRefutePrompt(refute.text, [finding({ shotId: s.id })], new Map([[s.id, s]]), "/ev");
+    expect(prompt).toContain("measured on this shot: edge-clipped:");
+    expect(prompt).toContain('"Account" is cut off');
+    // And the skill says what that line is worth.
+    expect(prompt).toContain("Those are lookout's own");
+  });
+
+  test("acceptance criteria are numbered so a verdict can point at one", () => {
+    const s = shot("web/app/x/rest/desktop/dark");
+    const prompt = buildRefutePrompt(
+      refute.text,
+      [finding({ acceptance: ["The heading is larger than the rows.", "The card background is opaque."] })],
+      new Map([[s.id, s]]),
+      "/ev",
+    );
+    expect(prompt).toContain("acceptance criteria:");
+    expect(prompt).toContain("1. The heading is larger than the rows.");
+    expect(prompt).toContain("2. The card background is opaque.");
+  });
+
+  test("a criterion no screenshot could settle is replaced or dropped at filing time", async () => {
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    process.env.MOCK_VERIFY_CRITERIA = "1";
+    const s = shot("web/app/x/rest/desktop/dark");
+    const r = await verifyFindings(
+      refute.text,
+      [finding({ acceptance: ["The theme provider is configured.", "The page has a heading."] })],
+      new Map([[s.id, s]]),
+      mkdtempSync(join(tmpdir(), "lookout-verify-ev-")),
+      "sonnet",
+    );
+    // The first had an observable replacement and takes it; the second was
+    // already true on the defective shot and proves nothing, so it goes.
+    expect(r.confirmed[0]!.acceptance).toEqual([
+      "Body text is legible against the card at desktop width.",
+    ]);
+    expect(r.droppedCriteria.map((c) => c.reason)).toEqual([
+      "undecidable-from-pixels",
+      "passes-on-the-defective-shot",
+    ]);
+    expect(r.droppedCriteria[0]!.rewrite).toContain("legible");
   });
 
   test("a confirmed finding comes back flagged", async () => {

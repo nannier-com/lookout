@@ -15,6 +15,8 @@
  * framework probe sits in its own try/catch so an exotic page never costs
  * the shot.
  */
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { DeterministicFinding, ShotRecord } from "../types.js";
 
 export const PROVENANCE_VERSION = 1;
@@ -68,6 +70,25 @@ export interface ProvenanceSidecar extends RawProvenance {
   origin: "document" | "element";
   /** Actual PNG dimensions, the mapping's authority (Chromium clamps tall pages). */
   image: { width: number; height: number };
+}
+
+/**
+ * A shot's sidecar, by the convention store.ts writes; null when absent or
+ * foreign.
+ *
+ * Here rather than beside the placement brief that used to own it, because
+ * the judge reads sidecars now too and `src/judge/` may not import
+ * `src/design/`: one oracle reaching into another's module is exactly the
+ * dependency this codebase keeps out.
+ */
+export function loadSidecarBeside(evDir: string, pngRelPath: string): ProvenanceSidecar | null {
+  const p = join(evDir, `${pngRelPath}.provenance.json`);
+  if (!existsSync(p)) return null;
+  try {
+    return parseSidecar(readFileSync(p, "utf8"));
+  } catch {
+    return null;
+  }
 }
 
 /** Read a shot's sidecar back; null when absent or from another version. */

@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { evidenceDir } from "../config.js";
 import { groupShots } from "../judge/engine.js";
 import { groupHash, pruneLedger, recordVerdicts, saveLedger } from "../judge/ledger.js";
-import type { RepairedFinding, VerifiedFinding } from "../judge/verify.js";
+import type { DroppedCriterion, RepairedFinding, VerifiedFinding } from "../judge/verify.js";
 import type { ContractLapse } from "../judge/reply.js";
 import { LookoutError, type ResolvedConfig, type ShotRecord } from "../types.js";
 import { runId } from "../util.js";
@@ -32,6 +32,15 @@ export interface CheckOutcome {
   refuted: { title: string; shotId: string; verifierNote: string; judge?: string }[];
   /** Confirmed findings whose plain sentence the refuter had to supply. */
   repaired: RepairedFinding[];
+  /**
+   * Acceptance criteria the refuter could not let stand, and why.
+   *
+   * A criterion no screenshot can settle blocks nothing in a verify-fix: it
+   * comes back not-verifiable and quietly degrades the ruling to "the defect
+   * was not re-filed". Caught at filing time it costs nothing, and the panel
+   * that wrote it can be taught.
+   */
+  droppedCriteria: DroppedCriterion[];
   /** Findings filed with a problem written for one reader; `skills improve` reads these. */
   degraded: ContractLapse[];
   rejected: number;
@@ -171,6 +180,7 @@ export async function recordOutcome(args: {
       judge: r.judge,
     })),
     repaired: pass.repaired,
+    droppedCriteria: pass.droppedCriteria,
     degraded: pass.degraded,
     rejected: pass.rejected,
     unjudged: unjudgedIds.size,

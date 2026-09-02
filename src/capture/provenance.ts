@@ -8,6 +8,7 @@
 export {
   attachProvenance,
   buildSidecar,
+  loadSidecarBeside,
   parseSidecar,
   pngBoxOf,
   PROVENANCE_VERSION,

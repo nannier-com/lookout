@@ -14,6 +14,7 @@ import { evidenceDir } from "../src/config.js";
 import { skills } from "../src/verbs/skills.js";
 import {
   claimsByShot,
+  casesAsShots,
   freezeRegressionSet,
   usableCases,
   type RegressionSet,
@@ -264,6 +265,62 @@ describe("what the frozen set claims", () => {
     const again = await freezeRegressionSet(r, await loadBacklog(r), "t");
     expect(again.outOfScope).toBe(1);
     expect(again.set.cases).toHaveLength(1);
+  });
+
+  test("a case carries what was measured on its shot, and the sidecar beside it", async () => {
+    // The refuter reads both in production. A gate that replays without them
+    // grades an amendment under evidence the real run does not have, which is
+    // not grading the real run.
+    const r = project();
+    const evDir = evidenceDir(r);
+    const rel = join("web", "app", "root", "rest--desktop-dark.png");
+    writeFileSync(join(evDir, `${rel}.provenance.json`), JSON.stringify({ version: 1, elements: [] }));
+    writeFileSync(
+      join(evDir, "capture-report.json"),
+      JSON.stringify({
+        version: 1,
+        project: "demo",
+        createdAt: "t",
+        updatedAt: "t",
+        runs: [],
+        shots: [
+          {
+            id: "web/app/root/rest/desktop/dark",
+            target: "app",
+            route: "/",
+            routeName: "root",
+            state: "rest",
+            platform: "web",
+            formFactor: "desktop",
+            scheme: "dark",
+            path: rel,
+            hash: "h",
+            bytes: 1,
+            width: 1,
+            height: 1,
+            animated: false,
+            capturedAt: "t",
+            runId: "run-1",
+            scrollers: [{ path: "div", tag: "div", width: 390, hiddenWidth: 900 }],
+            deterministicFindings: [
+              { type: "edge-clipped", severity: "error", message: '"Account" is cut off' },
+            ],
+          },
+        ],
+      }),
+    );
+
+    const { set } = await freezeRegressionSet(r, await loadBacklog(r), "t");
+    const c = set.cases[0]!;
+    expect(c.deterministicFindings?.[0]?.type).toBe("edge-clipped");
+    expect(c.scrollers?.[0]?.hiddenWidth).toBe(900);
+    expect(c.provenance).toBe(true);
+    expect(existsSync(join(r.projectDir, ".lookout", "regression", "shots", `${c.file}.provenance.json`))).toBe(true);
+
+    // And they reach the replay's shot records, which is the whole point.
+    const [replayed] = casesAsShots(set);
+    expect(replayed?.deterministicFindings).toHaveLength(1);
+    expect(replayed?.provenance).toContain(".provenance.json");
   });
 });
 

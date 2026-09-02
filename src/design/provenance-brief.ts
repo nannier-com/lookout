@@ -5,21 +5,14 @@
  * the placement advisor's own reading; its skill tells it to open every
  * named file before trusting it.
  */
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { parseSidecar, type ProvenanceElement, type ProvenanceSidecar } from "../capture/provenance.js";
+import { type ProvenanceElement } from "../capture/provenance.js";
 import type { FixCluster } from "../fix/cluster.js";
 
-/** A shot's sidecar, by the convention store.ts writes; null when absent or foreign. */
-export function loadSidecarBeside(evDir: string, pngRelPath: string): ProvenanceSidecar | null {
-  const p = join(evDir, `${pngRelPath}.provenance.json`);
-  if (!existsSync(p)) return null;
-  try {
-    return parseSidecar(readFileSync(p, "utf8"));
-  } catch {
-    return null;
-  }
-}
+// The loader lives in the capture layer now: the judge reads sidecars too, and
+// src/judge/ may not import src/design/. Re-exported because this is where its
+// callers have always asked for it.
+export { loadSidecarBeside } from "../capture/provenance-sidecar.js";
+import { loadSidecarBeside } from "../capture/provenance-sidecar.js";
 
 const MAX_SIDECARS = 3;
 const MAX_SOURCED = 8;
