@@ -1,7 +1,7 @@
 ---
 name: judge-visibility
 description: The visibility panel of lookout's visual judge, ruling on scheme adaptation, contrast, and visually evident accessibility failures.
-version: 3
+version: 4
 output: judge-findings-v2
 ---
 
@@ -11,8 +11,11 @@ output: judge-findings-v2
 - contrast: text or essential icons illegible against their actual background in
   THIS screenshot. Judge readability with your eyes; you are seeing the rendered
   result, including text over images and gradients that a computed ratio misses.
+  On a device, the status bar's own text left illegible by the application's
+  header colour behind it.
 - a11y: visually evident accessibility failures beyond contrast: touch targets
-  too small or too crowded to hit reliably, essential meaning carried by colour
+  too small or too crowded to hit reliably (judged hardest at phone and on a
+  device, where a finger is the pointer), essential meaning carried by colour
   alone, text baked into an image where nothing can read it out.
 
 {{include:panel-audience.md}}

@@ -145,10 +145,11 @@ describe("the composed rubric", () => {
     amend(
       resolved,
       "judge-craft",
-      "---\nname: judge-craft\nversion: 9\n---\n\nLearned: the dashboard hero is deliberately loud.\n",
+      // Above every shipped version, so the amendment's number is the one that wins.
+      "---\nname: judge-craft\nversion: 40\n---\n\nLearned: the dashboard hero is deliberately loud.\n",
     );
     const rubric = await loadRubric(resolved);
-    expect(rubric.version).toBe(9);
+    expect(rubric.version).toBe(40);
     expect(rubric.text).toContain("Learned: the dashboard hero is deliberately loud.");
     expect(rubric.text.indexOf("Learned: the dashboard hero")).toBeLessThan(
       rubric.text.indexOf("## Region vocabulary"),

@@ -138,10 +138,10 @@ describe("a renamed skill keeps the lessons a project learned under the old name
     amend(
       resolved,
       "visual-judge",
-      "---\nname: visual-judge\nversion: 9\n---\n\nThe marketing site is light-only on purpose.\n",
+      "---\nname: visual-judge\nversion: 40\n---\n\nThe marketing site is light-only on purpose.\n",
     );
     const layered = await loadSkill(resolved, "judge-core");
-    expect(layered.version).toBe(9);
+    expect(layered.version).toBe(40);
     expect(layered.text).toContain("The marketing site is light-only on purpose.");
     expect(layered.amendmentPath).toContain(".lookout/skills/visual-judge/SKILL.md");
   });
@@ -242,10 +242,10 @@ describe("loadRubric composes the judge prompt", () => {
     // A higher amendment version wins over the shipped base; the fixture rides
     // above whatever the base currently is, so a base bump does not silently
     // turn this into a test of the base.
-    amend(resolved, "judge-core", "---\nname: judge-core\nversion: 9\n---\n\nLearned: ignore the loader.\n");
+    amend(resolved, "judge-core", "---\nname: judge-core\nversion: 40\n---\n\nLearned: ignore the loader.\n");
     resolved.config.neverFile = ["Hand-written: ignore the footer."];
     const rubric = await loadRubric(resolved);
-    expect(rubric.version).toBe(9);
+    expect(rubric.version).toBe(40);
     expect(rubric.text.indexOf("Learned: ignore the loader.")).toBeLessThan(
       rubric.text.indexOf("Hand-written: ignore the footer."),
     );

@@ -110,7 +110,7 @@ describe("the batch header says what is in front of the judge", () => {
   test("a full view reads as every form factor and both schemes", () => {
     const prompt = buildJudgePrompt(rubric.text, "p", six, "/ev");
     expect(prompt).toContain("formFactors: desktop, tablet, phone\nschemes: dark, light");
-    expect(prompt).not.toContain("not captured");
+    expect(prompt).not.toContain("(not captured:");
     expect(prompt.indexOf("=== SHOTS")).toBeLessThan(prompt.indexOf("formFactors:"));
     expect(prompt.indexOf("formFactors:")).toBeLessThan(prompt.indexOf("- shotId:"));
   });
@@ -128,5 +128,16 @@ describe("the batch header says what is in front of the judge", () => {
     const prompt = buildJudgePrompt(rubric.text, "p", [tall], "/ev", { pieces });
     expect(prompt).toContain("read these 2 pieces top to bottom instead");
     expect(prompt).toContain("/ev/web/app/root/rest--desktop-dark.p2of2.png  (piece 2 of 2)");
+  });
+});
+
+describe("the rubric reads the batch header", () => {
+  test("each form factor is judged as its own rendering, and the comparison follows the header", () => {
+    const prompt = buildJudgePrompt(rubric.text, "p", [], "/ev");
+    expect(prompt).toContain("Every form factor is a rendering of its own");
+    expect(prompt).toContain("Judge each form factor, or each device, as its own rendering first");
+    expect(prompt).toContain("across the form\n   factors the header lists");
+    expect(prompt).toContain("Say\n   nothing about a form factor the header marks as not captured");
+    expect(prompt).toContain("What a device shot (iOS, Android) must do");
   });
 });

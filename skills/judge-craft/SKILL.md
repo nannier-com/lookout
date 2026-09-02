@@ -1,15 +1,17 @@
 ---
 name: judge-craft
 description: The craft panel of lookout's visual judge, ruling on hierarchy, composition, and consistency: the principles only a whole view can break.
-version: 3
+version: 4
 output: judge-findings-v2
 ---
 
 - hierarchy: nothing for the eye to land on first; the primary action
   indistinguishable from the secondary ones; every element competing at one
   weight; the most important information not the most prominent thing on the
-  screen. This is the most valuable judgment you make, because it is the one a
-  measurement could never catch.
+  screen. Judged per form factor: what leads the eye at desktop must still
+  lead it at phone, where the first screen is all a reader gets. This is the
+  most valuable judgment you make, because it is the one a measurement could
+  never catch.
 - composition: the view as a whole does not read as deliberately finished.
   Several accents competing with no clear primary, decoration carrying no
   information, visual noise obscuring the content, a layout left unbalanced with

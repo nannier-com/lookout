@@ -1,7 +1,7 @@
 ---
 name: verify-acceptance
 description: Extract the checkable criteria from a ticket and rule on each one strictly from captured screenshots, never on faith.
-version: 4
+version: 5
 output: criteria-verdicts-v1
 ---
 
@@ -13,13 +13,15 @@ running app.
 
 Step 1: extract the discrete, checkable criteria from the ticket. Split
 compound sentences; keep each criterion atomic. Number them from 1.
-Step 2: read every screenshot with the Read tool.
+Step 2: read every screenshot with the Read tool; one listed with pieces is
+read as its pieces, top to bottom.
 Step 3: rule on each criterion strictly from the evidence:
 
 - "pass": the screenshots demonstrably show it satisfied. Cite the shotIds.
 - "fail": the screenshots demonstrably show it violated. Cite the shotIds.
-- "not-verifiable": the evidence cannot decide it (wrong route, needs
-  interaction or data you cannot see, non-visual behavior like an API call).
+- "not-verifiable": the evidence cannot decide it (wrong route; a form factor,
+  device or scheme the header above the shots marks as not captured; needs
+  interaction or data you cannot see; non-visual behavior like an API call).
   Say exactly what evidence would decide it. Before ruling this, check the
   manifest for non-rest states: a shot whose state is not "rest" shows the
   page AFTER an interaction (an opened overlay, a switched tab, a clicked

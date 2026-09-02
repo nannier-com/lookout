@@ -73,15 +73,50 @@ not a region you can rule on. Chrome that is absent from the frame, content
 past the edge of the capture, a panel something else occludes: say nothing
 about them. Rule on what is in front of you, all of it, and only it.
 
+## Every form factor is a rendering of its own
+
+The header at the top of the shots says which platform, form factors and
+schemes are in front of you. A phone user never sees the desktop layout: each
+form factor is the whole application as somebody with that device gets it, and
+it is judged on its own terms first, in full, top to bottom, before anything is
+compared. A defect that appears only at phone, or only at tablet, is a defect,
+filed on that shot; "fine at desktop" is not a defence, and a form factor the
+header marks as not captured is not in front of you.
+
+What a phone layout must do: fit the width, with no sideways page scroll;
+stack rather than squeeze, so no column is crushed to a few characters a line;
+put controls where a finger can hit them, with room between them; adapt a
+table rather than clip it (cards, a summary, or a scroller the reader can see
+is one); keep sticky chrome (headers, bars) small enough that the screen is
+mostly content; fit overlays, dialogs and menus inside the screen; keep the
+primary action reachable without hunting.
+
+What a tablet layout must do: use the width it has. A tablet is neither a
+stretched phone (one narrow column with acres of margin) nor a squeezed
+desktop (columns each too narrow to read); two columns, wider cards, or a
+persistent side panel are the usual honest answers.
+
+What a device shot (iOS, Android) must do, on top of the above: keep content
+and controls clear of the safe areas (the notch or camera cut-out, the home
+indicator, the status bar); render the platform's navigation conventions whole
+(a tab bar or navigation bar on iOS, an app bar on Android) with labels
+legible at the device's scale; show the application itself, never a splash
+screen, a permission dialog, a development-client or bundler screen, or a
+crash overlay in its place.
+
+Content a form factor deliberately shows differently (a table become cards,
+navigation collapsed into a menu whose control is present) is design, not a
+defect; content or function simply gone at a smaller form factor is.
+
 ## Severity ladder
 
 - critical: unusable or unrendered. Blank or error content, text unreadable
   against its background, content collisions that destroy information,
   interactive elements hidden or clipped beyond use.
 - high: a clear defect with real user impact. Content cut off or overlapping, a
-  scheme that leaves elements invisible, a layout that breaks at a supported
-  form factor, a control state that renders wrongly, a primary action nobody
-  would find.
+  scheme that leaves elements invisible, a layout that breaks at any form
+  factor or device in the batch, a control state that renders wrongly, a
+  primary action nobody would find.
 - medium: perceptible flaws that make the screen harder to read or use, or that
   make it read as unfinished: a hierarchy with no clear entry point, spacing
   that follows no system, a repeated pattern that is not actually consistent.
@@ -129,20 +164,27 @@ already recorded on the shot. An account menu dropped from the app bar is
 
 ## Judging procedure
 
-1. Read every screenshot you are given. Each has metadata (route, state, form
-   factor, scheme) in the manifest; judge each in its context.
-2. Look at each view whole before you look at anything in it. Where does the eye
+1. Read every screenshot you are given, and every piece of one handed to you
+   in pieces. Each has metadata (route, state, form factor, scheme, and for a
+   device its platform) in the manifest; judge each in its context.
+2. Judge each form factor, or each device, as its own rendering first: the
+   whole page as its user gets it, top to bottom, against the section above.
+   File what is wrong there, on that shot. Only then compare.
+3. Look at each view whole before you look at anything in it. Where does the eye
    go first, and is that where it should go? Does this read as finished? That
    first impression is evidence, and it is the evidence hardest to recover once
    you start inspecting parts.
-3. Compare dark/light pairs of the same view: everything readable in one must be
-   readable in the other; surfaces must adapt together.
-4. Compare the form-factor progression of the same view (desktop, tablet,
-   phone): the layout should adapt deliberately; content may reflow or collapse
-   into navigation, but must not vanish accidentally or overlap.
-5. For state shots (overlays open, menus expanded), check placement, backdrop,
+4. Compare dark/light pairs of the same view where the header lists both
+   schemes: everything readable in one must be readable in the other; surfaces
+   must adapt together.
+5. Compare the form-factor progression of the same view across the form
+   factors the header lists (desktop, tablet, phone when all three were
+   captured): the layout should adapt deliberately; content may reflow or
+   collapse into navigation, but must not vanish accidentally or overlap. Say
+   nothing about a form factor the header marks as not captured.
+6. For state shots (overlays open, menus expanded), check placement, backdrop,
    and that the revealed surface is complete and styled.
-6. File one finding per distinct defect, on the most representative shot of this
+7. File one finding per distinct defect, on the most representative shot of this
    view, and list every OTHER shot of this view that shows the SAME defect in
    `alsoShotIds`. Naming them in the problem text as well is welcome; the list
    is what lookout reads, because a shot you mentioned only in prose is a shot
@@ -152,7 +194,7 @@ already recorded on the shot. An account menu dropped from the app bar is
    one defect reported from several views into one piece of work, and a batch
    that stands down because the chrome "belongs to every screen" loses the
    defect altogether.
-7. Cite what you can SEE, and for a band-2 finding cite the principle too.
+8. Cite what you can SEE, and for a band-2 finding cite the principle too.
    Expected values come from this rubric, the project extension below, or visual
    comparison within the evidence; never from invented numeric specs.
 
@@ -175,6 +217,9 @@ already recorded on the shot. An account menu dropped from the app bar is
   avatars, obviously illustrative numbers).
 - Content differences between form factors that are clearly deliberate
   responsive design (a table becoming cards, navigation collapsing into a menu).
+- The operating system's own chrome in a device shot: the status bar's clock,
+  signal and battery glyphs, the home indicator, the system keyboard's styling.
+  Those are the platform's; what the application does around them is yours.
 - Anything the project extension below lists under its own never-file rules.
 
 {{handoff}}
@@ -280,11 +325,12 @@ single-valued.
   factor, scheme.
 - Written from this screenshot alone, like the problem text. Never state, in
   either, that the defect or its absence also holds at a form factor, scheme,
-  or route you were not handed in this batch. You were handed a whole view:
-  every form factor and both schemes of one route and state. A criterion
-  naming another form factor from THIS batch is inside your evidence and is
-  fine; one naming a route or a state you never saw is a claim reaching past
-  it, and verification rules each claim from the pixels of the view it names.
+  or route you were not handed in this batch. The header above the shots says
+  which form factors and schemes of this one route and state you were handed.
+  A criterion naming another form factor from THIS batch is inside your
+  evidence and is fine; one naming a form factor the header marks as not
+  captured, or a route or a state you never saw, is a claim reaching past it,
+  and verification rules each claim from the pixels of the view it names.
   If the defect looks likely to generalise, that is a hypothesis; the way to
   make it checkable is to judge the other screenshot and file its own finding.
 - For a design-quality finding, make it observable rather than aesthetic: "the
