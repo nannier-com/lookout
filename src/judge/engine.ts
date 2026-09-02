@@ -15,7 +15,7 @@ import type { Category } from "./rubric.js";
 
 import { extractJson, invokeClaude } from "./claude.js";
 import { closeCall, narrating, openCall, say } from "../report/narration.js";
-import { ingestJudgeReply, type PanelLane } from "./reply.js";
+import { ingestJudgeReply, type ContractLapse, type PanelLane } from "./reply.js";
 
 export interface AiFinding {
   shotId: string;
@@ -59,6 +59,8 @@ export interface JudgeBatchResult {
    */
   unaccounted: string[];
   rejected: { reason: string; raw: unknown }[];
+  /** Findings filed although their problem is written for one reader. */
+  degraded: ContractLapse[];
   raw: string;
   costUsd?: number;
   durationMs: number;
@@ -263,4 +265,4 @@ export async function judgeBatch(
 export { claudeBin, extractJson, invokeClaude, type JudgeInvocation } from "./claude.js";
 export { type JudgeSay } from "./stream.js";
 export { batchShots, groupShots, viewGroupId } from "./grouping.js";
-export { ingestJudgeReply, type PanelLane } from "./reply.js";
+export { ingestJudgeReply, type ContractLapse, type PanelLane } from "./reply.js";

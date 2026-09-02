@@ -19,14 +19,15 @@ import { materializeIssues } from "../issues/store.js";
 import { loadFrames } from "../issues/frames.js";
 import {
   aiToFindings,
+  type Backlog,
   checkBacklog,
   deterministicToFindings,
   emptyBacklog,
+  failing,
   mergeFindings,
   renderMarkdown,
   setStatus,
   stats,
-  type Backlog,
 } from "../backlog/lib.js";
 import type { CheckOutcome } from "./check.js";
 import { emit } from "../report/events.js";
@@ -364,17 +365,23 @@ export async function backlog(parsed: Parsed): Promise<number> {
       framesByIssue[id] = (await loadFrames(resolved, id)).before.length;
     }
     const problems = checkBacklog(b, { mdOnDisk: md, latestReport: report, framesByIssue, judgedPanels });
+    const strict = Boolean(parsed.flags.strict);
+    const fails = failing(problems, strict);
+    const warnings = problems.length - failing(problems).length;
     if (parsed.flags.json) {
-      printJson({ ok: problems.length === 0, problems });
+      printJson({ ok: fails.length === 0, strict, problems });
     } else if (problems.length === 0) {
       console.log("backlog check: clean");
     } else {
       for (const p of problems) {
-        console.log(`  [${p.kind}] ${p.fingerprint ?? ""} ${p.message}`);
+        console.log(`  [${p.kind}]${p.level === "warning" ? " warning" : ""} ${p.fingerprint ?? ""} ${p.message}`);
       }
-      console.log(`\n${problems.length} problem(s).`);
+      console.log(
+        `\n${problems.length - warnings} problem(s), ${warnings} warning(s)` +
+          (warnings > 0 && !strict ? " (warnings do not fail the check; --strict makes them)." : "."),
+      );
     }
-    return problems.length === 0 ? 0 : 1;
+    return fails.length === 0 ? 0 : 1;
   }
 
   if (sub === "stats") {

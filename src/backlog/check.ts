@@ -8,6 +8,7 @@
  * later, which is the whole point of `lookout backlog check`.
  */
 import { DETERMINISTIC_TYPES } from "./ingest.js";
+import { problemLapses } from "./prose.js";
 import { CATEGORIES } from "../judge/rubric.js";
 import { panelOf } from "../judge/panels.js";
 import { clusterKeyOf } from "../fix/cluster.js";
@@ -30,9 +31,17 @@ export interface CheckProblem {
     | "issue-orphaned"
     | "issue-schema"
     | "acceptance-missing"
-    | "frames-missing";
+    | "frames-missing"
+    | "problem-unexplained";
+  /** A warning is reported and does not fail the check unless asked to (`--strict`). */
+  level?: "warning";
   fingerprint?: string;
   message: string;
+}
+
+/** The problems that fail the check: every error, plus the warnings when strict. */
+export function failing(problems: CheckProblem[], strict = false): CheckProblem[] {
+  return problems.filter((p) => strict || p.level !== "warning");
 }
 
 /** The panel owning a category, or null for one outside the registry. */
@@ -84,6 +93,13 @@ export function checkBacklog(
     }
     if (f.check !== undefined && !(DETERMINISTIC_TYPES as string[]).includes(f.check.type)) {
       problems.push({ kind: "schema", fingerprint: fp, message: `unknown check type "${String(f.check.type)}"` });
+    }
+    // A problem written for one reader is a record a person cannot act on
+    // without the screenshot. It is still a real finding, so this is advice
+    // by default and a failure only under --strict.
+    const lapses = problemLapses(f);
+    if (lapses.length > 0) {
+      problems.push({ kind: "problem-unexplained", level: "warning", fingerprint: fp, message: `problem is written for one reader (${lapses.join(", ")})` });
     }
   }
 

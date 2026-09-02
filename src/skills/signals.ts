@@ -19,6 +19,9 @@
  *   means the finding described it too vaguely to act on.
  * - A criterion ruled not-verifiable is an acceptance criterion written so it
  *   cannot be decided from a screenshot, which is a flaw in how it was authored.
+ * - An unreadable finding is one whose problem was written for one reader
+ *   (the title again, one part, a label where a sentence belonged). It was
+ *   filed anyway, and the panel that wrote it is the one to teach.
  */
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -55,7 +58,7 @@ export interface Signal {
    * Never part of the watermark key, like `skill` itself.
    */
   licenses?: string[];
-  kind: "refuted" | "rejected" | "by-design" | "blocked" | "not-verifiable";
+  kind: "refuted" | "rejected" | "by-design" | "blocked" | "not-verifiable" | "unreadable";
   /** One line naming what happened. */
   summary: string;
   /** The prose that explains it: a verifier note, a human reason, a judge note. */
@@ -80,6 +83,7 @@ interface JudgeReport {
   runId?: string;
   refuted?: { title: string; shotId: string; verifierNote: string; judge?: string }[];
   rejected?: number;
+  degraded?: { shotId: string; category: string; title: string; judge?: string; lapses?: string[] }[];
 }
 
 export async function gatherSignals(resolved: ResolvedConfig): Promise<Signal[]> {
@@ -116,6 +120,27 @@ export async function gatherSignals(resolved: ResolvedConfig): Promise<Signal[]>
           // Keyed by run on purpose: a contract that keeps failing to land is
           // fresh evidence each time it does.
           key: keyOf("rejected", report.runId ?? "unknown-run"),
+        });
+      }
+      // A finding filed with a problem written for one reader survived
+      // ingestion on purpose; the lesson is the filing panel's, one signal per
+      // panel per run, since the whole batch was written under one skill.
+      const byPanel = new Map<string, NonNullable<JudgeReport["degraded"]>>();
+      for (const d of report.degraded ?? []) {
+        const panel = d.judge ?? CORE_JUDGE;
+        byPanel.set(panel, [...(byPanel.get(panel) ?? []), d]);
+      }
+      for (const [panel, lapses] of byPanel) {
+        signals.push({
+          skill: panel,
+          kind: "unreadable",
+          summary: `${lapses.length} finding(s) filed with a problem written for one reader`,
+          detail: lapses
+            .slice(0, 8)
+            .map((d) => `"${d.title}" on ${d.shotId}: ${(d.lapses ?? []).join(", ") || "unexplained"}`)
+            .join("\n"),
+          source: `judge-report.json (run ${report.runId ?? "?"})`,
+          key: keyOf("unreadable", `${report.runId ?? "unknown-run"}|${panel}`),
         });
       }
     } catch {

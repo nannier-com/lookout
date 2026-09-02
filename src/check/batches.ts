@@ -18,7 +18,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { evidenceDir } from "../config.js";
-import { judgeBatch, type AiFinding } from "../judge/engine.js";
+import { judgeBatch, type AiFinding, type ContractLapse } from "../judge/engine.js";
 import { groupHash } from "../judge/ledger.js";
 import { verifyFindings, type RepairedFinding, type VerifiedFinding } from "../judge/verify.js";
 import { recordIncident } from "../skills/incidents.js";
@@ -60,6 +60,8 @@ export interface JudgePass {
   batchCount: number;
   /** Findings whose plain half the refuter supplied, with the panel that skipped it. */
   repaired: RepairedFinding[];
+  /** Findings filed with a problem written for one reader, with the panel that wrote it. */
+  degraded: ContractLapse[];
   /**
    * Each successful panel call's reply, whole, as a file under the capture
    * workspace, keyed like `uncacheable`. The ledger entry for the verdict
@@ -140,6 +142,7 @@ export async function judgeInBatches(args: {
   const uncacheable = new Set<string>();
   const replies = new Map<string, string>();
   const repaired: RepairedFinding[] = [];
+  const degraded: ContractLapse[] = [];
   const failedBatches: { panel: string; shots: number; message: string }[] = [];
   let rejectedCount = 0;
   let costUsd = 0;
@@ -207,6 +210,7 @@ export async function judgeInBatches(args: {
           continue;
         }
         rejectedHere += res.rejected.length;
+        degraded.push(...res.degraded);
         costUsd += res.costUsd ?? 0;
         durationMs += res.durationMs;
         // The reply, whole, beside the screenshots it is about. Best effort:
@@ -319,5 +323,6 @@ export async function judgeInBatches(args: {
     batchCount: plan.toJudge.length,
     replies,
     repaired,
+    degraded,
   };
 }

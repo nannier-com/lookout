@@ -310,5 +310,5 @@ export {
   type PhotographedFinding,
 } from "./ingest.js";
 export { mergeFindings, setStatus, type MergeResult } from "./merge.js";
-export { checkBacklog, type CheckProblem } from "./check.js";
+export { checkBacklog, type CheckProblem, failing } from "./check.js";
 export { renderMarkdown, stats } from "./report.js";

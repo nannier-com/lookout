@@ -140,3 +140,29 @@ describe("the watermark", () => {
     expect(reloaded.lastAction).toBe("rolled-back");
   });
 });
+
+describe("an unreadable-problem signal", () => {
+  test("is one per panel per run, attributed to the panel that wrote the finding", async () => {
+    const r = await projectWith([]);
+    mkdirSync(evidenceDir(r), { recursive: true });
+    writeFileSync(
+      join(evidenceDir(r), "judge-report.json"),
+      JSON.stringify({
+        runId: "run-7",
+        degraded: [
+          { shotId: "s1", category: "contrast", title: "a", judge: "judge-visibility", lapses: ["one-part"] },
+          { shotId: "s2", category: "contrast", title: "b", judge: "judge-visibility", lapses: ["title-again"] },
+          { shotId: "s3", category: "spacing", title: "c", judge: "judge-geometry", lapses: ["label-in-plain"] },
+        ],
+      }),
+    );
+    const signals = (await gatherSignals(r)).filter((s) => s.kind === "unreadable");
+    expect(signals.map((s) => [s.skill, s.summary])).toEqual([
+      ["judge-visibility", "2 finding(s) filed with a problem written for one reader"],
+      ["judge-geometry", "1 finding(s) filed with a problem written for one reader"],
+    ]);
+    expect(signals[0]!.detail).toContain('"a" on s1: one-part');
+    expect(signals[0]!.key).not.toBe(signals[1]!.key);
+    expect(signals[0]!.source).toBe("judge-report.json (run run-7)");
+  });
+});

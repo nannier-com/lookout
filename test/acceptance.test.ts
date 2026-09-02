@@ -21,7 +21,7 @@ import {
   ruleAcceptance,
 } from "../src/issues/rule-acceptance.js";
 import { reconcileIssues } from "../src/issues/registry.js";
-import { checkBacklog, emptyBacklog, type Backlog, type BacklogFinding } from "../src/backlog/lib.js";
+import { type Backlog, type BacklogFinding, checkBacklog, emptyBacklog, failing } from "../src/backlog/lib.js";
 
 function finding(over: Partial<BacklogFinding> = {}): BacklogFinding {
   return {
@@ -263,7 +263,8 @@ describe("`backlog check` requires them", () => {
     const f = finding();
     b.findings[f.fingerprint] = f;
     reconcileIssues(b, "t");
-    expect(checkBacklog(b, { mdOnDisk: null, latestReport: null })).toHaveLength(0);
+    // The fixture's one-word problem is a warning, and warnings do not fail.
+    expect(failing(checkBacklog(b, { mdOnDisk: null, latestReport: null }))).toHaveLength(0);
 
     const id = Object.keys(b.issues)[0]!;
     b.issues[id] = { ...b.issues[id]!, acceptance: [] };

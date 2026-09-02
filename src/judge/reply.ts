@@ -13,6 +13,7 @@
  */
 import type { Severity, ShotRecord } from "../types.js";
 import { recordIncident } from "../skills/incidents.js";
+import { problemLapses, type ProseLapse } from "../backlog/prose.js";
 import { parseRegion } from "../backlog/region.js";
 import { CATEGORIES, SEVERITIES, type Category } from "./rubric.js";
 import { panelOf } from "./panels.js";
@@ -25,11 +26,26 @@ export interface PanelLane {
   categories: readonly Category[];
 }
 
+/** A finding that survived ingestion with a problem written for one reader. */
+export interface ContractLapse {
+  shotId: string;
+  category: string;
+  title: string;
+  judge: string;
+  lapses: ProseLapse[];
+}
+
 export interface IngestedReply {
   findings: AiFinding[];
   cleanShotIds: string[];
   unaccounted: string[];
   rejected: { reason: string; raw: unknown }[];
+  /**
+   * Findings kept although their problem fails the two-part bar. Rejecting
+   * them would throw away a real defect over its prose; counting them is
+   * what lets the panel that wrote them be taught.
+   */
+  degraded: ContractLapse[];
 }
 
 export function ingestJudgeReply(
@@ -121,6 +137,28 @@ export function ingestJudgeReply(
     });
   }
 
+  // The rubric asks for a problem in two parts, a plain sentence and then
+  // the precise one. A reply that skipped the plain half still describes a
+  // defect, so it is filed as written; what is recorded is that the contract
+  // did not land, per finding, so the lesson reaches the right panel.
+  const degraded: ContractLapse[] = findings.flatMap((f) => {
+    const lapses = problemLapses(f);
+    return lapses.length > 0 ? [{ shotId: f.shotId, category: f.category, title: f.title, judge: f.judge ?? panelOf(f.category).name, lapses }] : [];
+  });
+  if (degraded.length > 0) {
+    recordIncident({
+      at: new Date().toISOString(),
+      kind: "judge-rejected",
+      verb: "check",
+      message: `${degraded.length} finding(s) filed with a problem written for one reader: ${degraded
+        .map((d) => `"${d.title}" (${d.lapses.join(", ")})`)
+        .join("; ")
+        .slice(0, 300)}`,
+      project,
+      judge: panel?.name,
+    });
+  }
+
   if (badRegions > 0) {
     recordIncident({
       at: new Date().toISOString(),
@@ -149,5 +187,5 @@ export function ingestJudgeReply(
     });
   }
 
-  return { findings, cleanShotIds, unaccounted, rejected };
+  return { findings, cleanShotIds, unaccounted, rejected, degraded };
 }

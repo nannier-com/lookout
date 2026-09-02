@@ -626,7 +626,9 @@ lookout never edits code. The loop it is built for:
    every later merge) and `--status blocked --reason "..."` after repeated
    failed attempts.
 6. `lookout backlog check` as the gate: schema, mandatory reasons, missing
-   issue ids, markdown freshness, and drift detection all fail loud.
+   issue ids, markdown freshness, and drift detection all fail loud. A
+   finding whose problem is written for one reader is a warning; `--strict`
+   makes warnings fail too.
 
 ## License
 

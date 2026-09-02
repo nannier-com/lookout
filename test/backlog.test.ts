@@ -2,11 +2,13 @@
 // dedupe/reopen/suppress, status transitions with mandatory reasons, the
 // check gate, and deterministic markdown rendering.
 import { describe, expect, test } from "bun:test";
+import { reconcileIssues } from "../src/issues/registry.js";
 import {
   aiToFindings,
   checkBacklog,
   deterministicToFindings,
   emptyBacklog,
+  failing,
   fingerprintOf,
   mergeFindings,
   renderMarkdown,
@@ -267,5 +269,20 @@ describe("markdown + stats", () => {
     expect(md).toContain("intentional demo scroller");
     expect(md).toBe(renderMarkdown(b)); // stable
     expect(stats(b).byStatus["by-design"]).toBe(1);
+  });
+});
+
+describe("a problem written for one reader", () => {
+  test("is a warning that does not fail the check unless strict", () => {
+    const b = emptyBacklog("test", NOW);
+    mergeFindings(b, deterministicToFindings(report([overflowShot()])), "run-1", NOW);
+    reconcileIssues(b, NOW);
+    const fp = Object.keys(b.findings)[0]!;
+    b.findings[fp]!.problem = b.findings[fp]!.title;
+    const problems = checkBacklog(b, { mdOnDisk: renderMarkdown(b), latestReport: null });
+    expect(problems.map((p) => [p.kind, p.level])).toEqual([["problem-unexplained", "warning"]]);
+    expect(problems[0]!.message).toBe("problem is written for one reader (title-again)");
+    expect(failing(problems)).toEqual([]);
+    expect(failing(problems, true)).toEqual(problems);
   });
 });
