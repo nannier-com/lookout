@@ -137,3 +137,30 @@ export async function runAxe(
   const result = await builder.analyze();
   return result.violations.map((v) => axeFinding(v as unknown as AxeViolation));
 }
+
+/**
+ * How big a control is, measured at the width where it matters.
+ *
+ * axe ships `target-size` disabled, and lookout's own default (`--axe route`)
+ * runs axe once per route at the FIRST form factor, which is desktop. So no
+ * phone shot has ever been scanned, and the one rule whose whole subject is
+ * touch has never run anywhere. Meanwhile the visibility panel is asked to
+ * file "touch targets too small or too crowded to hit reliably" by eye, while
+ * the rubric rightly forbids it the measurement that would make the finding
+ * actionable.
+ *
+ * Selecting the rule by name runs it whether or not it ships enabled, which is
+ * the point: this is a deliberate opt-in to one rule, not a widening of the
+ * scan. It also accounts for spacing, so a small control with room around it
+ * passes and a small control crowded by its neighbours does not.
+ */
+export async function runTargetSize(
+  page: Page,
+  includeSelector: string | null,
+): Promise<DeterministicFinding[]> {
+  const { AxeBuilder } = await import("@axe-core/playwright");
+  let builder = new AxeBuilder({ page });
+  if (includeSelector) builder = builder.include(includeSelector);
+  const result = await builder.withRules(["target-size"]).analyze();
+  return result.violations.map((v) => axeFinding(v as unknown as AxeViolation));
+}

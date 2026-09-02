@@ -21,7 +21,7 @@ import {
   checkOffOrigin,
   detectAnimated,
 } from "./checks.js";
-import { runAxe } from "./axe.js";
+import { runAxe, runTargetSize } from "./axe.js";
 import { checkEdgeClipping, type ScrollerNote } from "./check-clip.js";
 import { shotId, writeShotFile, writeShotSidecar, type ShotAxes } from "./store.js";
 import { attachProvenance, buildSidecar, collectProvenanceInPage, selectorsOf } from "./provenance.js";
@@ -184,6 +184,12 @@ export async function captureRoute(
           ctx.axe === "all" || (ctx.axe === "route" && formFactor === ctx.formFactors[0]);
         if (axeHere && stateName === "rest") {
           findings.push(...(await runAxe(page, elementSel ?? null, { contrast: ctx.axeContrast })));
+        }
+        // Control size, at the width where a finger is the pointer. The scan
+        // above runs at the FIRST form factor, which is desktop, so without
+        // this the one rule whose whole subject is touch never runs anywhere.
+        if (ctx.axe !== "off" && formFactor === "phone" && stateName === "rest") {
+          findings.push(...(await runTargetSize(page, elementSel ?? null)));
         }
         findings.push(...ctx.collectorDrain());
 

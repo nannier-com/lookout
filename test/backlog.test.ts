@@ -100,6 +100,25 @@ describe("fingerprints and deterministic mapping", () => {
     ]);
   });
 
+  test("a control measured too small opens at medium, not at axe's own severity", () => {
+    // Born verified, so nothing refutes it, and the box is not the hit area:
+    // an icon button whose parent carries the padding measures small and is
+    // fine. axe rates the rule serious, which would open it at high and put a
+    // possible false positive at the top of the backlog with no second opinion.
+    const f = deterministicToFindings(
+      report([
+        shot("web/app/home/rest/phone/dark", [
+          { type: "axe-violation", severity: "error", message: "target-size: too small", meta: { ruleId: "target-size" } },
+          { type: "axe-violation", severity: "error", message: "button-name: no name", meta: { ruleId: "button-name" } },
+        ]),
+      ]),
+    );
+    expect(f.map((x) => `${x.attribute}/${x.severity}`).sort()).toEqual([
+      "axe-button-name/high",
+      "axe-target-size/medium",
+    ]);
+  });
+
   test("a clip keeps the kind of box that clipped it, and its region when every offender agrees", () => {
     const clip = (offenders: { path: string; clipperPath: string }[], clipper = "ancestor") => ({
       type: "edge-clipped" as const,

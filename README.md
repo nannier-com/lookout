@@ -520,6 +520,14 @@ anything hidden on purpose; a project can exempt more with
 `checks.edgeClip.ignore`, and `--no-edge-clip` turns the whole check off for a
 run (`verify-fix` refuses that flag, for the same reason it refuses `--axe off`).
 
+Control size is measured the same way. `--axe route`, the default, scans once
+per route at the widest form factor, so no phone shot was ever scanned and
+axe's `target-size` rule (which ships disabled) had never run anywhere. It now
+runs at phone width on every rest shot, files under `a11y` as
+`axe-target-size`, and carries the measured sizes. It opens at medium rather
+than at axe's own severity: the measurement is the element's box, which is not
+always its hit area, and nothing refutes a deterministic finding.
+
 ### Skills that improve themselves
 
 ```bash
