@@ -115,6 +115,29 @@ describe("what the refuter is shown", () => {
     expect(prompt).toContain("the shot this was filed on");
   });
 
+  test("the refuter is told what scrolls, so it cannot call reachable content lost", () => {
+    // The one refutation this check exists to prevent: a control past the edge
+    // of a frame is either a defect or a scroll away, and the refuter, told to
+    // lean refuted when uncertain, will guess the second every time.
+    const s = shot("web/app/x/rest/phone/dark", {
+      scrollers: [{ path: "div.scroller", tag: "div", width: 390, hiddenWidth: 1036 }],
+    });
+    const prompt = buildRefutePrompt(
+      refute.text,
+      [finding({ shotId: s.id })],
+      new Map([[s.id, s]]),
+      "/ev",
+    );
+    expect(prompt).toContain("measured: something in this view scrolls sideways");
+    expect(prompt).toContain("1036px");
+  });
+
+  test("a view with nothing to scroll is told nothing about scrolling", () => {
+    const s = shot("web/app/x/rest/desktop/dark");
+    const prompt = buildRefutePrompt(refute.text, [finding()], new Map([[s.id, s]]), "/ev");
+    expect(prompt).not.toContain("measured:");
+  });
+
   test("a view with one shot is not given a pointless list of itself", () => {
     const s = shot("web/app/x/rest/desktop/dark");
     const prompt = buildRefutePrompt(refute.text, [finding()], new Map([[s.id, s]]), "/ev");

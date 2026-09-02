@@ -24,6 +24,7 @@ import {
   type AiFinding,
 } from "./engine.js";
 import { recordIncident } from "../skills/incidents.js";
+import { scrollerLine } from "./signals-line.js";
 import { problemLapses, withPlainHalf } from "../backlog/prose.js";
 import { closeCall, narrating, openCall, say } from "../report/narration.js";
 
@@ -126,6 +127,10 @@ export function buildRefutePrompt(
       `   problem: ${f.problem}`,
       `   expected: ${f.expected}`,
       `   observed: ${f.observed}`,
+      // Whether anything in the frame scrolls, which is the difference between
+      // content a reader can reach and content that is gone. A refuter that
+      // cannot tell them apart guesses, and guessing here kills real defects.
+      ...(shot && scrollerLine(shot) ? [`   measured: something in this view ${scrollerLine(shot)}`] : []),
       // Only worth saying when there is more than the shot itself to look at.
       ...(evidence.length > 1 ? ["   every shot of this view:", ...evidence] : []),
     ].join("\n");

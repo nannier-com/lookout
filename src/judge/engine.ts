@@ -14,6 +14,7 @@ import type { Region } from "../backlog/region.js";
 import type { Category } from "./rubric.js";
 
 import { extractJson, invokeClaude } from "./claude.js";
+import { scrollerLine, signalsLine } from "./signals-line.js";
 import { closeCall, narrating, openCall, say } from "../report/narration.js";
 import { ingestJudgeReply, type ContractLapse, type PanelLane } from "./reply.js";
 
@@ -104,26 +105,6 @@ export interface JudgeContext {
   panel?: PanelLane;
 }
 
-/** At most this many deterministic signals per shot: corroboration, not a list. */
-const MAX_SIGNALS = 3;
-
-/**
- * The deterministic checks' findings for one shot, compactly.
- *
- * These are already computed and attached to every shot, and the judge never
- * saw them. They are the one thing in this pipeline that IS a measurement: axe
- * knows the rule that fired, the overflow check knows the selector and the
- * amount. Giving them to a model that cannot measure is free precision, and it
- * localizes: "something overflows here" plus a selector beats hunting the image.
- */
-function signalsOf(shot: ShotRecord): string {
-  const parts = shot.deterministicFindings
-    .filter((f) => f.severity !== "info")
-    .slice(0, MAX_SIGNALS)
-    .map((f) => `${f.type}: ${f.message.slice(0, 120)}`);
-  return parts.length > 0 ? `\n  signals: ${parts.join(" | ")}` : "";
-}
-
 export function buildJudgePrompt(
   skillText: string,
   project: string,
@@ -137,7 +118,11 @@ export function buildJudgePrompt(
         `- shotId: ${s.id}\n  file: ${evidenceDir}/${s.path}\n  route: ${s.route} (${s.routeName})  state: ${s.state}  formFactor: ${s.formFactor}  scheme: ${s.scheme}  size: ${s.width}x${s.height}` +
         (s.design ? `\n  design: ${s.design}` : "") +
         (s.animated ? "\n  note: this view animates live; the still is one frame of it" : "") +
-        signalsOf(s),
+        // What scrolls in this frame, said before the signals: it changes how
+        // to read everything else about the shot, because content past the
+        // edge of a scroller is reachable rather than lost.
+        (scrollerLine(s) ? `\n  note: something in this view ${scrollerLine(s)}` : "") +
+        (signalsLine(s) ? `\n  signals: ${signalsLine(s)}` : ""),
     )
     .join("\n");
 

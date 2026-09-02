@@ -173,6 +173,23 @@ describe("context the judge already paid for", () => {
     expect(prompt([shot("web/app/x/rest/desktop/dark")])).not.toContain("\n  signals:");
   });
 
+  test("a frame that scrolls sideways says so, because reachable is not lost", () => {
+    // A table whose last column sits past the frame's edge inside a scroller is
+    // reachable, and a still cannot show that. Without the note, the same
+    // pixels read as content that is gone, which is one sentence away from a
+    // filed defect that is not there.
+    const s = shot("web/app/x/rest/phone/dark", {
+      scrollers: [{ path: "div.scroller", tag: "div", width: 390, hiddenWidth: 1036 }],
+    });
+    const out = prompt([s]);
+    expect(out).toContain("scrolls sideways, so content past its edge is reachable");
+    expect(out).toContain("1036px");
+  });
+
+  test("a frame with nothing to scroll carries no such note", () => {
+    expect(prompt([shot("web/app/x/rest/desktop/dark")])).not.toContain("scrolls sideways");
+  });
+
   test("informational checks are not dressed up as signals", () => {
     const s = shot("web/app/x/rest/desktop/dark", {
       deterministicFindings: [{ type: "console-error", severity: "info", message: "just noise" }],
