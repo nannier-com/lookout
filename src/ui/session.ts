@@ -64,6 +64,16 @@ export function setCurrentProject(next: ResolvedConfig): void {
 }
 
 export const session: {
+  /**
+   * The directory this process was started in, or null for a --config/--url
+   * run that was never about a directory at all.
+   *
+   * Not the project being served: those are the same until somebody points the
+   * settings panel somewhere else, and once they differ this is the one that
+   * remembers where they pointed it. A pointer cannot live inside the thing it
+   * points to, and this is the directory that is not it.
+   */
+  launchDir: string | null;
   /** Where the page has been pointed, and where the app actually is. */
   settings: UiSettings;
   /**
@@ -125,7 +135,8 @@ export const session: {
   /** The mtime the queue was last read or written at, so an outside edit shows. */
   queueMtime: number;
 } = {
-  settings: { baseUrl: null, navigationFor: null },
+  launchDir: null,
+  settings: { baseUrl: null, navigationFor: null, projectDir: null },
   running: null,
   lastFailure: null,
   queue: [],

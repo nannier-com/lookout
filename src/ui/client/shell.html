@@ -47,8 +47,12 @@
   <div class="settings" id="settings" hidden>
     <label class="srow">
       <span>Project</span>
-      <span class="val" id="setProject">not set</span>
+      <input type="text" id="setProject" placeholder="path to the project to check"
+        spellcheck="false" autocomplete="off">
+      <button type="button" class="mini" id="pickProject">Choose folder</button>
     </label>
+    <p class="shint">Which repository lookout looks at. Remembered: a server
+      started in this directory comes back pointed here.</p>
     <label class="srow">
       <span>Base URL</span>
       <input type="text" id="setUrl" placeholder="leave empty to use the config"

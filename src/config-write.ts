@@ -185,6 +185,36 @@ export async function ensureIgnored(root: string): Promise<void> {
   }
 }
 
+/** What a directory resolves to: its config, found or freshly written. */
+export interface LocatedOrCreated {
+  configPath: string;
+  projectDir: string;
+  /** True when nothing was there and this call wrote the config. */
+  created: boolean;
+}
+
+/**
+ * The config a directory should be served with: the nearest one up its own
+ * tree, or a fresh one written at the nearest project root. Null when the
+ * directory is not a project at all, so the caller knows to refuse rather
+ * than litter.
+ *
+ * One decision, two callers: `lookout ui` makes it at startup
+ * (`projectToServe`) and the settings panel makes it again whenever it is
+ * pointed somewhere else at runtime. Both are the screen a project gets
+ * configured ON, so both create rather than refuse a directory for want of a
+ * config that is not there yet.
+ */
+export async function locateOrCreateConfig(dir: string): Promise<LocatedOrCreated | null> {
+  const located = locateConfig(dir);
+  if (located) return { configPath: located.path, projectDir: located.projectDir, created: false };
+  const root = nearestProjectRoot(dir);
+  if (!root) return null;
+  const configPath = await createConfig(root, {});
+  await ensureIgnored(root);
+  return { configPath, projectDir: root, created: true };
+}
+
 /** The config already in this directory (root form or legacy), if any. */
 export function existingConfigIn(projectDir: string): string | null {
   const found = locateConfig(projectDir);

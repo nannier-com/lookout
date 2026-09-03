@@ -35,9 +35,10 @@ import { lookoutDir, loadConfig } from "../config.js";
 import { locateConfig, nearestProjectRoot } from "../config-locate.js";
 import { createConfig, ensureIgnored } from "../config-write.js";
 import { live } from "../ui/live.js";
+import { switchProject } from "../ui/project.js";
 import { handle } from "../ui/routes.js";
 import { stopCheck } from "../ui/run.js";
-import { session, setCurrentProject } from "../ui/session.js";
+import { currentProject, session, setCurrentProject } from "../ui/session.js";
 import { startWatching, stopWatching } from "../ui/watch.js";
 import { EMPTY_SETTINGS, loadSettings } from "../ui/stored-settings.js";
 import { loadQueue, queueMtime } from "../ui/queue.js";
@@ -74,12 +75,12 @@ export const HTTP_IDLE_SECONDS = 255;
 /**
  * The project this server serves, and its config, written when there is none.
  *
- * `lookout ui` is a verb like any other now: it looks at the directory it was
- * started in. It used to be re-pointable at runtime and to remember where it
- * had been pointed, which is what put its settings in the operator's home;
- * with the settings inside the project, a page that could be re-pointed would
- * have to move its own storage mid-session for no gain over starting it in the
- * other directory.
+ * `lookout ui` is a verb like any other: it looks at the directory it was
+ * started in. That is where it STARTS, not where it is bound for life; the
+ * settings panel can point it at another project and `ui()` reads that answer
+ * back from here on the next launch. What sent this file's settings to the
+ * operator's home once was a pointer that had nowhere else to live, and the
+ * launch directory is that somewhere else.
  *
  * A project with no config gets one, rather than the refusal `ensureProjectConfig`
  * gives a verb that is about to go and look at something: this is the screen a
@@ -108,6 +109,10 @@ export async function projectToServe(parsed: Parsed): Promise<string | null> {
 
 export async function ui(parsed: Parsed): Promise<number> {
   const root = await projectToServe(parsed);
+  // Where this process was started, which is where a choice made in the panel
+  // is written down. It stops being the project being served the moment
+  // somebody points the page somewhere else.
+  session.launchDir = root;
   session.settings = root ? await loadSettings(root) : { ...EMPTY_SETTINGS };
   // The queue outlives the process that was holding it: a server restarted
   // mid-fix comes back still knowing what it was waiting for and what is behind
@@ -137,6 +142,19 @@ export async function ui(parsed: Parsed): Promise<number> {
   }
   const port = num(parsed.flags.port) ?? 7333;
   setCurrentProject(resolved);
+
+  // Where this page was last pointed from this directory. Honoured before the
+  // server listens, so the first paint is already the right project rather
+  // than the launch directory for a moment. A remembered project that has
+  // since moved or lost its config is said out loud and left behind, because
+  // refusing to start over a stale pointer would strand the one screen that
+  // could repoint it.
+  const remembered = session.settings.projectDir;
+  if (remembered && remembered !== resolved.projectDir) {
+    const failed = await switchProject(remembered);
+    if (failed) console.error(`lookout: ${remembered} was remembered here, but ${failed}`);
+  }
+  const served = currentProject();
   const server = Bun.serve({
     port,
     hostname: "127.0.0.1",
@@ -156,11 +174,11 @@ export async function ui(parsed: Parsed): Promise<number> {
   startWatching();
   // A queue restored from disk may have been settled while nobody was serving
   // it, and its head may never have been handed over at all.
-  void pumpQueue(resolved);
+  void pumpQueue(served);
 
   const href = `http://127.0.0.1:${port}/`;
   console.log(`lookout ui: ${href}`);
-  console.log(`  watching ${lookoutDir(resolved)}`);
+  console.log(`  watching ${lookoutDir(served)}`);
   console.log("  it reads the backlog, so it shows every open issue, run or no run.");
   console.log("  findings appear as they land, pushed over a socket, not polled.");
   console.log("  Ctrl-C to stop.");

@@ -12,9 +12,14 @@ make that safe.
 
 ## Project-agnostic, by construction
 
-lookout judges other people's projects and is specific to none of them. Two
-rules keep it that way, and a change that breaks either is wrong even when
-every gate is green:
+lookout judges other people's projects and is specific to none of them. That
+is a property of the source, not a constraint on what any one running process
+points at: which project a `lookout ui` or a verb targets is an ordinary
+runtime choice — cwd, `--config`, `--url`, or a directory picked from the
+running page's own settings — and making that choice easy to change is not
+what the rules below forbid. They keep the *code* project-agnostic. Two rules
+do that, and a change that breaks either is wrong even when every gate is
+green:
 
 - **No judged project is special.** Nothing in this repo may name, detect, or
   special-case a particular project: no hard-coded project names, paths,

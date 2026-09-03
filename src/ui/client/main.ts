@@ -15,7 +15,7 @@
  */
 import { el, hit, repaint, ticks } from "./dom.js";
 import { setFilter } from "./filters.js";
-import { toggleSettings, loadConfigState, saveConfigState } from "./settings.js";
+import { toggleSettings, loadConfigState, pickProject, saveConfigState, saveProject } from "./settings.js";
 import { paintJudge, say, setView, toggleJudge } from "./shell.js";
 import { render, runState } from "./status.js";
 import { connected, listen } from "./stream.js";
@@ -163,6 +163,9 @@ document.addEventListener("click", (e) => {
   }
   if (hit(e, "#cog")) { toggleSettings(); return; }
   if (hit(e, "#streamFold")) { toggleJudge(); return; }
+  // The picker is the server's to open: a browser cannot hand back a real
+  // filesystem path.
+  if (hit(e, "#pickProject")) { void pickProject(); return; }
   if (hit(e, "#saveUrl")) {
     void saveConfigState({ baseUrl: (el("setUrl") as HTMLInputElement).value });
     return;
@@ -210,12 +213,18 @@ void loadConfigState()
   .then(loadTools)
   .then(tick)
   .then(() => listen({ status: render, narration: addNarration }));
-// Enter in the URL box saves, which is what anyone typing a URL expects.
+// Enter in either settings box saves it, which is what anyone typing a path or
+// a URL into a box expects.
 document.addEventListener("keydown", (e) => {
   const target = e.target;
-  if (e.key === "Enter" && target instanceof HTMLInputElement && target.id === "setUrl") {
+  if (e.key !== "Enter" || !(target instanceof HTMLInputElement)) return;
+  if (target.id === "setUrl") {
     e.preventDefault();
     void saveConfigState({ baseUrl: target.value });
+  }
+  if (target.id === "setProject") {
+    e.preventDefault();
+    void saveProject(target.value);
   }
 });
 // The only fallback left. While the socket is open this does nothing at all;

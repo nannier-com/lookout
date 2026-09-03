@@ -13,15 +13,19 @@ import type { SettingsView } from "../project.js";
 // What the settings panel is showing, so Play can refuse before it spends
 // anything and the cog can render without a round trip.
 export function paintSettings(): void {
-  el("setProject").textContent = page.config.projectDir || "not set";
-  el("setProject").title = page.config.projectDir || "";
+  // Both boxes are left alone while somebody is typing in them: the panel
+  // repaints whenever the run log moves, and a repaint that overwrote a
+  // half-typed path would be indistinguishable from the page fighting back.
+  const dir = el("setProject") as HTMLInputElement;
+  if (document.activeElement !== dir) dir.value = page.config.projectDir || "";
+  dir.title = page.config.projectDir || "";
   const input = el("setUrl") as HTMLInputElement;
   if (document.activeElement !== input) input.value = page.config.baseUrl || "";
   const box = el("setTargets");
   if (page.config.error) {
     box.innerHTML = '<div class="tgt down">' + esc(page.config.error) + "</div>";
   } else if (!page.config.configured) {
-    box.innerHTML = '<div class="tgt">No lookout.config.ts here. Restart lookout ui in the project you want to look at.</div>';
+    box.innerHTML = '<div class="tgt">No lookout.config.ts here. Choose a folder above, or type its path.</div>';
   } else if (!page.config.targets.length) {
     box.innerHTML = '<div class="tgt">That config declares no targets.</div>';
   } else {
@@ -92,13 +96,17 @@ export async function loadConfigState(): Promise<void> {
   paintSettings();
 }
 
-export async function saveConfigState(body: Record<string, string | boolean>): Promise<void> {
-  const res = await fetch("/api/settings", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const data = (await res.json()) as SettingsView & { error?: string };
+/**
+ * Take the panel's own answer and repaint from it.
+ *
+ * Every settings write answers with the whole view, so the page never has to
+ * guess what a save did: the same handling serves a saved base URL, a typed
+ * project and a folder chosen from the native picker. A cancelled picker
+ * answers with nothing to apply, which is not an error and not a repaint.
+ */
+async function applySettingsResponse(res: Response): Promise<void> {
+  const data = (await res.json()) as SettingsView & { error?: string; cancelled?: boolean };
+  if (data.cancelled) return;
   if (data.error) { say(data.error); return; }
   page.config = data;
   page.project.configured = !!page.config.configured;
@@ -106,6 +114,33 @@ export async function saveConfigState(body: Record<string, string | boolean>): P
   repaint("board");
   paintSettings();
   await refresh();
+}
+
+export async function saveConfigState(body: Record<string, string | boolean>): Promise<void> {
+  await applySettingsResponse(
+    await fetch("/api/settings", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+/** Ask the server to open a native folder chooser, and take what comes back. */
+export async function pickProject(): Promise<void> {
+  await applySettingsResponse(await fetch("/api/pick", { method: "POST" }));
+}
+
+/** Point lookout at a path somebody typed rather than chose. */
+export async function saveProject(dir: string): Promise<void> {
+  if (!dir.trim()) return;
+  await applySettingsResponse(
+    await fetch("/api/project", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ dir: dir.trim() }),
+    }),
+  );
 }
 
 export function toggleSettings(): void {

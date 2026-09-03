@@ -1,20 +1,33 @@
 /**
- * What the settings panel shows, and the one change it can make.
+ * What the settings panel shows, and what it can change.
  *
- * The page used to choose the project too, with a native folder picker and a
- * remembered answer; `lookout ui` serves the directory it was started in now,
- * so what is left here is the base URL, which re-resolves the config, and the
- * probe. The probe is what makes the panel worth opening: "which targets
- * answer right now" shows a wrong port before a run is spent on it.
+ * Two changes, and they are not the same size. The base URL re-resolves the
+ * config it already has; the project re-resolves everything, because pointing
+ * lookout at another repository is not a patch on the one being served but a
+ * different config, queue, settings and board in its place. The probe is what
+ * makes the panel worth opening when neither changes: "which targets answer
+ * right now" shows a wrong port before a run is spent on it.
+ *
+ * The choice is remembered, in the directory the server was STARTED in rather
+ * than the one it ends up serving (`rememberProject`). That is the whole
+ * difference from the picker this replaces, which kept its answer in the
+ * operator's home: a pointer cannot live inside the thing it points to, but it
+ * can live perfectly well beside the directory that launched the process, and
+ * that needs no machine-wide home.
  */
+import { existsSync, statSync } from "node:fs";
+import { resolve } from "node:path";
 import { loadConfig } from "../config.js";
+import { locateOrCreateConfig } from "../config-write.js";
 import { preflight, resolveTargets } from "../targets.js";
 import { deviceLines, preflightDevices } from "../capture/native-preflight.js";
 import { detectProjectKind } from "../project-kind.js";
+import { execFileAsync } from "../util.js";
 import { currentProjectOrNull, session, setCurrentProject } from "./session.js";
 import { forgetNarration } from "./narration.js";
 import { forgetBoard } from "./payload.js";
-import { navigationConsented } from "./stored-settings.js";
+import { loadQueue, queueMtime } from "./queue.js";
+import { loadSettings, navigationConsented, rememberProject } from "./stored-settings.js";
 
 /** What the settings panel shows: where lookout is pointed, and what answers. */
 export interface SettingsView {
@@ -38,6 +51,81 @@ export interface SettingsView {
    */
   devices: { line: string; up: boolean }[];
   error: string | null;
+}
+
+/**
+ * Ask the operating system for a directory.
+ *
+ * A browser cannot hand back a real filesystem path, so the server asks
+ * instead. lookout is already a local process the user started, so putting a
+ * native picker in front of them is no more privileged than the terminal they
+ * launched it from.
+ */
+export async function pickFolder(): Promise<string | null> {
+  if (process.platform !== "darwin") return null;
+  try {
+    const { stdout } = await execFileAsync("osascript", [
+      "-e",
+      'POSIX path of (choose folder with prompt "Choose the repository lookout should check")',
+    ]);
+    const dir = stdout.trim().replace(/\/$/, "");
+    return dir || null;
+  } catch {
+    // The user cancelled, which is not an error.
+    return null;
+  }
+}
+
+/**
+ * Point this server at another project, and remember that it was pointed.
+ *
+ * Everything scoped to one project follows the move: that project's config,
+ * its own base URL and consent, its queue, the board cache and the judges'
+ * transcript, which would otherwise go on describing the project just left.
+ * The watcher needs no help; it listens for exactly this.
+ *
+ * The config is found or written the same way `lookout ui` decides it at
+ * startup, because this panel is the same kind of screen a terminal is: the
+ * one a project gets configured ON. A directory that is no project at all is
+ * refused rather than littered.
+ *
+ * Returns the reason it could not, or null when it did. An error rather than a
+ * throw because a folder somebody picked by hand being the wrong folder is an
+ * ordinary answer, not a failed request.
+ */
+export async function switchProject(dir: string): Promise<string | null> {
+  const abs = resolve(dir);
+  if (!existsSync(abs) || !statSync(abs).isDirectory()) return `not a directory: ${abs}`;
+  const found = await locateOrCreateConfig(abs);
+  if (!found) return `${abs} holds no lookout.config.ts and is not a repository`;
+
+  // This project's own remembered base URL, applied as the config loads, so the
+  // panel and the run it starts agree about where the app is from the first
+  // paint rather than after a save.
+  const settings = await loadSettings(found.projectDir);
+  let resolved;
+  try {
+    resolved = await loadConfig({
+      configPath: found.configPath,
+      cwd: found.projectDir,
+      baseUrl: settings.baseUrl ?? undefined,
+    });
+  } catch (e) {
+    return (e as Error).message;
+  }
+
+  setCurrentProject(resolved);
+  session.settings = settings;
+  session.queue = await loadQueue(found.projectDir);
+  session.queueMtime = queueMtime(found.projectDir);
+  session.queueRev++;
+  forgetBoard();
+  forgetNarration();
+  // Remembered against the directory this server was launched in, so the next
+  // one started there comes back pointed here.
+  if (session.launchDir) await rememberProject(session.launchDir, found.projectDir);
+  if (found.created) console.error(`lookout: wrote ${found.configPath}`);
+  return null;
 }
 
 /**

@@ -26,7 +26,7 @@ import { readNarration } from "../report/narration.js";
 import { boardNow, learningNow, statusBody } from "./payload.js";
 import { pumpQueue, queueableReason } from "./queue-pump.js";
 import { saveQueue } from "./queue.js";
-import { applyBaseUrl, settingsView } from "./project.js";
+import { applyBaseUrl, pickFolder, settingsView, switchProject } from "./project.js";
 import { startCheck, startRuling, stopCheck } from "./run.js";
 import { currentProject, session } from "./session.js";
 import { saveSettings, validBaseUrl } from "./stored-settings.js";
@@ -47,6 +47,26 @@ export async function handle(req: Request, server: Server<undefined>): Promise<R
     // happened to visit and their board.
     if (!sameOrigin(req)) return text(403, "that origin did not come from this server");
     return openLive(req, server) ? undefined : text(400, "expected a websocket upgrade");
+  }
+
+  // Pointing lookout at another project. Two doors to one act: the native
+  // picker, which the server opens because a browser cannot hand back a real
+  // filesystem path, and a path typed into the panel. Both re-resolve
+  // everything and both are remembered, so the choice survives a restart.
+  if (req.method === "POST" && (url.pathname === "/api/project" || url.pathname === "/api/pick")) {
+    let dir: string | null;
+    if (url.pathname === "/api/pick") {
+      dir = await pickFolder();
+      // Cancelling a folder chooser is an answer, not a failure.
+      if (!dir) return json(200, { cancelled: true });
+    } else {
+      const body = await readJson(req);
+      dir = typeof body.dir === "string" && body.dir.trim() ? body.dir.trim() : null;
+      if (!dir) return json(400, { error: "no folder given" });
+    }
+    const failed = await switchProject(dir);
+    const view = await settingsView();
+    return json(failed ? 400 : 200, failed ? { ...view, error: failed } : view);
   }
 
   // Configuration is its own act, not something the run does on the way past.

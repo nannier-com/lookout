@@ -217,8 +217,14 @@ async function drive(): Promise<number> {
   await page.click("#cog");
   await page.waitForTimeout(900);
   check("settings panel opens", await page.locator("#settings").isVisible());
-  check("settings names the project", ((await page.locator("#setProject").textContent()) ?? "").includes("project"));
+  check("settings names the project", (await page.locator("#setProject").inputValue()).includes("project"));
   check("settings probes targets", (await page.locator("#setTargets .tgt").count()) > 0);
+
+  // Pointing the page at another project, which is the one control here that
+  // changes what every other area is about. The native chooser beside it is
+  // deliberately never clicked: it is a modal the SERVER opens, and a driver
+  // that pressed it would block this run until somebody came and dismissed it.
+  check("the folder chooser is offered", await page.locator("#pickProject").isVisible());
 
   // The calls-to-action consent, which lives in this panel. What it has to do
   // is agree with the server: it is consent to click the application's own
@@ -410,6 +416,42 @@ async function drive(): Promise<number> {
   } else {
     check("a sidecar-less tile exists to test the bare path", false);
   }
+
+  // Last on purpose. Pointing the page at another project reloads the board,
+  // the queue and the transcript, so any check that ran after this one would be
+  // asserting against a page that had just been rebuilt underneath it.
+  await page.click("#cog");
+  await page.waitForTimeout(600);
+  const served = await page.locator("#setProject").inputValue();
+  const setProjectTo = async (dir: string) => {
+    await page.fill("#setProject", dir);
+    await page.press("#setProject", "Enter");
+    await page.waitForTimeout(900);
+  };
+
+  // Asking for a directory that is no project is answered 400, which reaches
+  // the browser console as a failed fetch. That is the shape of a refusal
+  // working, so the entries this one check provokes are dropped rather than
+  // left to fail the watch that exists to catch the unexpected ones.
+  const noiseFrom = problems.length;
+  await setProjectTo("/nowhere/no/such/project");
+  problems.splice(
+    noiseFrom,
+    problems.length - noiseFrom,
+    ...problems.slice(noiseFrom).filter((entry) => !/status of 400/.test(entry)),
+  );
+  check("a path that is no project is refused",
+    ((await page.locator("#where").getAttribute("class")) ?? "").includes("notice"));
+  // The box keeps the rejected text on purpose, so a typo can be corrected
+  // rather than retyped; what must not have moved is the SERVER, and the
+  // header's title is where the served directory is still spelled out.
+  check("and the page is still serving what it was",
+    ((await page.locator("#where").getAttribute("title")) ?? "").includes(served));
+
+  await setProjectTo(served);
+  check("re-pointing at the project it already serves is accepted",
+    !((await page.locator("#where").getAttribute("class")) ?? "").includes("notice"));
+  check("and it still names that project", (await page.locator("#setProject").inputValue()) === served);
 
   console.log(problems.length ? `\nPROBLEMS:\n${problems.join("\n")}` : "\nno page or console errors");
   await browser.close();

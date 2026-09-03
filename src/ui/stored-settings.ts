@@ -7,12 +7,20 @@
  * from running it, and the answer is worth keeping, so it lives here rather
  * than in the run.
  *
- * Stored in the project it describes, `<project>/.lookout/ui.json`. It used to
- * live in the operator's home because it named which project the page was
- * pointed at, and a pointer cannot live inside the thing it points to. The
- * page is not pointed any more: `lookout ui` serves the project it was started
- * in, the way every other verb does, so what is left to remember is that
- * project's own base URL and its calls-to-action consent.
+ * Stored in `<project>/.lookout/ui.json`, never in the operator's home. Two
+ * different projects can be named by one server, and the file each question
+ * belongs in is decided by which one it is about:
+ *
+ *   baseUrl, navigationFor   the SERVED project's own file: they describe that
+ *                            app and that repository, and mean nothing anywhere
+ *                            else.
+ *   projectDir               the LAUNCH directory's file: it names which project
+ *                            a server started here should serve. A pointer still
+ *                            cannot live inside the thing it points to, which is
+ *                            what sent this file to the operator's home once;
+ *                            keeping it beside the directory lookout was STARTED
+ *                            in, rather than the one it ends up serving, is what
+ *                            lets it be remembered without a machine-wide home.
  */
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -39,9 +47,19 @@ export interface UiSettings {
    * preference about the reader.
    */
   navigationFor: string | null;
+  /**
+   * The project a server started in THIS directory should serve, or null to
+   * serve this directory itself.
+   *
+   * Written when somebody points the settings panel somewhere else, and read
+   * at startup, which is what makes the choice survive a restart: `lookout ui`
+   * still resolves the directory it was launched in the way every verb does,
+   * and then asks that directory where it was last told to look.
+   */
+  projectDir: string | null;
 }
 
-export const EMPTY_SETTINGS: UiSettings = { baseUrl: null, navigationFor: null };
+export const EMPTY_SETTINGS: UiSettings = { baseUrl: null, navigationFor: null, projectDir: null };
 
 export function settingsPath(projectDir: string): string {
   return join(projectDir, LOOKOUT_DIR, "ui.json");
@@ -51,14 +69,13 @@ export async function loadSettings(projectDir: string): Promise<UiSettings> {
   const p = settingsPath(projectDir);
   if (!existsSync(p)) return { ...EMPTY_SETTINGS };
   try {
-    // `projectDir` is deliberately not read back: a file written by an older
-    // lookout carries one, and it named the project the page was pointed at,
-    // which is a question this file no longer answers.
     const raw = JSON.parse(await readFile(p, "utf8")) as Partial<UiSettings>;
     return {
       baseUrl: typeof raw.baseUrl === "string" && raw.baseUrl.trim() ? raw.baseUrl.trim() : null,
       navigationFor:
         typeof raw.navigationFor === "string" && raw.navigationFor.trim() ? raw.navigationFor.trim() : null,
+      projectDir:
+        typeof raw.projectDir === "string" && raw.projectDir.trim() ? raw.projectDir.trim() : null,
     };
   } catch {
     // Unreadable settings are not worth failing to start over; the page will
@@ -73,6 +90,20 @@ export async function saveSettings(projectDir: string, s: UiSettings): Promise<v
   const tmp = `${p}.tmp`;
   await writeFile(tmp, JSON.stringify(s, null, 2));
   await rename(tmp, p);
+}
+
+/**
+ * Write down which project a server launched HERE should serve.
+ *
+ * Read-modify-write rather than a save of what the session is holding: the
+ * session's settings belong to the project being served, and this file belongs
+ * to the directory the server was started in. Once those are two different
+ * places, saving one over the other is how a base URL ends up in a repository
+ * that never had one.
+ */
+export async function rememberProject(launchDir: string, projectDir: string | null): Promise<void> {
+  const stored = await loadSettings(launchDir);
+  await saveSettings(launchDir, { ...stored, projectDir });
 }
 
 /**
