@@ -22,7 +22,7 @@
  * it, it is dropped.
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { LOOKOUT_DIR, locateConfig } from "../config-locate.js";
 import { ownCheckout } from "../checkout.js";
 
@@ -68,9 +68,21 @@ export function incidentsPath(projectDir: string): string {
  * Failing that, lookout's own checkout, which is where a failure of `doctor`
  * or a mistyped verb actually belongs. Failing that, nowhere: writing into an
  * arbitrary directory would leave an un-ignored `.lookout/` in it.
+ *
+ * Only an ABSOLUTE `where` is offered to `locateConfig`, because that is the
+ * whole of what `Incident.project` promises to be. `locateConfig` resolves
+ * what it is handed against the working directory and then climbs, so a
+ * display name — `"p"`, the config's own `project` field, anything that is
+ * not a path — quietly names whatever repository the process happens to be
+ * standing in, and the incident is appended to a stranger's log. That is a
+ * cross-project write dressed as a typo, and it defeats `LOOKOUT_CHECKOUT`
+ * too: the redirect only covers the fallback below, so a display name is the
+ * one route by which the suite could write into the repository it is testing.
+ * A `where` that is not a directory is not a project in scope, and an
+ * incident with no project in scope belongs in lookout's own checkout.
  */
 export function incidentLogDir(where: string | undefined): string | null {
-  const configured = where ? locateConfig(where)?.projectDir : null;
+  const configured = where && isAbsolute(where) ? locateConfig(where)?.projectDir : null;
   return configured ?? ownCheckout();
 }
 

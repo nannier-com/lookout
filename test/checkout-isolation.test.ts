@@ -10,16 +10,32 @@
  * whoever works here next. Nothing else in the suite would notice.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { ownCheckout } from "../src/checkout.js";
-import { incidentsPath, recordIncident } from "../src/skills/incidents.js";
+import { incidentLogDir, incidentsPath, recordIncident } from "../src/skills/incidents.js";
 import { SUITE_CHECKOUT } from "./setup.js";
 import { tmpProject } from "./tmp-project.js";
 
 /** The repository this suite is running from: the one it must not write to. */
 const REAL_CHECKOUT = join(import.meta.dir, "..");
+
+/**
+ * Run something from inside a directory, and put the old one back.
+ *
+ * Realpathed, because `process.chdir` reports the resolved path and macOS
+ * spells the temp directory both ways.
+ */
+function inDir<T>(dir: string, fn: () => T): T {
+  const before = process.cwd();
+  process.chdir(dir);
+  try {
+    return fn();
+  } finally {
+    process.chdir(before);
+  }
+}
 
 afterEach(() => {
   process.env.LOOKOUT_CHECKOUT = SUITE_CHECKOUT;
@@ -49,6 +65,37 @@ describe("where a test run keeps lookout's own state", () => {
     recordIncident({ at: "t", kind: "crash", message: "a test invented this", project: bare });
     expect(readFileSync(incidentsPath(SUITE_CHECKOUT), "utf8")).toContain("a test invented this");
     expect(existsSync(join(bare, ".lookout"))).toBe(false);
+  });
+
+  test("a display name for a project cannot steer the log into the repository underfoot", () => {
+    // The hole this closes: `Incident.project` is a directory, but a display
+    // name is a string too, and `locateConfig` resolves a relative one against
+    // the working directory and climbs. Standing in ANY configured repository
+    // — and lookout's own checkout is one, because `lookout ui` writes a
+    // config at its root by design — a `project` of "p" named that repository
+    // and the incident was appended to its log. LOOKOUT_CHECKOUT does not
+    // cover it: the redirect guards the no-project fallback, and a configured
+    // project beats the fallback, so this was the one route by which the suite
+    // could write into the repository it is testing. It did: six invented
+    // contract failures per run, from test/reply.test.ts.
+    const standing = realpathSync(tmpProject("lookout-underfoot-").projectDir);
+    inDir(standing, () => {
+      expect(incidentLogDir("p")).toBe(SUITE_CHECKOUT);
+      recordIncident({ at: "t", kind: "crash", message: "a display name invented this", project: "p" });
+    });
+    expect(existsSync(incidentsPath(standing))).toBe(false);
+    expect(readFileSync(incidentsPath(SUITE_CHECKOUT), "utf8")).toContain("a display name invented this");
+  });
+
+  test("but its directory still does, which is what the field is for", () => {
+    // The guard discriminates on being a path, not on being a stranger: the
+    // same project, named the way the contract asks, keeps its own failures.
+    const standing = realpathSync(tmpProject("lookout-underfoot-").projectDir);
+    inDir(standing, () => {
+      expect(incidentLogDir(standing)).toBe(standing);
+      recordIncident({ at: "t", kind: "crash", message: "a directory invented this", project: standing });
+    });
+    expect(readFileSync(incidentsPath(standing), "utf8")).toContain("a directory invented this");
   });
 
   test("a project's own state is inside it, and under no home directory", () => {
