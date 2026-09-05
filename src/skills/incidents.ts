@@ -22,7 +22,7 @@
  * it, it is dropped.
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { LOOKOUT_DIR, locateConfig } from "../config-locate.js";
 import { ownCheckout } from "../checkout.js";
 
@@ -70,7 +70,13 @@ export function incidentsPath(projectDir: string): string {
  * arbitrary directory would leave an un-ignored `.lookout/` in it.
  */
 export function incidentLogDir(where: string | undefined): string | null {
-  const configured = where ? locateConfig(where)?.projectDir : null;
+  // Only an absolute path names a project. `locateConfig` resolves whatever it
+  // is handed against the working directory and climbs, so a display name such
+  // as "p" would land in whichever repository the process happened to be
+  // standing in: the one log a test pointing `LOOKOUT_CHECKOUT` at a fixture
+  // is trying not to write to. The field is documented absolute; this is what
+  // makes that true.
+  const configured = where && isAbsolute(where) ? locateConfig(where)?.projectDir : null;
   return configured ?? ownCheckout();
 }
 

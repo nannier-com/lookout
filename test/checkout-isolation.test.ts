@@ -68,4 +68,33 @@ describe("where a test run keeps lookout's own state", () => {
     const preloads = existsSync(config) ? readFileSync(config, "utf8") : `no bunfig.toml in ${process.cwd()}`;
     expect(preloads).toContain("./test/setup.ts");
   });
+
+  // `Incident.project` is documented absolute, and `incidentLogDir` used to
+  // trust that: it handed whatever it was given to `locateConfig`, which
+  // resolves against the working directory and climbs. A display name such as
+  // "p" therefore found the config of whichever repository the process stood
+  // in and logged there, walking straight past LOOKOUT_CHECKOUT. Two of the
+  // self-heal tests fail from exactly this the moment a lookout.config.ts is
+  // left at this repository's root, which serving lookout's own checkout in
+  // `lookout ui` does by design.
+  test("a display name is not a project, and never steers the log into the working directory", () => {
+    const trap = tmpProject("lookout-trap-");
+    const before = process.cwd();
+    process.chdir(trap.projectDir);
+    try {
+      recordIncident({ at: "t", kind: "crash", message: "steered by a display name", project: "p" });
+    } finally {
+      process.chdir(before);
+    }
+    expect(readFileSync(incidentsPath(SUITE_CHECKOUT), "utf8")).toContain("steered by a display name");
+    expect(existsSync(incidentsPath(trap.projectDir))).toBe(false);
+  });
+
+  test("an absolute path to a configured project is still that project's own log", () => {
+    // The guard is a floor, not a ceiling: the primary path, a real directory
+    // naming a real project, must keep landing in that project.
+    const r = tmpProject("lookout-abs-");
+    recordIncident({ at: "t", kind: "crash", message: "addressed by directory", project: r.projectDir });
+    expect(readFileSync(incidentsPath(r.projectDir), "utf8")).toContain("addressed by directory");
+  });
 });
