@@ -80,7 +80,12 @@ function fixStrip(b: BoardEntry): string {
   const body = pairs.map(([bf, af]) => {
     // One side is always present: a pair is only made from a frame that exists.
     const s = (bf ?? af)!;
-    const label = [platformOf(s), s.formFactor, s.scheme].filter(Boolean).join(" \u00b7 ") || s.route;
+    // Form factor and scheme alone collapse every state of the same route into
+    // an identical caption ("phone \u00b7 dark" repeated once per interaction state
+    // a fix cluster spans), which reads as the same pair shown over and over.
+    // Route and state are what actually tell the pairs apart.
+    const label = [s.route, platformOf(s), s.formFactor, s.scheme, s.state]
+      .filter(Boolean).join(" \u00b7 ");
     return '<div class="pair"><div class="frames">' + half(bf, "pre") + half(af, "post")
       + '</div><div class="lbl">' + esc(label) + '</div></div>';
   }).join("");
