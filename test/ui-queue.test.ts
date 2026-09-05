@@ -5,9 +5,10 @@
 // it writes only when something changed, and a handoff that could not happen is
 // terminal rather than retried. Both are asserted here by counting.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { advanceQueue, queueableReason, setHandoff, type Handoff } from "../src/ui/queue-pump.js";
+import { clearLease, leasePath, leaseScript } from "../src/ui/lease.js";
 import { loadQueue, queueDigest, queuePath, saveQueue, type QueueItem } from "../src/ui/queue.js";
 import { handle } from "../src/ui/routes.js";
 import { boardNow, forgetBoard, statusBody } from "../src/ui/payload.js";
@@ -317,5 +318,90 @@ describe("the queue over HTTP", () => {
     session.queueRev++;
     const after = JSON.parse(await statusBody(project)) as StatusPayload;
     expect(after.status.queue.map((q) => q.issue)).toEqual(["100001"]);
+  });
+});
+
+// The lease is what stopped two agents sharing one checkout. Both collisions
+// below were real, and both were invisible to the attempt count the pump used
+// to decide on: an agent asks for its ruling MID-turn and keeps editing, so
+// "lookout has ruled" and "the agent has gone" are different facts.
+describe("the lease", () => {
+  /** A lease held by a process that is certainly alive: this one. */
+  function hold(issue: string, pid = process.pid): void {
+    writeFileSync(
+      leasePath(project.projectDir),
+      JSON.stringify({ issue, pid, startedAt: "2026-09-02T00:00:00.000Z" }),
+    );
+  }
+
+  test("holds a fresh head while another agent is still working", async () => {
+    hold("100001");
+    session.queue = queued("100002");
+    await advanceQueue(project, [entry("100002", "open")]);
+    expect(opened).toEqual([]);
+    expect(session.queue[0]?.handedOffAt).toBeUndefined();
+  });
+
+  // The one that cost two attempts on one issue: a still-open ruling spends an
+  // attempt, and the pump read that as "the agent gave up" while it was still
+  // going. Two windows, one issue, one working tree.
+  test("does not open a second window on the head when a ruling spends an attempt mid-turn", async () => {
+    session.queue = queued("100001");
+    await advanceQueue(project, [entry("100001", "open", 0)]);
+    expect(opened).toEqual(["100001"]);
+    hold("100001");
+    await advanceQueue(project, [entry("100001", "still-open", 1)]);
+    expect(opened).toEqual(["100001"]);
+  });
+
+  // The other one: the ruling lands, the head is dropped as settled, and the
+  // next issue's window opens onto a tree the last agent has not left.
+  test("does not start the next issue while the settled one's agent is still going", async () => {
+    session.queue = queued("100001", "100002");
+    hold("100001");
+    await advanceQueue(project, [entry("100001", "done"), entry("100002", "open")]);
+    expect(session.queue.map((q) => q.issue)).toEqual(["100002"]);
+    expect(opened).toEqual([]);
+  });
+
+  test("hands the next one over as soon as the agent drops the lease", async () => {
+    session.queue = queued("100001", "100002");
+    hold("100001");
+    const board = [entry("100001", "done"), entry("100002", "open")];
+    await advanceQueue(project, board);
+    expect(opened).toEqual([]);
+    clearLease(project.projectDir);
+    await advanceQueue(project, board);
+    expect(opened).toEqual(["100002"]);
+  });
+
+  // A window that was force-quit never ran its trap. A lease nobody can release
+  // would be a queue that never moves again, so the process decides, not the file.
+  test("a lease whose process is gone is not a lease, and is cleared as it is read", async () => {
+    // Certain to be free: the kernel rejects it as out of range rather than
+    // ever assigning it, so this cannot collide with a live process.
+    hold("100001", 0x7fffffff);
+    session.queue = queued("100002");
+    await advanceQueue(project, [entry("100002", "open")]);
+    expect(opened).toEqual(["100002"]);
+    expect(existsSync(leasePath(project.projectDir))).toBe(false);
+  });
+
+  test("a lease nobody can parse does not park the queue", async () => {
+    writeFileSync(leasePath(project.projectDir), "{ not json");
+    session.queue = queued("100002");
+    await advanceQueue(project, [entry("100002", "open")]);
+    expect(opened).toEqual(["100002"]);
+  });
+
+  // No `exec`: replacing the shell leaves nothing to run the trap, and the pid
+  // written down has to be the one that lives as long as the agent does.
+  test("the handoff script takes the lease, drops it however the window ends, and does not exec", () => {
+    const script = leaseScript(project.projectDir, "100001", 'claude "fix it"');
+    expect(script).toContain(leasePath(project.projectDir));
+    expect(script).toContain("trap");
+    expect(script).toContain("EXIT HUP INT TERM");
+    expect(script).toContain('claude "fix it"');
+    expect(script).not.toContain("exec ");
   });
 });

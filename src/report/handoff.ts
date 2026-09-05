@@ -21,6 +21,7 @@ import { findIssue } from "../issues/registry.js";
 import { issueDir, issueDocPath } from "../issues/paths.js";
 import { materializeIssue } from "../issues/store.js";
 import { loadBacklog } from "../verbs/backlog.js";
+import { leaseScript } from "../ui/lease.js";
 import { execFileAsync, have } from "../util.js";
 import { LookoutError, type ResolvedConfig } from "../types.js";
 
@@ -174,11 +175,14 @@ export async function launchHandoff(
 
   // A .command file is the one thing macOS opens in a new Terminal window
   // without asking for automation permission first.
+  //
+  // It takes the queue's lease before it starts the tool and drops it however
+  // the window ends, because this is the only place that can: `open` returns as
+  // soon as Terminal has the file, so the server never holds a handle on the
+  // session it just started and cannot see for itself when the agent is done.
+  // See src/ui/lease.ts for why "lookout has ruled" was the wrong question.
   const script = join(dir, "handoff.command");
-  await writeFile(
-    script,
-    `#!/bin/sh\ncd ${JSON.stringify(resolved.projectDir)}\nexec ${command}\n`,
-  );
+  await writeFile(script, leaseScript(resolved.projectDir, issueId, command));
   await chmod(script, 0o755);
   try {
     await execFileAsync("open", [script]);

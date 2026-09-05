@@ -1,12 +1,18 @@
 /**
- * What moves the queue along: one issue handed over at a time, and the next one
- * only once lookout has ruled on the last.
+ * What moves the queue along: one issue handed over at a time, and nothing else
+ * started while the agent holding it is still going.
  *
- * The advance condition is lookout's own record, not a process exiting. A
- * handoff opens a Terminal that this server has no handle on, so "the fix is
- * finished" is not a thing it can observe; "the defect is gone" is, because
- * `verify-fix` writes it down. The head therefore leaves the queue when the
- * board says done, archived or blocked, and not before.
+ * TWO conditions, because either one alone lets two agents into one checkout.
+ * The head leaves the queue when lookout's own record says done, archived or
+ * blocked — a ruling is the only evidence the defect is gone, and this server
+ * has no handle on the Terminal it opened, so it cannot see a fix finish. But a
+ * ruling is not the end of a turn either: an agent runs `verify-fix` in the
+ * MIDDLE of its turn, reads the answer, and keeps editing. Advancing on the
+ * ruling alone opened the next window on a tree the last agent was still in,
+ * and re-handed a still-open head to a second agent while the first was still
+ * working on it. So the handoff script takes a lease and the pump holds while
+ * one is held: the board says whether this issue is finished, the lease says
+ * whether anybody is still working. See lease.ts.
  *
  * Three properties this has to keep, each of which is a bug if it slips:
  *
@@ -21,6 +27,7 @@
  *    snapshot.
  */
 import { launchHandoff } from "../report/handoff.js";
+import { leaseHeld } from "./lease.js";
 import { boardNow } from "./payload.js";
 import { queueDigest, queueMtime, loadQueue, saveQueue, type QueueItem } from "./queue.js";
 import { checkIsRunning, session } from "./session.js";
@@ -171,6 +178,11 @@ async function stepHead(
   // A check screenshots the tree the fix agent is editing, and its event log
   // truncation erases the ruling overlay of anything in flight. One at a time.
   if (checkIsRunning()) return head;
+  // An agent lookout launched is still going, so nothing else may start: not
+  // the next issue, and not a second window on this one. A ruling is not the
+  // end of a turn — an agent asks for one mid-flight and keeps editing — so the
+  // attempt count below cannot answer this and the lease has to. See lease.ts.
+  if (leaseHeld(resolved.projectDir)) return head;
 
   const attempt = entry?.attempt ?? 0;
   const fresh = head.handedOffAt === undefined;
