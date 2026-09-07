@@ -22,6 +22,7 @@ import { connected, listen } from "./stream.js";
 import { addNarration } from "./transcript.js";
 import { archive, chooseTool, enqueue, loadTools, ruleNow, unqueue } from "./tools.js";
 import { onRefresh, page, type Filter } from "./state.js";
+import { closeConfirm, confirmBackdrop, confirmOpen } from "./confirm.js";
 import { closeShot, openShot, shotBackdrop, shotOpen } from "./shot-view.js";
 import type { NarrationFrame } from "../narration.js";
 import type { StatusPayload } from "../payload.js";
@@ -153,6 +154,11 @@ document.addEventListener("click", (e) => {
     void tick();
     return;
   }
+  // The prompt is answered before anything else is read: while it is up it is
+  // the only thing on the page that can be pressed, and a click on the scrim
+  // beside it means no.
+  if (hit(e, "#cfGo")) { closeConfirm(true); return; }
+  if (hit(e, "#cfNo") || confirmBackdrop(e)) { closeConfirm(false); return; }
   if (hit(e, "#findfix")) { void findAndFix(); return; }
   // Consent is stored on the server against the project it was given for, not
   // in this browser: it authorizes a run that clicks the application's own
@@ -190,7 +196,10 @@ document.addEventListener("click", (e) => {
 
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
-  // The inspector claims Escape first: closing an overlay somebody is looking
+  // The prompt claims Escape before anything else, being the topmost thing on
+  // the page. Dismissing a question is a refusal, never a yes.
+  if (confirmOpen()) { closeConfirm(false); return; }
+  // The inspector claims Escape next: closing an overlay somebody is looking
   // at must never silently clear their filter underneath it.
   if (shotOpen()) { closeShot(); return; }
   if (page.filter) setFilter(page.filter.kind, page.filter.value, page.filter.label);

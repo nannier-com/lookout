@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="/ui/learning.css"/>
 <link rel="stylesheet" href="/ui/shot-view.css"/>
 <link rel="stylesheet" href="/ui/stream.css"/>
+<link rel="stylesheet" href="/ui/confirm.css"/>
 </head><body>
 <nav class="rail" aria-label="Areas">
   <button type="button" class="railb" data-view="issues" aria-current="page"
@@ -144,6 +145,20 @@
     </div>
   </div>
   <div class="svhint" id="svHint"></div>
+</div>
+<!-- The prompt that stands in front of an act with no undo. Last in the
+     document and outside every painted region, so the poll never rewrites it
+     out from under a question somebody is reading. -->
+<div class="confirm" id="confirm" role="dialog" aria-modal="true"
+  aria-labelledby="cfTitle" aria-describedby="cfBody" hidden>
+  <div class="cfcard">
+    <h2 id="cfTitle"></h2>
+    <p id="cfBody"></p>
+    <div class="cfacts">
+      <button type="button" id="cfNo">Cancel</button>
+      <button type="button" id="cfGo"></button>
+    </div>
+  </div>
 </div>
 <script type="module" src="/ui/main.js"></script>
 </body></html>
