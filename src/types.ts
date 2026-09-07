@@ -509,6 +509,8 @@ export interface RunRecord {
 
 export interface CaptureReport {
   version: 1;
+  /** Version 2 uses collision-free route tokens in shot ids and paths. */
+  routeIdentity?: 2;
   project: string;
   createdAt: string;
   updatedAt: string;

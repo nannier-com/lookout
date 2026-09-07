@@ -51,7 +51,7 @@ function shot(id: string, runIdValue: string): ShotRecord {
   return {
     id,
     target: target!,
-    route: `/${routeSlug}`,
+    route: routeSlug === "root" ? "/" : `/${routeSlug}`,
     routeName: routeSlug!,
     state: state!,
     platform: platform as ShotRecord["platform"],
@@ -279,7 +279,7 @@ describe("the prompt the verifier is handed", () => {
     expect(prompt).toContain(`- shotId: ${a.id}`);
     expect(prompt).toContain(`file: /ev/${a.path}`);
     expect(prompt).toContain(
-      "route: /root (root)  state: rest  formFactor: desktop  scheme: dark  size: 100x100",
+      "route: / (root)  state: rest  formFactor: desktop  scheme: dark  size: 100x100",
     );
     // The verifier is told what the batch lacks, the same way the judge is,
     // so a criterion about a form factor nobody captured reads as not

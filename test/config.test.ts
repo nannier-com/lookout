@@ -56,6 +56,15 @@ describe("validateConfig", () => {
     ).toThrow(/duplicate/);
   });
 
+  test("rejects duplicate routes after leading-slash normalization", () => {
+    expect(() =>
+      validateConfig(
+        { targets: [{ name: "app", url: "http://localhost:1", routes: ["settings", "/settings"] }] },
+        "t",
+      ),
+    ).toThrow(/duplicate/);
+  });
+
   test("accepts a signIn function and rejects a non-function", () => {
     const signIn = async () => {};
     const c = validateConfig(

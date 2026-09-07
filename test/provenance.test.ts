@@ -16,6 +16,7 @@ import {
 } from "../src/capture/provenance.js";
 import type { DeterministicFinding } from "../src/types.js";
 import { sidecarRelPath } from "../src/capture/store.js";
+import { routeToken } from "../src/capture/route-identity.js";
 import { loadSidecarBeside, provenanceBrief } from "../src/design/provenance-brief.js";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -230,7 +231,7 @@ describe("the sidecar on disk", () => {
         formFactor: "desktop",
         scheme: "dark",
       }),
-    ).toBe("web/app/settings-profile/rest--desktop-dark.png.provenance.json");
+    ).toBe(`web/app/${routeToken("/settings/profile")}/rest--desktop-dark.png.provenance.json`);
   });
 
   test("a foreign version is discarded rather than misread", () => {

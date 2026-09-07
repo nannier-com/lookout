@@ -12,7 +12,7 @@
  * Filenames are stable so re-runs overwrite in place and the report's shot ids
  * stay the dedupe key.
  */
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type {
@@ -26,6 +26,14 @@ import type {
 } from "../types.js";
 import { evidenceDir } from "../config.js";
 import { nowIso } from "../util.js";
+import {
+  canonicalShotId,
+  canonicalShotRelPath,
+  legacyRouteSlug,
+  legacyShotId,
+  legacyShotRelPath,
+  routeToken,
+} from "./route-identity.js";
 
 export interface ShotAxes {
   target: string;
@@ -36,31 +44,127 @@ export interface ShotAxes {
   scheme: Scheme;
 }
 
-/** "/settings/profile" -> "settings-profile"; "/" -> "root". */
+/** The canonical filesystem token for a route. */
 export function routeSlug(route: string): string {
-  const s = route.replace(/^\/+|\/+$/g, "").replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase();
-  return s || "root";
+  return routeToken(route);
 }
 
+export { legacyRouteSlug } from "./route-identity.js";
+
 export function shotId(a: ShotAxes): string {
-  return [a.platform, a.target, routeSlug(a.route), a.state, a.formFactor, a.scheme].join("/");
+  return canonicalShotId(a);
 }
 
 /** Path relative to the evidence dir. */
 export function shotRelPath(a: ShotAxes): string {
-  return join(a.platform, a.target, routeSlug(a.route), `${a.state}--${a.formFactor}-${a.scheme}.png`);
+  return canonicalShotRelPath(a);
 }
 
 export function reportPath(resolved: ResolvedConfig): string {
   return join(evidenceDir(resolved), "capture-report.json");
 }
 
-export async function loadReport(resolved: ResolvedConfig): Promise<CaptureReport | null> {
+export async function loadReport(
+  resolved: ResolvedConfig,
+  opts: { preservePaths?: ReadonlySet<string> } = {},
+): Promise<CaptureReport | null> {
   const p = reportPath(resolved);
   if (!existsSync(p)) return null;
   const parsed = JSON.parse(await readFile(p, "utf8")) as CaptureReport;
   if (parsed.version !== 1) return null; // future versions rebuild from scratch
-  return parsed;
+  return migrateReportRouteIdentity(resolved, parsed, p, opts.preservePaths ?? new Set());
+}
+
+function ambiguousLegacyRoutes(resolved: ResolvedConfig, report: CaptureReport): Set<string> {
+  const routes = new Map<string, Set<string>>();
+  const add = (target: string, route: string): void => {
+    const key = `${target}\u0000${legacyRouteSlug(route)}`;
+    const values = routes.get(key) ?? new Set<string>();
+    values.add(route.startsWith("/") ? route : `/${route}`);
+    routes.set(key, values);
+  };
+  const targets = Array.isArray(resolved.config.targets) ? resolved.config.targets : [];
+  for (const target of targets) {
+    for (const raw of target.routes?.length ? target.routes : ["/"]) {
+      add(target.name, typeof raw === "string" ? raw : raw.path);
+    }
+  }
+  for (const shot of report.shots) add(shot.target, shot.route);
+  return new Set([...routes].filter(([, values]) => values.size > 1).map(([key]) => key));
+}
+
+async function moveIfPresent(from: string, to: string, preserveDestination = false): Promise<void> {
+  if (!existsSync(from) || from === to) return;
+  await mkdir(dirname(to), { recursive: true });
+  if (preserveDestination && existsSync(to)) {
+    await rm(from, { force: true });
+    return;
+  }
+  await rm(to, { force: true });
+  await rename(from, to);
+}
+
+async function migrateReportRouteIdentity(
+  resolved: ResolvedConfig,
+  report: CaptureReport,
+  path: string,
+  preservePaths: ReadonlySet<string>,
+): Promise<CaptureReport> {
+  if (report.routeIdentity === 2) return report;
+  const ambiguous = ambiguousLegacyRoutes(resolved, report);
+  const root = evidenceDir(resolved);
+  const migrated: ShotRecord[] = [];
+  let changed = false;
+
+  for (const shot of report.shots) {
+    const oldId = legacyShotId(shot);
+    const oldPath = legacyShotRelPath(shot);
+    const canonicalId = canonicalShotId(shot);
+    const canonicalPath = canonicalShotRelPath(shot);
+    const legacy = shot.id === oldId || shot.path === oldPath;
+    const ambiguousKey = `${shot.target}\u0000${legacyRouteSlug(shot.route)}`;
+    if (legacy && ambiguous.has(ambiguousKey)) {
+      for (const rel of [oldPath, `${oldPath}.provenance.json`, `${oldPath}.aria.json`]) {
+        if (!preservePaths.has(rel)) await rm(join(root, rel), { force: true });
+      }
+      changed = true;
+      continue;
+    }
+    if (shot.id === canonicalId && shot.path === canonicalPath) {
+      migrated.push(shot);
+      continue;
+    }
+
+    await moveIfPresent(join(root, shot.path), join(root, canonicalPath), preservePaths.has(canonicalPath));
+    const next: ShotRecord = { ...shot, id: canonicalId, path: canonicalPath };
+    if (shot.provenance) {
+      const nextRel = `${canonicalPath}.provenance.json`;
+      await moveIfPresent(join(root, shot.provenance), join(root, nextRel), preservePaths.has(nextRel));
+      next.provenance = nextRel;
+    }
+    if (shot.aria) {
+      const nextRel = `${canonicalPath}.aria.json`;
+      await moveIfPresent(join(root, shot.aria), join(root, nextRel), preservePaths.has(nextRel));
+      next.aria = nextRel;
+    }
+    migrated.push(next);
+    changed = true;
+  }
+
+  const next: CaptureReport = {
+    ...report,
+    routeIdentity: 2,
+    shots: migrated,
+    ...(changed ? { updatedAt: nowIso() } : {}),
+  };
+  const tmp = `${path}.route-identity-${process.pid}.tmp`;
+  await writeFile(tmp, JSON.stringify(next, null, 2));
+  await rename(tmp, path);
+  if (changed) {
+    await rm(join(root, "judge-report.json"), { force: true });
+    await rm(join(root, "judge-replies"), { recursive: true, force: true });
+  }
+  return next;
 }
 
 /**
@@ -83,8 +187,12 @@ export async function mergeRun(
     plannedStates?: ReadonlyMap<string, ReadonlySet<string>>;
   } = {},
 ): Promise<{ report: CaptureReport; pruned: number }> {
-  const existing = (await loadReport(resolved)) ?? {
+  const preservePaths = new Set(
+    shots.flatMap((shot) => [shot.path, shot.provenance, shot.aria].filter((p): p is string => !!p)),
+  );
+  const existing = (await loadReport(resolved, { preservePaths })) ?? {
     version: 1 as const,
+    routeIdentity: 2 as const,
     project: resolved.project,
     createdAt: nowIso(),
     updatedAt: nowIso(),
@@ -102,6 +210,7 @@ export async function mergeRun(
   }
   const report: CaptureReport = {
     ...existing,
+    routeIdentity: 2,
     project: resolved.project,
     updatedAt: nowIso(),
     runs: [...existing.runs.slice(-19), run], // keep the last 20 runs of history

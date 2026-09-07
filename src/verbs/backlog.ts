@@ -34,6 +34,7 @@ import type { CheckOutcome } from "./check.js";
 import { emit } from "../report/events.js";
 import { LookoutError, type ResolvedConfig } from "../types.js";
 import { nowIso, printJson, str, type Parsed } from "../util.js";
+import { migrateBacklogRouteIdentity } from "../backlog/route-migration.js";
 
 export function backlogPath(resolved: ResolvedConfig): string {
   return join(lookoutDir(resolved), "backlog.json");
@@ -65,8 +66,9 @@ export async function loadBacklog(resolved: ResolvedConfig): Promise<Backlog> {
   // as gone and then make that true on the next save. So it throws, and the
   // callers that run from a timer contain it rather than pretend it parsed.
   const backlog = normalizeBacklog(JSON.parse(await readFile(p, "utf8")) as Backlog);
+  const migrated = await migrateBacklogRouteIdentity(resolved, backlog, await loadReport(resolved));
   const minted = reconcileIssues(backlog, nowIso());
-  if (minted.length > 0) await saveBacklog(resolved, backlog);
+  if (migrated || minted.length > 0) await saveBacklog(resolved, backlog);
   return backlog;
 }
 

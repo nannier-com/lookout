@@ -289,6 +289,8 @@ export interface Backlog {
    * one-shot migrations that run on load key off it.
    */
   schema?: 2;
+  /** Version 2 uses collision-free route tokens in fingerprints and evidence. */
+  routeIdentity?: 2;
   findings: Record<string, BacklogFinding>;
   /** Issue ids by id. Assigned once, never reused, never pruned. */
   issues: Record<string, IssueRecord>;
@@ -301,7 +303,7 @@ export const BACKLOG_NOTE =
   "Managed by `lookout backlog` (merge/set/reopen/regen/check); edit through the CLI, not by hand.";
 
 export function emptyBacklog(project: string, now: string): Backlog {
-  return { note: BACKLOG_NOTE, project, updatedAt: now, findings: {}, issues: {} };
+  return { note: BACKLOG_NOTE, project, updatedAt: now, routeIdentity: 2, findings: {}, issues: {} };
 }
 
 /** A plain object, as opposed to null, an array, or a scalar. */

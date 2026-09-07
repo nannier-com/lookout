@@ -24,6 +24,7 @@ import {
   type TargetDef,
   type Viewport,
 } from "./types.js";
+import { duplicateNormalizedRoute } from "./capture/route-identity.js";
 
 function fail(path: string, msg: string): never {
   throw new LookoutError(`invalid lookout config (${path}): ${msg}`);
@@ -85,6 +86,13 @@ export function validateConfig(raw: unknown, path: string): LookoutConfig {
         }
         return r as unknown as RouteDef;
       });
+      const duplicate = duplicateNormalizedRoute(validRoutes);
+      if (duplicate) {
+        fail(
+          path,
+          `targets[${i}].routes[${duplicate.index}] duplicates routes[${duplicate.prior}] after normalization (${duplicate.route})`,
+        );
+      }
     }
     const signIn = t.signIn;
     if (signIn !== undefined && typeof signIn !== "function") {

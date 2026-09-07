@@ -20,7 +20,7 @@
 import type { BacklogFinding, FindingStatus } from "../backlog/lib.js";
 import { isShellRegion } from "../backlog/region.js";
 import { categoryPhrase } from "../judge/glossary.js";
-import { routeSlug } from "../capture/store.js";
+import { legacyRouteSlug, routeToken } from "../capture/route-identity.js";
 import { LookoutError, type PlatformKind, type Severity } from "../types.js";
 import type { Category } from "../judge/rubric.js";
 
@@ -99,8 +99,17 @@ export function clusterKeyOf(f: ClusterKeyAxes): string {
   // persistent chrome the region is the same proxy one level finer. Without
   // it, one malformed nav landmark was thirteen issues with thirteen ids.
   if (f.channel === "deterministic" && f.category === "a11y") {
-    const locus = isShellRegion(f.region) ? f.region! : routeSlug(f.route);
-    return `${slug(f.target)}--${platformSegment(f)}${slug(locus)}--a11y`;
+    const locus = isShellRegion(f.region) ? f.region! : routeToken(f.route);
+    return `${slug(f.target)}--${platformSegment(f)}${locus}--a11y`;
+  }
+  return clusterKeyRest(f);
+}
+
+/** The key emitted before route identity became collision-free. */
+export function legacyClusterKeyOf(f: ClusterKeyAxes): string {
+  if (f.channel === "deterministic" && f.category === "a11y") {
+    const locus = isShellRegion(f.region) ? f.region! : legacyRouteSlug(f.route);
+    return `${slug(f.target)}--${platformSegment(f)}${locus}--a11y`;
   }
   return clusterKeyRest(f);
 }
@@ -113,7 +122,7 @@ export function clusterKeyOf(f: ClusterKeyAxes): string {
  */
 export function priorClusterKeyOf(f: ClusterKeyAxes): string | null {
   if (f.channel === "deterministic" && f.category === "a11y" && isShellRegion(f.region)) {
-    return `${slug(f.target)}--${slug(routeSlug(f.route))}--a11y`;
+    return `${slug(f.target)}--${legacyRouteSlug(f.route)}--a11y`;
   }
   return null;
 }

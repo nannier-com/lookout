@@ -12,8 +12,8 @@
  * answer is a component, not a screen: the screen it was photographed on is an
  * accident of which route the capture visited first, and keying on it filed
  * one clipped header control as a separate defect per route. A shell region
- * takes the route's slot, spelled `@<region>` because `routeSlug` strips its
- * output to [a-z0-9-] and can never emit an `@`, so the two vocabularies
+ * takes the route's slot, spelled `@<region>` because a route token can never
+ * emit an `@`, so the two vocabularies
  * cannot collide. Form factor and scheme stay in the key either way: a desktop
  * nav rail and a phone tab bar are different components, and fusing them would
  * let a fix photographed on one close evidence about the other.
@@ -23,7 +23,7 @@
  * evidence about the other; a web fingerprint is byte-identical to what it
  * always was, because every existing backlog is keyed by it.
  */
-import { routeSlug } from "../capture/store.js";
+import { legacyRouteSlug, routeToken } from "../capture/route-identity.js";
 import { isShellRegion, type Region } from "./region.js";
 import type { FormFactor, PlatformKind, Scheme } from "../types.js";
 import type { SourceRef } from "./lib.js";
@@ -42,7 +42,22 @@ export function fingerprintOf(f: {
   attribute: string;
   region?: Region;
 }): string {
-  const where = isShellRegion(f.region) ? `@${f.region}` : routeSlug(f.route);
+  const where = isShellRegion(f.region) ? `@${f.region}` : routeToken(f.route);
+  return [
+    f.target,
+    where,
+    f.state,
+    ...(f.platform && f.platform !== "web" ? [f.platform] : []),
+    f.formFactor ?? "-",
+    f.scheme ?? "-",
+    f.category,
+    f.attribute,
+  ].join(".");
+}
+
+/** The route-derived fingerprint emitted before canonical route tokens. */
+export function legacyFingerprintOf(f: Parameters<typeof fingerprintOf>[0]): string {
+  const where = isShellRegion(f.region) ? `@${f.region}` : legacyRouteSlug(f.route);
   return [
     f.target,
     where,
