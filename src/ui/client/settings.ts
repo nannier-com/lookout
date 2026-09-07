@@ -146,12 +146,37 @@ export async function saveProject(dir: string): Promise<void> {
   );
 }
 
+/**
+ * Open the panel or shut it, and say which the cog will do next.
+ *
+ * The cog is the only control that opens this, so while the panel is open it is
+ * also the only obvious way back out, and a button labelled "Settings" beside
+ * an open settings panel does not read as that way. It says what pressing it
+ * does instead, which costs two attributes and is the difference between a
+ * panel with a way out and one somebody has to guess at. Escape is the other
+ * way out, and it is the one people try first.
+ */
+function setSettingsOpen(open: boolean): void {
+  el("settings").hidden = !open;
+  const cog = el("cog");
+  cog.setAttribute("aria-expanded", String(open));
+  cog.setAttribute("aria-label", open ? "Close settings" : "Settings");
+  cog.setAttribute("title", open ? "Close settings (Esc)" : "Settings");
+  if (open) void loadConfigState();
+}
+
 export function toggleSettings(): void {
-  const panel = el("settings");
-  const open = panel.hidden;
-  panel.hidden = !open;
-  el("cog").setAttribute("aria-expanded", String(open));
-  if (open) loadConfigState();
+  setSettingsOpen(el("settings").hidden);
+}
+
+/** Shut it, for the Escape that dismisses whatever is open. */
+export function closeSettings(): void {
+  setSettingsOpen(false);
+}
+
+/** Whether it is open, so Escape can tell there is something to dismiss. */
+export function settingsOpen(): boolean {
+  return !el("settings").hidden;
 }
 
 /**

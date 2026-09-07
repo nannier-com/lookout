@@ -312,7 +312,23 @@ async function drive(): Promise<number> {
     ((await (await page.request.get(URL + "api/settings")).json()) as { navigation?: boolean })
       .navigation === false,
   );
-  await page.click("#cog");
+  // The way out of the panel. The cog is the only control that opens it, so
+  // while it is open the cog is also the only obvious way back, and a button
+  // still labelled "Settings" beside an open settings panel does not read as
+  // one. Escape is what people try first, and it used to fall straight past
+  // this panel to the filter underneath.
+  check(
+    "the cog says what it will do while the panel is open",
+    (await page.locator("#cog").getAttribute("aria-label")) === "Close settings",
+    (await page.locator("#cog").getAttribute("aria-label")) ?? "",
+  );
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(600);
+  check("escape dismisses the settings panel", !(await page.locator("#settings").isVisible()));
+  check(
+    "and the cog offers to open it again",
+    (await page.locator("#cog").getAttribute("aria-label")) === "Settings",
+  );
 
   // The fold. What it has to actually do is give the width back: a column that
   // narrows while the board keeps its old padding is a stripe of empty page,

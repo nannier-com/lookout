@@ -15,7 +15,7 @@
  */
 import { el, hit, repaint, ticks } from "./dom.js";
 import { setFilter } from "./filters.js";
-import { toggleSettings, loadConfigState, pickProject, saveConfigState, saveProject } from "./settings.js";
+import { closeSettings, settingsOpen, toggleSettings, loadConfigState, pickProject, saveConfigState, saveProject } from "./settings.js";
 import { paintJudge, say, setView, toggleJudge } from "./shell.js";
 import { render, runState } from "./status.js";
 import { connected, listen } from "./stream.js";
@@ -216,6 +216,10 @@ document.addEventListener("keydown", (e) => {
   // The inspector claims Escape next: closing an overlay somebody is looking
   // at must never silently clear their filter underneath it.
   if (shotOpen()) { closeShot(); return; }
+  // Then the settings panel, for the same reason: it is open, it is what the
+  // press is about, and dismissing it must not quietly clear the filter under
+  // it as well.
+  if (settingsOpen()) { closeSettings(); return; }
   if (page.filter) setFilter(page.filter.kind, page.filter.value, page.filter.label);
 });
 // The fold is drawn before anything is fetched: whether the judge's column is
