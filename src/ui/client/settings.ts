@@ -10,6 +10,8 @@ import { paintPlay, say } from "./shell.js";
 import { page, refresh } from "./state.js";
 import type { SettingsView } from "../project.js";
 
+type Judge = SettingsView["judges"][number];
+
 // What the settings panel is showing, so Play can refuse before it spends
 // anything and the cog can render without a round trip.
 export function paintSettings(): void {
@@ -180,29 +182,123 @@ export function settingsOpen(): boolean {
 }
 
 /**
- * Which model each judge rules with.
+ * Which model each judge rules with, chosen from what that CLI actually offers.
  *
- * Free text rather than a menu of names: the models a CLI accepts change under
- * lookout, and a list baked into this page would be wrong within a release
- * while still looking authoritative. The placeholder carries the default the
- * SERVER reported, so the panel never states one of its own.
+ * A menu rather than a text box, and the names in it are not lookout's. They
+ * are read off the install on this machine (`probeCli`), so a newer CLI offers
+ * newer names and an older one offers older names without lookout claiming to
+ * know either. That is what makes a menu safe here: the old objection to one
+ * was that a baked-in list would be wrong within a release while still looking
+ * authoritative, and a list nobody baked cannot go stale.
  *
- * The signature deliberately excludes what is typed in the box. A repaint runs
- * whenever the run log moves, and one that redrew the row would delete a
- * half-typed model name and look like the page fighting back.
+ * Two things the menu still has to allow, or it would take away what the text
+ * box could do:
+ *
+ *   a pinned name    a full model name, for judging that has to stay
+ *                    reproducible across a CLI upgrade. Kept reachable through
+ *                    Custom, and preselected there when what is stored is not
+ *                    a name the probe returned.
+ *   no menu at all   an install the probe could not question still gets the
+ *                    text box, because refusing to accept a typed name would
+ *                    be a worse answer than the one being replaced.
+ *
+ * The version under the menu is the same probe's other half. It says WHICH
+ * install these names came from, which is the difference between a menu that
+ * looks authoritative and one that shows its source.
  */
 export function paintJudges(): void {
   const judges = page.config.judges ?? [];
-  const sig = judges.map((j) => j.key + ":" + (j.model ?? "") + ":" + j.installed).join("|");
-  const html = judges.map((j) =>
-    '<div class="srow"><span>' + esc(j.label) + " model</span>"
+  // What is typed or picked is deliberately absent from the signature. This
+  // repaints whenever the run log moves, and one that redrew a row mid-choice
+  // would discard a half-typed name and read as the page fighting back.
+  const sig = judges
+    .map((j) => [j.key, j.model ?? "", j.installed, j.version ?? "", j.models.join(",")].join(":"))
+    .join("|");
+  paint("setJudges", sig, judges.map(judgeRow).join(""));
+}
+
+/** One judge: the menu, the name it may still have to be told, and the hint. */
+function judgeRow(j: Judge): string {
+  const custom = !!j.model && !j.models.includes(j.model);
+  return '<div class="srow"><span>' + esc(j.label) + " model</span>"
+    + (j.models.length ? menu(j, custom) : "")
     + '<input type="text" data-model="' + esc(j.key) + '" spellcheck="false" autocomplete="off"'
     + ' value="' + esc(j.model ?? "") + '"'
     + ' placeholder="' + esc(j.defaultModel) + ' (lookout\'s default)"'
+    + (j.models.length && !custom ? " hidden" : "")
     + ' aria-label="Model ' + esc(j.label) + ' judges with">'
     + '<button type="button" class="mini" data-save-model="' + esc(j.key) + '">Save</button></div>'
+    + version(j)
     + '<p class="shint">What rules on this project, and what the ledger files each verdict under. '
     + (j.installed ? "" : esc(j.label) + " is not on PATH here, so nothing will run until it is. ")
-    + "Empty means " + esc(j.defaultModel) + ", which is what every run uses when nobody has chosen.</p>").join("");
-  paint("setJudges", sig, html);
+    + "Empty means " + esc(j.defaultModel) + ", which is what every run uses when nobody has chosen.</p>";
+}
+
+/**
+ * The names this CLI offers, plus the two choices that are not names.
+ *
+ * The empty option is lookout's default, spelled with the default the SERVER
+ * reported so the page never states one of its own; CUSTOM reveals the box for
+ * a name the probe did not return.
+ */
+function menu(j: Judge, custom: boolean): string {
+  const chosen = custom ? CUSTOM : (j.model ?? "");
+  const opt = (value: string, label: string): string =>
+    '<option value="' + esc(value) + '"' + (value === chosen ? " selected" : "") + ">" + esc(label) + "</option>";
+  return '<select data-model-menu="' + esc(j.key) + '"'
+    + ' aria-label="Model ' + esc(j.label) + ' judges with">'
+    + opt("", j.defaultModel + " (lookout's default)")
+    + j.models.map((m) => opt(m, m)).join("")
+    + opt(CUSTOM, "Custom...")
+    + "</select>";
+}
+
+/**
+ * Which install the names above came from.
+ *
+ * Under the menu rather than beside the label, because it is a property of the
+ * list and not of the choice: it answers "where did these names come from", and
+ * it is the thing to look at when the name somebody expected is not offered.
+ */
+function version(j: Judge): string {
+  if (!j.version) return "";
+  return '<p class="sver">' + esc(j.label) + " " + esc(j.version) + "</p>";
+}
+
+/**
+ * The menu entry that means "not one of these", and reveals the text box.
+ *
+ * Leading `~` so it can never collide with something the probe returned:
+ * `validModel` requires a name to start with a letter or a digit, so a model
+ * spelled this way could not be stored even if a CLI offered one.
+ */
+export const CUSTOM = "~custom";
+
+/**
+ * What the Save button beside a judge should store.
+ *
+ * The menu is the answer unless it points at Custom, in which case the box is.
+ * One function because the click handler must not have to know which of the two
+ * controls is showing: that is this row's business, not the page's.
+ */
+export function chosenModel(key: string): string | null {
+  const sel = document.querySelector('[data-model-menu="' + CSS.escape(key) + '"]') as HTMLSelectElement | null;
+  const box = document.querySelector('[data-model="' + CSS.escape(key) + '"]') as HTMLInputElement | null;
+  if (sel && sel.value !== CUSTOM) return sel.value;
+  return box ? box.value : null;
+}
+
+/**
+ * Show the box when Custom is picked, and hide it again when it is not.
+ *
+ * Immediate rather than on save: a menu that offered Custom and then showed
+ * nothing to type into would be a dead end.
+ */
+export function revealCustom(sel: HTMLSelectElement): void {
+  const key = sel.dataset.modelMenu;
+  if (!key) return;
+  const box = document.querySelector('[data-model="' + CSS.escape(key) + '"]') as HTMLInputElement | null;
+  if (!box) return;
+  box.hidden = sel.value !== CUSTOM;
+  if (!box.hidden) box.focus();
 }

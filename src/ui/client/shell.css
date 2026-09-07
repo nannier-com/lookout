@@ -195,6 +195,19 @@ overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto}
 border:1px solid var(--line);background:var(--panel);color:var(--ink);
 font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}
 .srow input:focus{outline:2px solid var(--accent);outline-offset:-1px}
+.srow select{flex:1 1 auto;min-width:0;padding:5px 8px;border-radius:6px;
+border:1px solid var(--line);background:var(--panel);color:var(--ink);
+font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}
+.srow select:focus{outline:2px solid var(--accent);outline-offset:-1px}
+/* A menu that has been given a Custom name shows both controls, so the row
+   grows a second line rather than squeezing them onto one. */
+.srow{flex-wrap:wrap}
+/* Which install the names in the menu came from. Indented to the menu rather
+   than the label, in the faint colour the hints use, because it is provenance
+   and not a setting: it answers "where did these come from", and the eye should
+   pass over it until that is the question being asked. */
+.sver{margin:1px 0 5px 106px;font:10px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;
+color:var(--faint);opacity:.75}
 .mini{padding:5px 10px;border-radius:6px;border:1px solid var(--line);
 background:var(--panel);color:var(--ink);font-size:11px;cursor:pointer;flex:0 0 auto}
 .mini:hover{border-color:var(--dim)}

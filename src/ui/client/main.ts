@@ -15,7 +15,7 @@
  */
 import { el, hit, repaint, ticks } from "./dom.js";
 import { setFilter } from "./filters.js";
-import { closeSettings, settingsOpen, toggleSettings, loadConfigState, pickProject, saveConfigState, saveProject } from "./settings.js";
+import { chosenModel, closeSettings, revealCustom, settingsOpen, toggleSettings, loadConfigState, pickProject, saveConfigState, saveProject } from "./settings.js";
 import { paintJudge, say, setView, toggleJudge } from "./shell.js";
 import { render, runState } from "./status.js";
 import { connected, listen } from "./stream.js";
@@ -186,8 +186,11 @@ document.addEventListener("click", (e) => {
   const saveModel = hit(e, "[data-save-model]");
   if (saveModel?.dataset.saveModel) {
     const key = saveModel.dataset.saveModel;
-    const box = document.querySelector('[data-model="' + CSS.escape(key) + '"]') as HTMLInputElement | null;
-    if (box) void saveConfigState({ judgeModels: { [key]: box.value } });
+    // Whether that is the menu's name or one typed into the box is the row's
+    // business: this handler asks it for the answer rather than reaching for
+    // whichever control it assumes is showing.
+    const chosen = chosenModel(key);
+    if (chosen !== null) void saveConfigState({ judgeModels: { [key]: chosen } });
     return;
   }
   const go = hit(e, "[data-queue]");
@@ -206,6 +209,14 @@ document.addEventListener("click", (e) => {
   if (tile && !tile.disabled && tile.dataset.kind && tile.dataset.value) {
     setFilter(tile.dataset.kind as Filter["kind"], tile.dataset.value, tile.dataset.label ?? "");
   }
+});
+
+// The model menu, which has one thing to do before anything is saved: reveal
+// the box when Custom is picked. Delegated like the clicks are, because how
+// many judge rows exist is lookout's answer rather than the page's.
+document.addEventListener("change", (e) => {
+  const sel = (e.target as HTMLElement | null)?.closest?.("[data-model-menu]");
+  if (sel) revealCustom(sel as HTMLSelectElement);
 });
 
 document.addEventListener("keydown", (e) => {

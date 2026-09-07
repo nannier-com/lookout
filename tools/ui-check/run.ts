@@ -267,33 +267,54 @@ async function drive(): Promise<number> {
   // actually spends. The failure worth catching is the panel and the server
   // disagreeing: a box showing a model the next run will not use files its
   // verdicts in the ledger under a name nobody chose.
+  const modelMenu = page.locator('[data-model-menu="claude-code"]');
   const modelBox = page.locator('[data-model="claude-code"]');
-  check("a model row is offered for the judge", await modelBox.isVisible());
-  check(
-    "and it starts on lookout's own default",
-    ((await modelBox.getAttribute("placeholder")) ?? "").includes("default"),
-    (await modelBox.getAttribute("placeholder")) ?? "",
-  );
-  await modelBox.fill("fable");
-  await page.locator('[data-save-model="claude-code"]').click();
+  const judgeModel = async (): Promise<string | null | undefined> => {
+    const res = await page.request.get(URL + "api/settings");
+    const judges = ((await res.json()) as { judges?: { key: string; model: string | null }[] }).judges ?? [];
+    return judges.find((j) => j.key === "claude-code")?.model;
+  };
+  const save = async (): Promise<void> => {
+    await page.locator('[data-save-model="claude-code"]').click();
+    await page.waitForTimeout(900);
+  };
+  check("a model row is offered for the judge", await modelMenu.isVisible());
+  // The names in it are the installed CLI's, not lookout's. Asserting a
+  // specific one would bake in the very list this menu exists to avoid, so what
+  // is checked is that the CLI answered with some names and that the menu
+  // starts on lookout's default rather than on one of them.
+  const names = await modelMenu.locator("option").allTextContents();
+  check("the menu carries names the installed CLI offered", names.length > 2, names.join(","));
+  check("and it starts on lookout's own default", (await modelMenu.inputValue()) === "", names.join(","));
+  check("the version of the CLI those names came from is under the menu", await page.locator(".sver").isVisible());
+  // A name from the menu: the failure worth catching is the panel and the
+  // server disagreeing, because a menu showing a model the next run will not
+  // use files its verdicts in the ledger under a name nobody chose.
+  const offered = (await modelMenu.locator("option").nth(1).getAttribute("value")) ?? "";
+  await modelMenu.selectOption(offered);
+  await save();
+  check("the server took the model the menu was saved with", (await judgeModel()) === offered, offered);
+  // A name the menu does not offer, which is what Custom is for: judging that
+  // has to stay reproducible across a CLI upgrade needs a pinned full name, and
+  // a menu that could not accept one would take away what the box could do.
+  // Picked by the label a person reads rather than by the value behind it: the
+  // sentinel is the page's private business, and driving it by label is both
+  // what somebody actually does and one less thing for the two to disagree on.
+  await modelMenu.selectOption({ label: "Custom..." });
+  check("picking Custom reveals a box to type a name into", await modelBox.isVisible());
+  await modelBox.fill("claude-pinned-9-9");
+  await save();
+  check("the server took a name the menu never offered", (await judgeModel()) === "claude-pinned-9-9");
+  // And that name comes back as Custom rather than being silently dropped: it
+  // is not in the menu, so the row has to remember which control it belongs in.
+  await page.reload({ waitUntil: "networkidle" });
+  await page.click("#cog");
   await page.waitForTimeout(900);
-  const saved = await page.request.get(URL + "api/settings");
-  const judges = ((await saved.json()) as { judges?: { key: string; model: string | null }[] }).judges ?? [];
-  check(
-    "the server took the model the box was saved with",
-    judges.find((j) => j.key === "claude-code")?.model === "fable",
-    JSON.stringify(judges),
-  );
-  await modelBox.fill("");
-  await page.locator('[data-save-model="claude-code"]').click();
-  await page.waitForTimeout(900);
-  const cleared = await page.request.get(URL + "api/settings");
-  const back = ((await cleared.json()) as { judges?: { key: string; model: string | null }[] }).judges ?? [];
-  check(
-    "and an empty box puts it back to the default",
-    back.find((j) => j.key === "claude-code")?.model === null,
-    JSON.stringify(back),
-  );
+  check("a pinned name comes back in the box, not lost to the menu", await modelBox.isVisible());
+  check("with the box holding it", (await modelBox.inputValue()) === "claude-pinned-9-9");
+  await modelMenu.selectOption("");
+  await save();
+  check("and choosing lookout's default puts it back", (await judgeModel()) === null);
 
   const consent = await page.request.get(URL + "api/settings");
   check(

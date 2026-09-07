@@ -23,6 +23,8 @@ import { preflight, resolveTargets } from "../targets.js";
 import { deviceLines, preflightDevices } from "../capture/native-preflight.js";
 import { detectProjectKind } from "../project-kind.js";
 import { DEFAULT_JUDGE_MODEL, JUDGES } from "../judge/engine.js";
+import { claudeBin } from "../judge/claude.js";
+import { probeCli } from "../judge/cli-probe.js";
 import { toolsAvailable } from "../report/handoff.js";
 import { execFileAsync } from "../util.js";
 import { currentProjectOrNull, session, setCurrentProject } from "./session.js";
@@ -54,7 +56,25 @@ export interface SettingsView {
    * travels beside it so the page can say what the default IS rather than
    * printing a name of its own that could drift from the verbs.
    */
-  judges: { key: string; label: string; model: string | null; defaultModel: string; installed: boolean }[];
+  judges: {
+    key: string;
+    label: string;
+    model: string | null;
+    defaultModel: string;
+    installed: boolean;
+    /**
+     * The model names this CLI offers, asked of the install itself.
+     *
+     * Empty when it could not be asked, which is the panel's signal to take a
+     * typed name instead of showing a menu with nothing in it. lookout never
+     * adds a name of its own to this: a menu that outlived the CLI it describes
+     * would be wrong while looking authoritative, which is why the list is a
+     * probe rather than a constant.
+     */
+    models: string[];
+    /** The installed CLI's version, so the menu says which install it came from. */
+    version: string | null;
+  }[];
   /**
    * The device fold, one line per booted device or per gap, in the words
    * `lookout targets` prints. Empty for a project judged in the web fold only.
@@ -184,16 +204,26 @@ export async function applyBaseUrl(): Promise<void> {
  */
 async function judgeViews(): Promise<SettingsView["judges"]> {
   const tools = await toolsAvailable();
-  return JUDGES.map((key) => {
-    const tool = tools.find((t) => t.key === key);
-    return {
-      key,
-      label: tool?.label ?? key,
-      model: session.settings.judgeModels[key] ?? null,
-      defaultModel: DEFAULT_JUDGE_MODEL,
-      installed: tool?.installed ?? false,
-    };
-  });
+  return Promise.all(
+    JUDGES.map(async (key) => {
+      const tool = tools.find((t) => t.key === key);
+      // The binary the ADAPTER would spawn, not the one the tool picker probes
+      // for. They are the same install normally and different whenever
+      // LOOKOUT_CLAUDE_BIN is set, and it is the judging one that the panel is
+      // describing: a version and a model menu read off some other copy of the
+      // CLI would describe a run that is not the one this button starts.
+      const facts = await probeCli(key === "claude-code" ? claudeBin() : (tool?.bin ?? key));
+      return {
+        key,
+        label: tool?.label ?? key,
+        model: session.settings.judgeModels[key] ?? null,
+        defaultModel: DEFAULT_JUDGE_MODEL,
+        installed: tool?.installed ?? false,
+        models: facts.models,
+        version: facts.version,
+      };
+    }),
+  );
 }
 
 export async function settingsView(): Promise<SettingsView> {
