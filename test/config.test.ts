@@ -232,3 +232,32 @@ describe("the native block's device keys", () => {
     expect(() => validateConfig({ targets: t, platforms: ["windows"] }, "t")).toThrow(/unknown platform "windows"/);
   });
 });
+
+describe("direction", () => {
+  const t = [{ name: "app", url: "http://localhost:1" }];
+
+  test("a bare string names a preset, normalised to the object form", () => {
+    expect(validateConfig({ targets: t, direction: "utility-dense" }, "t").direction).toEqual({ preset: "utility-dense" });
+  });
+
+  test("the object form carries a preset, a file, or both", () => {
+    expect(validateConfig({ targets: t, direction: { file: "./DESIGN.md" } }, "t").direction).toEqual({ file: "./DESIGN.md" });
+    expect(
+      validateConfig({ targets: t, direction: { preset: "premium-agency", file: "./DESIGN.md" } }, "t").direction,
+    ).toEqual({ preset: "premium-agency", file: "./DESIGN.md" });
+    expect(validateConfig({ targets: t }, "t").direction).toBeUndefined();
+  });
+
+  test("an unknown preset is refused, naming the ones that exist", () => {
+    expect(() => validateConfig({ targets: t, direction: "bauhaus" }, "t")).toThrow(
+      "minimalist-editorial | industrial-brutalist | premium-agency | utility-dense",
+    );
+    expect(() => validateConfig({ targets: t, direction: { preset: "bauhaus" } }, "t")).toThrow(/direction\.preset/);
+  });
+
+  test("a file must be a path string, and an empty declaration declares nothing", () => {
+    expect(() => validateConfig({ targets: t, direction: { file: 3 } }, "t")).toThrow(/direction\.file/);
+    expect(() => validateConfig({ targets: t, direction: {} }, "t")).toThrow(/a preset, a file, or both/);
+    expect(() => validateConfig({ targets: t, direction: 7 }, "t")).toThrow(/direction must be/);
+  });
+});

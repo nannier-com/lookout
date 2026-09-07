@@ -387,6 +387,11 @@ const config: LookoutConfig = {
   // project does on purpose.
   neverFile: ["the marketing hero intentionally overflows on phone"],
 
+  // The design direction this project chose: a shipped preset, your own
+  // DESIGN.md, or both. The taste panel judges against it, what it declares is
+  // never filed, and it enters only the taste panel's cache key.
+  direction: { preset: "utility-dense", file: "./DESIGN.md" },
+
   // Knobs for the checks lookout MEASURES, as opposed to neverFile above,
   // which speaks to the judges. A measurement is never suppressed by a rule
   // written for a model, so anything that renders outside its box on purpose
@@ -548,6 +553,23 @@ visible in the pixels, opens at low, and reaches medium only when several
 compound until the whole view reads as a template. Consequences stay in their
 lanes: a brand colour that leaves text unreadable is still a contrast defect,
 and the refuter strikes any taste finding that re-litigates a declared choice.
+
+**Declaring a direction.** Beyond the defaults every practice rejects, design
+practices contradict each other: no radius against soft corners, gradients
+banned against gradients encouraged, one call to action against exactly two.
+None of that is judgeable until a project says which direction it chose, and
+`direction` in `lookout.config.ts` is where it says so: a shipped preset
+(`minimalist-editorial`, `industrial-brutalist`, `premium-agency`,
+`utility-dense`), the project's own DESIGN.md, or both. What a direction
+declares is settled and never filed; the rules it adds are judged where a still
+can show them, and its rules about motion, hover or code are not, because a
+capture cannot see them. lookout reads the file when it composes the prompt
+and the judge never opens it; the first 12 KB reach the judge, with a
+Stitch-format `components:` table dropped first when the file is over budget
+and a marker saying how much was cut. The text enters only the taste panel's
+cache key, so editing a DESIGN.md re-judges taste and leaves every other
+panel's verdicts standing. A preset ships in the package under
+`skills/judge-taste/directions/`; no brand's DESIGN.md does.
 
 Two things follow from this that are worth knowing. The judge is told it cannot
 measure, because it is reading an image: it files a geometry finding only when

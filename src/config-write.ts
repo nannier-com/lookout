@@ -7,8 +7,8 @@
  * time a run finds one there. Nothing here ever overwrites a config that
  * already exists, and every write says on stderr what it did and where.
  *
- * The move is the part that has to be careful. `rubric` and a route's `design`
- * are resolved relative to the config file, so a file that changes directory
+ * The move is the part that has to be careful. `rubric`, `direction.file` and a
+ * route's `design` are resolved relative to the config file, so a file that changes directory
  * takes those references with it; migration rewrites each one that pointed
  * inside `.lookout/` and names any it could not rewrite by hand.
  */
@@ -119,6 +119,14 @@ ${startHint}      routes: ["/"],
   // Project-specific judging rules, relative to this file.
   // rubric: "./rubric.md",
   // neverFile: ["the marketing hero intentionally overflows on phone"],
+
+  // The design direction this project chose. The taste panel judges against it
+  // instead of against defaults, and what it declares is never filed: a shipped
+  // preset (minimalist-editorial | industrial-brutalist | premium-agency |
+  // utility-dense), your own DESIGN.md (the first 12 KB reach the judge, so
+  // keep the rules above the token tables), or both.
+  // direction: { preset: "minimalist-editorial" },
+  // direction: { file: "./DESIGN.md" },
 
   // Knobs for the checks that lookout MEASURES, as opposed to the rules above,
   // which are written for the judges. A measurement is never suppressed by a
@@ -275,7 +283,7 @@ function extensionOf(path: string): string {
   return name.slice(name.indexOf("."));
 }
 
-/** Every config-relative path a config declares: the rubric and route hand-offs. */
+/** Every config-relative path a config declares: the rubric, the direction file, and route hand-offs. */
 async function configRefs(configPath: string): Promise<string[]> {
   let config: LookoutConfig;
   try {
@@ -288,6 +296,7 @@ async function configRefs(configPath: string): Promise<string[]> {
   }
   const refs: string[] = [];
   if (config.rubric) refs.push(config.rubric);
+  if (typeof config.direction === "object" && config.direction.file) refs.push(config.direction.file);
   for (const target of config.targets) {
     for (const route of target.routes ?? []) {
       if (typeof route !== "string" && route.design) refs.push(route.design);

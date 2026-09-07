@@ -15,6 +15,7 @@ import { dirname, isAbsolute, join } from "node:path";
 import { fillPlaceholders, loadSkill, shippedSkillDir } from "../skills/load.js";
 import { LookoutError, type ResolvedConfig } from "../types.js";
 import { CORE_JUDGE, PANELS, type PanelDef } from "./panels.js";
+import { directionBlock, loadDirection, type LoadedDirection } from "./direction.js";
 
 /** One panel's composed judge: its registry entry, and the prompt it judges by. */
 export interface PanelRubric {
@@ -85,6 +86,7 @@ async function loadParts(resolved: ResolvedConfig): Promise<{
   extensions: string;
   extVersion: number;
   handoff: string;
+  direction: LoadedDirection | null;
 }> {
   const core = await loadSkill(resolved, CORE_JUDGE);
   const panelSkills = await Promise.all(PANELS.map((p) => loadSkill(resolved, p.name)));
@@ -118,7 +120,10 @@ async function loadParts(resolved: ResolvedConfig): Promise<{
 
   const handoffPath = join(shippedSkillDir("judge-design-parity"), "handoff.md");
   const handoff = existsSync(handoffPath) ? await readFile(handoffPath, "utf8") : "";
-  return { core, panelSkills, extensions, extVersion, handoff };
+  // The declared direction is read here, once per composition, and never by
+  // the judge: the prompt carries its text and a config-relative name only.
+  const direction = await loadDirection(resolved);
+  return { core, panelSkills, extensions, extVersion, handoff, direction };
 }
 
 /**
@@ -127,14 +132,18 @@ async function loadParts(resolved: ResolvedConfig): Promise<{
  * the complete document (tests, and any prompt that reasons about the whole).
  */
 export async function loadRubric(resolved: ResolvedConfig): Promise<Rubric> {
-  const { core, panelSkills, extensions, extVersion, handoff } = await loadParts(resolved);
+  const { core, panelSkills, extensions, extVersion, handoff, direction } = await loadParts(resolved);
   const panelText = panelSkills.map((p) => p.text.trim()).join("\n");
   const version = Math.max(core.version, extVersion, ...panelSkills.map((p) => p.version));
   // The skill says where project rules belong; filling it here keeps them in
   // the rubric rather than trailing the shot manifest. `{{handoff}}` is left
   // for the prompt builder, which is the only thing that knows whether this
   // batch has a design reference to compare against.
-  return { text: fillPlaceholders(core.text, { panel: panelText, extensions }), version, handoff };
+  return {
+    text: fillPlaceholders(core.text, { panel: panelText, extensions, direction: directionBlock(direction) }),
+    version,
+    handoff,
+  };
 }
 
 /**
@@ -142,15 +151,21 @@ export async function loadRubric(resolved: ResolvedConfig): Promise<Rubric> {
  * vocabulary in the {{panel}} slot. Project extensions and neverFile lines
  * reach every panel (a hand-written rule may touch any lane; one a panel
  * cannot act on is harmless prose). The hand-off text rides only with
- * design-parity, so editing handoff.md invalidates only its entries.
+ * design-parity, so editing handoff.md invalidates only its entries, and the
+ * declared direction is filled only into the panels flagged for it (taste),
+ * so editing a DESIGN.md invalidates only theirs.
  */
 export async function loadJudges(resolved: ResolvedConfig): Promise<PanelRubric[]> {
-  const { core, panelSkills, extensions, extVersion, handoff } = await loadParts(resolved);
+  const { core, panelSkills, extensions, extVersion, handoff, direction } = await loadParts(resolved);
   return PANELS.map((def, i) => {
     const skill = panelSkills[i]!;
     return {
       def,
-      text: fillPlaceholders(core.text, { panel: skill.text.trim(), extensions }),
+      text: fillPlaceholders(core.text, {
+        panel: skill.text.trim(),
+        extensions,
+        direction: def.direction ? directionBlock(direction) : "",
+      }),
       version: Math.max(core.version, skill.version, extVersion),
       handoff: def.designOnly ? handoff : "",
     };

@@ -31,6 +31,16 @@ export interface PanelDef {
    * would pay for it in every prompt and get nothing back.
    */
   ariaEvidence?: boolean;
+  /**
+   * Given the project's declared design direction.
+   *
+   * Only the taste panel: the direction says which choices are settled and
+   * which shapes the project forbids, which is the taste lane's whole question
+   * and no other lane's. Filled into this panel's composed text, so it enters
+   * this panel's ledger key alone: editing a DESIGN.md re-judges taste and
+   * leaves every other verdict standing.
+   */
+  direction?: boolean;
 }
 
 export const PANELS: readonly PanelDef[] = [
@@ -40,7 +50,7 @@ export const PANELS: readonly PanelDef[] = [
   { name: "judge-text", categories: ["typography", "content"], ariaEvidence: true },
   { name: "judge-craft", categories: ["hierarchy", "composition", "consistency"] },
   { name: "judge-design-parity", categories: ["design-parity"], designOnly: true },
-  { name: "judge-taste", categories: ["taste"] },
+  { name: "judge-taste", categories: ["taste"], direction: true },
 ];
 
 /** The panel that owns a category. Total over CATEGORIES; a gap is a bug. */

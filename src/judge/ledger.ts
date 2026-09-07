@@ -62,7 +62,8 @@ const NOTE =
   "findings never cache apart, and each judge panel holds its own entry per group. groupHash covers " +
   "each member's pixels plus its design hand-off image's bytes, and promptHash covers that panel's " +
   "judging, refuting and hand-off instructions as composed for the run. Editing a rubric, a neverFile " +
-  "line, handoff.md, any judging skill, or a design PNG re-judges whatever it could have changed; " +
+  "line, handoff.md, any judging skill, a design PNG, or the declared design direction (which reaches " +
+  "only the taste panel's text) re-judges whatever it could have changed; " +
   "nothing has to be bumped by hand. The prior-findings block is excluded on purpose: it is a naming " +
   "aid, and adjudications are enforced at merge.";
 

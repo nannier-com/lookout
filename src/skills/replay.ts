@@ -22,7 +22,7 @@ import { batchShots, judgeBatch, type AiFinding } from "../judge/engine.js";
 import { PANELS } from "../judge/panels.js";
 import { loadJudges } from "../judge/rubric.js";
 import { verifyFindings } from "../judge/verify.js";
-import { declaredBlock } from "../judge/direction.js";
+import { declaredBlock, loadDirection } from "../judge/direction.js";
 import { loadSkill } from "./load.js";
 import { viewGroupId } from "../judge/grouping.js";
 import {
@@ -143,6 +143,7 @@ export async function replayRegression(
   let costUsd = 0;
   const shotsById = new Map(shots.map((s) => [s.id, s]));
   const findings: AiFinding[] = [];
+  const declared = declaredBlock(resolved.config.neverFile, await loadDirection(resolved));
   for (const batch of batchShots(shots)) {
     const fresh: AiFinding[] = [];
     for (const judge of active) {
@@ -166,10 +167,7 @@ export async function replayRegression(
     // cannot run means the gate cannot grade, and amend.ts answers that by
     // rolling the candidate back rather than counting unrefuted findings as a
     // verdict.
-    const verified = await verifyFindings(
-      refute.text, fresh, shotsById, dir, model, resolved.projectDir,
-      declaredBlock(resolved.config.neverFile, null),
-    );
+    const verified = await verifyFindings(refute.text, fresh, shotsById, dir, model, resolved.projectDir, declared);
     costUsd += verified.costUsd ?? 0;
     findings.push(...verified.confirmed);
   }

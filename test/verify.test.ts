@@ -9,6 +9,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildRefutePrompt, needsRefuting, verifyFindings } from "../src/judge/verify.js";
+import { declaredBlock } from "../src/judge/direction.js";
 import { loadSkill } from "../src/skills/load.js";
 import { tmpProject } from "./tmp-project.js";
 import { incidentsPath } from "../src/skills/incidents.js";
@@ -381,6 +382,15 @@ describe("what the project declared", () => {
     // The declaration sits with the instructions, before the evidence block.
     expect(prompt.indexOf("- the marketing hero is deliberately loud")).toBeLessThan(prompt.indexOf("=== FINDINGS ==="));
     expect(prompt).not.toContain("{{");
+  });
+
+  test("a declared direction reaches the refuter beside the never-file lines", () => {
+    const s = shot("web/app/x/rest/desktop/dark");
+    const declared = declaredBlock(["demo avatars repeat"], { source: "./DESIGN.md", text: "Flat cards, one accent.", cut: 0 });
+    const prompt = buildRefutePrompt(refute.text, [finding()], new Map([[s.id, s]]), "/ev", undefined, declared);
+    expect(prompt).toContain("- demo avatars repeat");
+    expect(prompt).toContain("Declared direction (./DESIGN.md):");
+    expect(prompt).toContain("Flat cards, one accent.");
   });
 
   test("with nothing declared the heading stands and no slot is left unfilled", () => {

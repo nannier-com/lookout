@@ -205,6 +205,22 @@ export interface NativeAppConfig {
 /** What a native device is for a form factor: a phone or a tablet. */
 export type DeviceKind = Extract<FormFactor, "phone" | "tablet">;
 
+/** The shipped design directions, each `skills/judge-taste/directions/<name>.md`. */
+export const DIRECTION_PRESETS = [
+  "minimalist-editorial",
+  "industrial-brutalist",
+  "premium-agency",
+  "utility-dense",
+] as const;
+export type DirectionPreset = (typeof DIRECTION_PRESETS)[number];
+
+/** `direction` as the validator normalises it: a preset, a file, or both. */
+export interface DirectionDeclaration {
+  preset?: DirectionPreset;
+  /** Config-relative path of the project's own direction file. */
+  file?: string;
+}
+
 export interface LookoutConfig {
   /** Project label used in reports. Defaults to the directory name. */
   project?: string;
@@ -242,6 +258,17 @@ export interface LookoutConfig {
   rubric?: string;
   /** Extra never-file lines appended to the judge's exclusion list. */
   neverFile?: string[];
+  /**
+   * The design direction this project chose, for the taste panel and the
+   * refuter. A choice it declares is settled and never filed; the rules it
+   * adds are judged where a still can show them. A bare string names a
+   * shipped preset; `file` is a markdown file (a DESIGN.md, or one in the
+   * preset shape) relative to this config, of which the first 12 KB reach
+   * the judge. Read by lookout when the prompt is composed, never by the
+   * judge itself, and entering only the taste panel's cache key, so editing
+   * it re-judges taste and nothing else.
+   */
+  direction?: DirectionPreset | DirectionDeclaration;
   /**
    * What this project is built out of, when the scan cannot work it out.
    *

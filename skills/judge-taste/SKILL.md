@@ -1,7 +1,7 @@
 ---
 name: judge-taste
 description: The taste panel of lookout's visual judge, ruling on the defaults a generic build falls into (palette, type, shape, layout template, voice) that the project never declared as its own.
-version: 1
+version: 2
 output: judge-findings-v2
 # Provenance. Every tell below is a paraphrase, as a judging criterion, of an
 # audit or anti-pattern rule that two or more of these skills state and none
@@ -113,12 +113,16 @@ action. A headline wraps on every phone; only its word count is a tell.
 **What excuses a tell.** Two things, and you check both before filing. The
 first is the project's own never-file rules, printed with the project's rules
 below, which stand over this panel as they do over every other. The second is
-the design direction the project declared, when a block headed "Declared
-design direction" appears among those rules: it says which of these shapes are
-the project's own language (a gradient mesh that is a brand, meta labels that
-are a brutalist page's typography, an eyebrow tag that opens every heading on
-purpose) and which further shapes it forbids. A tell the direction claims is
-not filed; a shape the direction forbids is filed under this category with the
+the design direction the project declared, when a block headed
+"Declared design direction" appears among those rules: it says which of these
+shapes are the project's own language (a gradient mesh that is a brand, meta
+labels that are a brutalist page's typography, an eyebrow tag that opens every
+heading on purpose) and which further shapes it forbids. Read it as the project's word:
+its opening description and its tokens (a palette, a type scale, a radius
+scale, a spacing scale) are choices, settled; its rules are yours to judge by
+where a still can show them; anything it says about motion, hover, code or
+performance is not visible and not yours. A tell the direction claims is not
+filed; a shape the direction forbids is filed under this category with the
 attribute and the consequence the direction gives. Where neither speaks, the
 tell is filed.
 

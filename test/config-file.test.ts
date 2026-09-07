@@ -257,3 +257,23 @@ describe("keeping the working state out of git", () => {
     expect(readFileSync(join(dir, ".gitignore"), "utf8")).toContain(".lookout/");
   });
 });
+
+describe("the declared direction in the config file", () => {
+  test("the template shows how to declare one", async () => {
+    const text = readFileSync(await createConfig(project()), "utf8");
+    expect(text).toContain('// direction: { preset: "minimalist-editorial" },');
+    expect(text).toContain('// direction: { file: "./DESIGN.md" },');
+  });
+
+  test("a direction file that lived beside the old config is repointed on migration", async () => {
+    const { dir, config } = legacyProject(
+      'export default { direction: { file: "./DESIGN.md" }, targets: [{ name: "app", url: "http://localhost:1" }] };\n',
+    );
+    writeFileSync(join(dir, ".lookout", "DESIGN.md"), "# the direction\n");
+    const moved = await migrateLegacyConfig(config);
+    expect(moved.rewritten).toEqual(["./DESIGN.md -> .lookout/DESIGN.md"]);
+    const resolved = await loadConfig({ cwd: dir });
+    const direction = resolved.config.direction as { file?: string };
+    expect(existsSync(join(dir, direction.file!))).toBe(true);
+  });
+});

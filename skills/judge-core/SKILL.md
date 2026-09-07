@@ -26,6 +26,7 @@ anything.
 
 {{amendments}}
 {{extensions}}
+{{direction}}
 
 === SHOTS ({{shotCount}}) ===
 {{manifest}}

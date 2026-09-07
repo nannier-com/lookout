@@ -189,3 +189,19 @@ describe("the accessibility tree reaches only the panels that can act on it", ()
     }
   });
 });
+
+describe("the declared direction reaches only the panel that judges against it", () => {
+  test("taste is given it; the others are not", () => {
+    expect(PANELS.filter((p) => p.direction).map((p) => p.name)).toEqual(["judge-taste"]);
+  });
+
+  test("and that panel says in its own words how to read it", () => {
+    for (const panel of PANELS) {
+      const text = readFileSync(join(shippedSkillDir(panel.name), "SKILL.md"), "utf8");
+      expect({ panel: panel.name, says: text.includes("Declared design direction") }).toEqual({
+        panel: panel.name,
+        says: panel.direction === true,
+      });
+    }
+  });
+});

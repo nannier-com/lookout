@@ -24,7 +24,7 @@ import {
   type PanelIdentity,
 } from "../judge/ledger.js";
 import type { VerifiedFinding } from "../judge/verify.js";
-import { declaredBlock } from "../judge/direction.js";
+import { declaredBlock, loadDirection } from "../judge/direction.js";
 import { LookoutError, type ResolvedConfig, type ShotRecord } from "../types.js";
 import { str, type Parsed } from "../util.js";
 
@@ -257,6 +257,6 @@ export async function planJudging(
     cachedFindings,
     cached,
     prior,
-    declared: declaredBlock(resolved.config.neverFile, null),
+    declared: declaredBlock(resolved.config.neverFile, await loadDirection(resolved)),
   };
 }

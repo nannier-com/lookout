@@ -9,10 +9,13 @@
  */
 import {
   DEFAULT_VIEWPORTS,
+  DIRECTION_PRESETS,
   FORM_FACTORS,
   LookoutError,
   PLATFORMS,
   type DesignSystemDeclaration,
+  type DirectionDeclaration,
+  type DirectionPreset,
   type FormFactor,
   type LookoutConfig,
   type PlatformKind,
@@ -271,6 +274,21 @@ export function validateConfig(raw: unknown, path: string): LookoutConfig {
     };
   }
 
+  let direction: DirectionDeclaration | undefined;
+  if (raw.direction !== undefined) {
+    const d = typeof raw.direction === "string" ? { preset: raw.direction } : raw.direction;
+    if (!isRecord(d)) fail(path, "direction must be a preset name or { preset?, file? }");
+    if (d.preset !== undefined && !(DIRECTION_PRESETS as readonly unknown[]).includes(d.preset)) {
+      fail(path, `direction.preset must be one of ${DIRECTION_PRESETS.join(" | ")}, not ${JSON.stringify(d.preset)}`);
+    }
+    if (d.file !== undefined && typeof d.file !== "string") fail(path, "direction.file must be a path string");
+    if (d.preset === undefined && d.file === undefined) fail(path, "direction needs a preset, a file, or both");
+    direction = {
+      ...(d.preset !== undefined ? { preset: d.preset as DirectionPreset } : {}),
+      ...(d.file !== undefined ? { file: d.file as string } : {}),
+    };
+  }
+
   if (raw.aria !== undefined && typeof raw.aria !== "boolean") {
     fail(path, "aria must be a boolean");
   }
@@ -292,6 +310,7 @@ export function validateConfig(raw: unknown, path: string): LookoutConfig {
       ? raw.neverFile.filter((s): s is string => typeof s === "string")
       : undefined,
     designSystem,
+    direction,
     native: raw.native as LookoutConfig["native"],
     learn,
     navigation,
