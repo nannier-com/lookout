@@ -225,14 +225,31 @@ function judgeRow(j: Judge): string {
     + (j.models.length ? menu(j, custom) : "")
     + '<input type="text" data-model="' + esc(j.key) + '" spellcheck="false" autocomplete="off"'
     + ' value="' + esc(j.model ?? "") + '"'
-    + ' placeholder="' + esc(j.defaultModel) + ' (lookout\'s default)"'
+    + ' placeholder="' + esc(unchosen(j)) + '"'
     + (j.models.length && !custom ? " hidden" : "")
     + ' aria-label="Model ' + esc(j.label) + ' judges with">'
     + '<button type="button" class="mini" data-save-model="' + esc(j.key) + '">Save</button></div>'
     + version(j)
     + '<p class="shint">What rules on this project, and what the ledger files each verdict under. '
-    + (j.installed ? "" : esc(j.label) + " is not on PATH here, so nothing will run until it is. ")
-    + "Empty means " + esc(j.defaultModel) + ", which is what every run uses when nobody has chosen.</p>";
+    + (j.installed ? "" : esc(j.label) + " was not found here, so nothing will run until it is installed. ")
+    + (j.defaultModel
+      ? "Empty means " + esc(j.defaultModel) + ", which is what every run uses when nobody has chosen."
+      : esc(j.label) + " publishes no stable alias to fall back on, so it judges nothing until a model is chosen.")
+    + "</p>";
+}
+
+/**
+ * What the empty choice means for this judge.
+ *
+ * Not every CLI publishes an alias that survives a release. Claude Code has
+ * `sonnet`; Codex names its models by slug and the slugs move, so there is
+ * nothing lookout could fall back to that would not be a guess with a shelf
+ * life. Where there is no default the empty option has to say so rather than
+ * printing a blank followed by the words "lookout's default", which is what a
+ * row written for one judge does when it meets a second.
+ */
+function unchosen(j: Judge): string {
+  return j.defaultModel ? j.defaultModel + " (lookout's default)" : "choose a model";
 }
 
 /**
@@ -248,7 +265,7 @@ function menu(j: Judge, custom: boolean): string {
     '<option value="' + esc(value) + '"' + (value === chosen ? " selected" : "") + ">" + esc(label) + "</option>";
   return '<select data-model-menu="' + esc(j.key) + '"'
     + ' aria-label="Model ' + esc(j.label) + ' judges with">'
-    + opt("", j.defaultModel + " (lookout's default)")
+    + opt("", unchosen(j))
     + j.models.map((m) => opt(m, m)).join("")
     + opt(CUSTOM, "Custom...")
     + "</select>";

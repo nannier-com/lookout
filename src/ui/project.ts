@@ -22,9 +22,8 @@ import { locateOrCreateConfig } from "../config-write.js";
 import { preflight, resolveTargets } from "../targets.js";
 import { deviceLines, preflightDevices } from "../capture/native-preflight.js";
 import { detectProjectKind } from "../project-kind.js";
-import { DEFAULT_JUDGE_MODEL, JUDGES } from "../judge/engine.js";
-import { claudeBin } from "../judge/claude.js";
-import { probeCli } from "../judge/cli-probe.js";
+import { JUDGES } from "../judge/engine.js";
+import { adapterFor } from "../judge/adapters.js";
 import { toolsAvailable } from "../report/handoff.js";
 import { execFileAsync } from "../util.js";
 import { currentProjectOrNull, session, setCurrentProject } from "./session.js";
@@ -206,19 +205,19 @@ async function judgeViews(): Promise<SettingsView["judges"]> {
   const tools = await toolsAvailable();
   return Promise.all(
     JUDGES.map(async (key) => {
+      const adapter = adapterFor(key);
       const tool = tools.find((t) => t.key === key);
-      // The binary the ADAPTER would spawn, not the one the tool picker probes
-      // for. They are the same install normally and different whenever
-      // LOOKOUT_CLAUDE_BIN is set, and it is the judging one that the panel is
-      // describing: a version and a model menu read off some other copy of the
-      // CLI would describe a run that is not the one this button starts.
-      const facts = await probeCli(key === "claude-code" ? claudeBin() : (tool?.bin ?? key));
+      // Asked of the ADAPTER, which knows where its own CLI installs itself and
+      // how that CLI names its models. The tool picker's `have(bin)` answers a
+      // different question and gets one of them wrong: Codex is normally not on
+      // PATH, so the picker calls it missing while the judge can reach it.
+      const facts = await adapter.probe();
       return {
         key,
-        label: tool?.label ?? key,
+        label: adapter.label,
         model: session.settings.judgeModels[key] ?? null,
-        defaultModel: DEFAULT_JUDGE_MODEL,
-        installed: tool?.installed ?? false,
+        defaultModel: adapter.defaultModel,
+        installed: (await adapter.bin()) !== null || (tool?.installed ?? false),
         models: facts.models,
         version: facts.version,
       };

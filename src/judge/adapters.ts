@@ -15,11 +15,12 @@
  * can be a fixer without being a judge; being a judge is this file.
  */
 import { claudeAdapter } from "./claude.js";
+import { codexAdapter } from "./codex.js";
 import type { AiAdapter, JudgeInvocation, JudgeReply } from "./ai-types.js";
 import { LookoutError } from "../types.js";
 
 /** Every AI with an adapter, in the order a page should offer them. */
-export const ADAPTERS: readonly AiAdapter[] = [claudeAdapter];
+export const ADAPTERS: readonly AiAdapter[] = [claudeAdapter, codexAdapter];
 
 /**
  * The AIs lookout can judge with, by the key the page knows each tool as.

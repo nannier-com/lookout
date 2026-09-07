@@ -17,7 +17,7 @@ import { projectToServe } from "../src/verbs/ui.js";
 import { handle } from "../src/ui/routes.js";
 import { session, setCurrentProject } from "../src/ui/session.js";
 import { settingsView } from "../src/ui/project.js";
-import { DEFAULT_JUDGE_MODEL, JUDGES } from "../src/judge/engine.js";
+import { adapterFor, DEFAULT_JUDGE_MODEL, JUDGES } from "../src/judge/engine.js";
 import { EMPTY_SETTINGS, settingsPath } from "../src/ui/stored-settings.js";
 import { tmpProject } from "./tmp-project.js";
 import type { ResolvedConfig } from "../src/types.js";
@@ -136,8 +136,24 @@ describe("the model a judge rules with", () => {
     expect(view.judges.map((j) => j.key)).toEqual([...JUDGES]);
     for (const judge of view.judges) {
       expect(judge.model).toBeNull();
-      expect(judge.defaultModel).toBe(DEFAULT_JUDGE_MODEL);
+      // Each AI's own default, not one global one. They are not the same
+      // question once there is more than one judge: an alias is a promise a
+      // vendor makes, and only some vendors make it.
+      expect(judge.defaultModel).toBe(adapterFor(judge.key).defaultModel);
     }
+    expect(view.judges.find((j) => j.key === "claude-code")?.defaultModel).toBe(DEFAULT_JUDGE_MODEL);
+  });
+
+  test("a judge whose CLI publishes no stable alias reports no default", async () => {
+    // Codex names its models by slug and the slugs move, so there is nothing
+    // lookout could put here that would not be a guess with a shelf life. The
+    // empty default is what makes the panel ask instead of assuming, and what
+    // stops a run starting with a model nobody chose.
+    const r = tmpProject("lookout-uimodel-none-");
+    setCurrentProject(r);
+    session.settings = { ...EMPTY_SETTINGS };
+    const view = await settingsView();
+    expect(view.judges.find((j) => j.key === "codex")?.defaultModel).toBe("");
   });
 });
 
