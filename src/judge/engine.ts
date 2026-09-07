@@ -10,6 +10,7 @@
  * reply, retrying once with a harder instruction when parsing fails.
  */
 import { LookoutError, type Severity, type ShotRecord } from "../types.js";
+import { adapterFor, PRIMARY_AI, readingInstructionFor } from "./adapters.js";
 import { renderSkill } from "../skills/load.js";
 import { recordIncident } from "../skills/incidents.js";
 import type { Region } from "../backlog/region.js";
@@ -119,6 +120,14 @@ export interface AriaEvidence {
 }
 
 export interface JudgeContext {
+  /**
+   * Which AI will read this prompt, or unset for lookout's primary.
+   *
+   * Only the wording of "open this screenshot" depends on it: the skills say
+   * what to judge and never who is judging, and this is the one sentence that
+   * has to be spelled in the reader's own vocabulary.
+   */
+  ai?: string;
   /** Hand-off instructions, carried only when a shot has a `design:` reference. */
   handoff?: string;
   /** What lookout already has open on these views, so a re-file keeps its name. */
@@ -260,6 +269,7 @@ export function buildJudgePrompt(
         ].join("\n");
 
   return renderSkill(skillText, {
+    howToOpen: readingInstructionFor(ctx.ai),
     project,
     shotCount: shots.length,
     manifest,
@@ -346,6 +356,35 @@ export async function judgeBatch(
   }
 
   const ingested = ingestJudgeReply(parsed, { shots, project: ctx.projectDir, panel: ctx.panel });
+  // One tail for both ways out of the read check, so the path that skips it
+  // cannot drift from the path that runs it.
+  const finish = (r: typeof ingested, unread: string[]): JudgeBatchResult => ({
+    ...r,
+    cleanShotIds: r.cleanShotIds.filter((id) => !unread.includes(id)),
+    unaccounted: [...r.unaccounted, ...unread],
+    unread,
+    raw: text,
+    costUsd,
+    durationMs: Date.now() - started,
+  });
+  // Whether the check below can run at all. Not every CLI reports the files it
+  // opened: this one's empty list would otherwise read as "opened nothing",
+  // and every clean shot would be demoted every run, so the same batch would
+  // be re-judged forever and never cache. An AI that cannot be audited this
+  // way is said so out loud rather than failed silently.
+  if (!adapterFor(ctx.ai ?? PRIMARY_AI).reportsReads) {
+    recordIncident({
+      at: new Date().toISOString(),
+      kind: "judge-rejected",
+      verb: "check",
+      message:
+        `${ingested.cleanShotIds.length} shot(s) ruled clean by ${ctx.ai ?? PRIMARY_AI}, which does not report ` +
+        "which files it opened; the clean-without-reading check did not run",
+      project: ctx.projectDir,
+      judge: ctx.panel?.name,
+    });
+    return finish(ingested, []);
+  }
   // A shot called clean that the model never opened is not clean; it is a
   // shot nobody ruled on. It joins the unaccounted, which leaves the pair out
   // of the cache and judges it again next run, and the incident names the
@@ -368,15 +407,7 @@ export async function judgeBatch(
       judge: ctx.panel?.name,
     });
   }
-  return {
-    ...ingested,
-    cleanShotIds: ingested.cleanShotIds.filter((id) => !unread.includes(id)),
-    unaccounted: [...ingested.unaccounted, ...unread],
-    unread,
-    raw: text,
-    costUsd,
-    durationMs: Date.now() - started,
-  };
+  return finish(ingested, unread);
 }
 
 // The subprocess contract and the grouping rules live beside this file; they

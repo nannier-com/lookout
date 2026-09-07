@@ -11,6 +11,7 @@
  * it looks at screenshots, named absolutely, never at the judged repository.
  */
 import { mkdir } from "node:fs/promises";
+import { readingInstructionFor } from "../judge/adapters.js";
 import { join } from "node:path";
 import { DEFAULT_JUDGE_MODEL, extractJson, invokeClaude } from "../judge/engine.js";
 import { loadSkill, renderSkill } from "../skills/load.js";
@@ -211,6 +212,7 @@ export async function planRoute(args: {
     .join("\n");
 
   const prompt = renderSkill(skill.text, {
+    howToOpen: readingInstructionFor(),
     project: args.resolved.project,
     target: args.target,
     route: args.route,

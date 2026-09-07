@@ -13,7 +13,7 @@ running app.
 
 Step 1: extract the discrete, checkable criteria from the ticket. Split
 compound sentences; keep each criterion atomic. Number them from 1.
-Step 2: read every screenshot with the Read tool; one listed with pieces is
+Step 2: read every screenshot {{howToOpen}}; one listed with pieces is
 read as its pieces, top to bottom.
 Step 3: rule on each criterion strictly from the evidence:
 

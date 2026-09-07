@@ -1,7 +1,7 @@
 ## Comparing against a design hand-off
 
 One or more shots in this batch carry a `design:` reference. That reference is a
-design hand-off (for example a Claude Design hand-off). Read it with the same
+design hand-off exported from a design tool. Read it with the same
 care as the screenshot and compare the two ONE TO ONE.
 
 You are the judge, not a diffing tool. A divergence from the hand-off is a

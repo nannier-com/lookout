@@ -51,3 +51,26 @@ export function isJudge(key: string): boolean {
 export function invokeAi(key: string, inv: JudgeInvocation): Promise<JudgeReply> {
   return adapterFor(key).invoke(inv);
 }
+
+/**
+ * The AI a call uses when nobody named one.
+ *
+ * The registry's first entry. Judging is still one AI per call, so this is
+ * what every prompt builder falls back to; when a call names its own AI, that
+ * one answers instead.
+ */
+export const PRIMARY_AI = JUDGES[0]!;
+
+/**
+ * How to tell THIS AI to open a screenshot, for the skill's `{{howToOpen}}`.
+ *
+ * One function because five prompt builders ask, and five spellings of the
+ * same question is how a page comes to promise one thing while the run does
+ * another. An unknown key falls back to the primary rather than throwing: a
+ * prompt is not the place to discover a bad configuration, and the invocation
+ * that follows will refuse it properly.
+ */
+export function readingInstructionFor(key?: string): string {
+  const found = ADAPTERS.find((a) => a.key === key);
+  return (found ?? adapterFor(PRIMARY_AI)).readingInstruction;
+}

@@ -243,6 +243,7 @@ export const claudeAdapter: AiAdapter = {
   label: "Claude Code",
   defaultModel: DEFAULT_JUDGE_MODEL,
   reportsReads: true,
+  readingInstruction: "with the Read tool",
   bin: async () => claudeBin(),
   probe: (): Promise<CliFacts> => probeCli(claudeBin()),
   invoke: async (inv: JudgeInvocation): Promise<JudgeReply> => {

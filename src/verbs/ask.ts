@@ -12,6 +12,7 @@
  * not a defect.
  */
 import { join } from "node:path";
+import { readingInstructionFor } from "../judge/adapters.js";
 import { evidenceDir } from "../config.js";
 import { DEFAULT_JUDGE_MODEL, invokeClaude } from "../judge/engine.js";
 import { manifestOf, preparePieces } from "../judge/manifest.js";
@@ -56,6 +57,7 @@ export async function ask(parsed: Parsed): Promise<number> {
 
   const skill = await loadSkill(resolved, "fact-check");
   const prompt = renderSkill(skill.text, {
+    howToOpen: readingInstructionFor(),
     project: resolved.project,
     question,
     shotCount: shots.length,

@@ -27,7 +27,7 @@ Target "{{target}}", route "{{route}}".
 Routes already configured on this target: {{routeList}}
 Interaction states already hand-written in the config: {{configStates}}
 
-Read the rest screenshots below with the Read tool to see each affordance in
+Read the rest screenshots below {{howToOpen}} to see each affordance in
 context before deciding. Do not read other files.
 
 === SHOTS ({{shotCount}}) ===

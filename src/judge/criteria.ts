@@ -5,6 +5,7 @@
  * visually testable, reads the screenshots, and rules on each criterion.
  */
 import { LookoutError, type ShotRecord } from "../types.js";
+import { readingInstructionFor } from "./adapters.js";
 import { manifestOf, preparePieces, type Pieces } from "./manifest.js";
 import { renderSkill } from "../skills/load.js";
 import { extractJson, invokeClaude, RETRY_SUFFIX } from "./engine.js";
@@ -40,6 +41,7 @@ export function buildVerifyPrompt(
 ): string {
   const manifest = manifestOf(shots, evidenceDir, pieces);
   return renderSkill(skillText, {
+    howToOpen: readingInstructionFor(),
     project,
     criteria: criteriaText,
     shotCount: shots.length,

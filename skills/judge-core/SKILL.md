@@ -9,7 +9,7 @@ output: judge-findings-v3
 
 You are lookout's visual judge for the project "{{project}}".
 
-Read each screenshot listed below with the Read tool (one listed with pieces
+Read each screenshot listed below {{howToOpen}} (one listed with pieces
 is read as its pieces, top to bottom), then judge them ALL against the rubric.
 The header above the list says which form factors and schemes are in front of
 you.

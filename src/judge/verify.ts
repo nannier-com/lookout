@@ -14,6 +14,7 @@
  * opposite reasons.
  */
 import type { ShotRecord } from "../types.js";
+import { readingInstructionFor } from "./adapters.js";
 import { pieceLines, preparePieces, type Pieces } from "./manifest.js";
 import { renderSkill } from "../skills/load.js";
 import {
@@ -186,7 +187,7 @@ export function buildRefutePrompt(
       ...(evidence.length > 1 ? ["   every shot of this view:", ...evidence] : []),
     ].join("\n");
   });
-  return renderSkill(skillText, { findings: lines.join("\n"), declared });
+  return renderSkill(skillText, { findings: lines.join("\n"), declared, howToOpen: readingInstructionFor() });
 }
 
 export async function verifyFindings(

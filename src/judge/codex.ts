@@ -264,6 +264,9 @@ export const codexAdapter: AiAdapter = {
   // means "the panel must offer a choice", and the settings row does.
   defaultModel: "",
   reportsReads: false,
+  // Verified against the installed CLI: "View a local image file from the
+  // filesystem when visual inspection is needed."
+  readingInstruction: "with the view_image tool",
   bin: codexBin,
   probe,
   invoke: invokeCodex,

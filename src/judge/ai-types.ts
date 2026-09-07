@@ -107,6 +107,18 @@ export interface AiAdapter {
    * it, and lookout says in the log that it did.
    */
   reportsReads: boolean;
+  /**
+   * How this CLI is told to open a screenshot, as the words a skill will use.
+   *
+   * The skills say what to judge and must not say who is judging, but "open
+   * this image" still has to be spelled in the vocabulary of whichever CLI is
+   * reading, and the two do not agree: one has a Read tool, another a
+   * view_image tool. This is the seam. `renderSkill` throws on an unfilled
+   * placeholder, so an adapter that forgets to supply it fails at the first
+   * prompt rather than shipping a dangling `{{howToOpen}}` to a model that
+   * judges anyway.
+   */
+  readingInstruction: string;
   /** The binary to spawn, or null when this AI is not installed here. */
   bin(): Promise<string | null>;
   /** Its version, and the models this install offers. */
