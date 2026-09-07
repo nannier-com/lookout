@@ -1,5 +1,13 @@
 # @nannier-com/lookout
 
+## 0.54.4
+
+### Patch Changes
+
+- 3971a6a: Keep the browser validation fixture on the current route identity format so startup remains repair-free and deterministic.
+- 8c75075: Make browser validation independent of a locally installed Claude CLI by supplying a deterministic fixture probe.
+- 1e58051: Validate the real browser UI and an isolated install of the packed npm artifact before releasing.
+
 ## 0.54.3
 
 ### Patch Changes
