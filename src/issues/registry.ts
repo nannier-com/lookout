@@ -52,7 +52,12 @@ export function reconcileIssues(
   now: string,
   rng?: () => number,
 ): IssueRecord[] {
+  // Both containers, defaulted together. `loadBacklog` normalizes what comes
+  // off disk, but this also runs from `saveBacklog` and from callers holding a
+  // backlog they built themselves, and the two lines disagreeing is what turned
+  // a file written without a `findings` key into a crash three frames up.
   if (!backlog.issues) backlog.issues = {};
+  if (!backlog.findings) backlog.findings = {};
   const taken = new Set(Object.keys(backlog.issues));
   const known = new Set(Object.values(backlog.issues).map((r) => r.key));
   const minted: IssueRecord[] = [];

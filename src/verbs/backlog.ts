@@ -25,6 +25,7 @@ import {
   emptyBacklog,
   failing,
   mergeFindings,
+  normalizeBacklog,
   renderMarkdown,
   setStatus,
   stats,
@@ -53,7 +54,17 @@ export function markdownPath(resolved: ResolvedConfig): string {
 export async function loadBacklog(resolved: ResolvedConfig): Promise<Backlog> {
   const p = backlogPath(resolved);
   if (!existsSync(p)) return emptyBacklog(resolved.project, nowIso());
-  const backlog = JSON.parse(await readFile(p, "utf8")) as Backlog;
+  // Parsed, then made to hold the shape the type promises. This is the one
+  // place the file becomes a `Backlog`, so it is the one place worth checking:
+  // every verb and every board build below iterates `findings` and `issues`
+  // directly, and none of them can say which file the key was missing from.
+  //
+  // A parse failure is deliberately NOT swallowed the way `loadQueue` swallows
+  // one. The queue is a sidecar that one pump rebuilds; the backlog is the
+  // record itself, and reading a corrupt one as empty would show every finding
+  // as gone and then make that true on the next save. So it throws, and the
+  // callers that run from a timer contain it rather than pretend it parsed.
+  const backlog = normalizeBacklog(JSON.parse(await readFile(p, "utf8")) as Backlog);
   const minted = reconcileIssues(backlog, nowIso());
   if (minted.length > 0) await saveBacklog(resolved, backlog);
   return backlog;

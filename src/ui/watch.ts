@@ -66,7 +66,18 @@ function react(): void {
     if (project) await pumpQueue(project);
     // Only broadcasts if the pump actually changed the payload.
     await pushNow();
-  })();
+  })().catch(() => {
+    // The last frame before the event loop, so a rejection reaching this point
+    // is an unhandled one and the server exits: a `lookout ui` that had been
+    // up for hours died the moment a corrupt `.lookout/backlog.json` appeared
+    // under it. A watcher is the FIRST thing to see a bad file on disk, which
+    // makes this the one callback that has to hold no matter what it called.
+    //
+    // Everything above already contains its own failures, so nothing is
+    // expected to arrive here -- which is the reason the guard belongs here
+    // rather than inside whichever of them grows a new way to throw. Losing
+    // one tick costs nothing; the next write nudges again.
+  });
 }
 
 function nudge(): void {

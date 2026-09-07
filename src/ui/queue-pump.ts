@@ -90,7 +90,19 @@ export function queueableReason(entry: BoardEntry | undefined, cap: number): str
  * the common case reads no files at all.
  */
 export async function pumpQueue(resolved: ResolvedConfig): Promise<void> {
-  await advanceQueue(resolved, await boardNow(resolved));
+  // Guarded here and not only inside `advanceQueue`, because building the
+  // board is itself a read of the backlog and throws on a file nobody can
+  // parse -- and that read sits OUTSIDE the catch below, in the argument. Two
+  // of this function's callers do not await it (`verbs/ui.ts` pumps once at
+  // startup, `ui/watch.ts` pumps on every write), so a rejection escaping here
+  // is an unhandled one and the process goes with it. Property 3 in the header
+  // above says this never throws; the board build was the hole in it.
+  try {
+    await advanceQueue(resolved, await boardNow(resolved));
+  } catch {
+    // The next write nudges again, and the page is told what is wrong the
+    // other way round: `/api/status` answers 500 with the reason on it.
+  }
 }
 
 let pumping = false;

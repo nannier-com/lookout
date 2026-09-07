@@ -304,6 +304,37 @@ export function emptyBacklog(project: string, now: string): Backlog {
   return { note: BACKLOG_NOTE, project, updatedAt: now, findings: {}, issues: {} };
 }
 
+/** A plain object, as opposed to null, an array, or a scalar. */
+function isRecord(v: unknown): boolean {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/**
+ * The shape the type above claims, imposed on whatever was actually on disk.
+ *
+ * `backlog.json` is a file, and a file gets edited by hand, truncated by a
+ * writer that died, or written by something that only knew half the shape. The
+ * interface says `findings` and `issues` are records; between `JSON.parse` and
+ * the dozen-odd call sites that iterate them, nothing had ever checked. One
+ * missing key was a `TypeError` several frames down from anything that could
+ * name the file it came from.
+ *
+ * Missing, null, and the wrong kind of container all become an empty record.
+ * An array is coerced rather than passed through, even though `Object.values`
+ * would survive one: the ids `reconcileIssues` mints onto an array are string
+ * keys, and `JSON.stringify` drops those on the next save, which is exactly
+ * the forgotten-id failure reconciling on load exists to prevent.
+ *
+ * The containers only. A malformed FINDING is a different problem with a
+ * different answer -- `backlog check` reports it, by fingerprint -- and
+ * quietly dropping one here would hide a defect somebody is still owed.
+ */
+export function normalizeBacklog(backlog: Backlog): Backlog {
+  if (!isRecord(backlog.findings)) backlog.findings = {};
+  if (!isRecord(backlog.issues)) backlog.issues = {};
+  return backlog;
+}
+
 // The rest of the backlog lives beside this file, and is re-exported here
 // because this is the module every caller has always imported it from: the
 // shapes above are what most of them want, and the behaviour below is what the
