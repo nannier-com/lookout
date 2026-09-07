@@ -20,7 +20,7 @@ import { paintJudge, say, setView, toggleJudge } from "./shell.js";
 import { render, runState } from "./status.js";
 import { connected, listen } from "./stream.js";
 import { addNarration } from "./transcript.js";
-import { archive, chooseTool, enqueue, loadTools, ruleNow, unqueue } from "./tools.js";
+import { archive, enqueue, loadTools, ruleNow, toggleTool, unqueue } from "./tools.js";
 import { onRefresh, page, type Filter } from "./state.js";
 import { clearJudge, resetProject } from "./clear.js";
 import { closeConfirm, confirmBackdrop, confirmOpen } from "./confirm.js";
@@ -149,8 +149,8 @@ document.addEventListener("click", (e) => {
   if (area?.dataset.view) { setView(area.dataset.view); return; }
   const swap = hit(e, "[data-tool]");
   if (swap?.dataset.tool) {
-    chooseTool(swap.dataset.tool);
-    // The launch buttons name the tool, so they have to be redrawn with it.
+    toggleTool(swap.dataset.tool);
+    // The launch buttons name the tools, so they have to be redrawn with them.
     repaint("board");
     void tick();
     return;

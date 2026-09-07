@@ -41,7 +41,8 @@ import type { ResolvedConfig } from "../types.js";
 export type Handoff = (
   resolved: ResolvedConfig,
   issue: string,
-  tool: string,
+  tools: string[],
+  turn: number,
 ) => Promise<{ launched: boolean; reason?: string }>;
 
 let handoff: Handoff = launchHandoff;
@@ -201,14 +202,21 @@ async function stepHead(
   const spent = head.handedOffAtAttempt !== undefined && attempt > head.handedOffAtAttempt;
   if (!fresh && !spent) return head;
 
+  // Whose turn this is. A first handoff takes the turn the entry was queued
+  // with; a second one is a spent attempt that did not close the issue, which
+  // is exactly the moment to pass it to the next tool on the list. With one
+  // tool selected the rotation is a no-op and the same tool gets it back, which
+  // is what re-handing off has always meant.
+  const turn = fresh ? (head.turn ?? 0) : (head.turn ?? 0) + 1;
+
   if (handoffSuppressed()) {
-    return { ...head, handedOffAt: new Date().toISOString(), handedOffAtAttempt: attempt };
+    return { ...head, turn, handedOffAt: new Date().toISOString(), handedOffAtAttempt: attempt };
   }
-  const r = await handoff(resolved, head.issue, head.tool);
+  const r = await handoff(resolved, head.issue, head.tools, turn);
   if (!r.launched) {
     return { ...head, failedAt: new Date().toISOString(), lastReason: r.reason ?? "the handoff did not open" };
   }
-  const done: QueueItem = { ...head, handedOffAt: new Date().toISOString(), handedOffAtAttempt: attempt };
+  const done: QueueItem = { ...head, turn, handedOffAt: new Date().toISOString(), handedOffAtAttempt: attempt };
   delete done.lastReason;
   return done;
 }

@@ -19,13 +19,30 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { LOOKOUT_DIR } from "../config-locate.js";
+import { TOOLS } from "../report/handoff.js";
 
 /** One issue waiting its turn, and what has been done about it so far. */
 export interface QueueItem {
   /** The six-digit issue id. */
   issue: string;
-  /** Which coding tool to hand it to, chosen when it was queued. */
-  tool: string;
+  /**
+   * Which coding tools work it, in the order they take their turns, chosen when
+   * it was queued.
+   *
+   * A list rather than one name because the picker is a selector: naming two
+   * says they consult, and consulting is turns rather than a committee. The
+   * first drafts, the second reviews what it finds and revises, and so on round
+   * the list for as many turns as the issue's attempts allow.
+   */
+  tools: string[];
+  /**
+   * Whose turn is next, as an index into `tools` modulo its length.
+   *
+   * Absent means the first. It advances only when an attempt has actually been
+   * spent, which is the same evidence a second handoff already waited for, so a
+   * queue watching an unchanged board never rotates.
+   */
+  turn?: number;
   queuedAt: string;
   /**
    * When a Terminal was actually opened for it.
@@ -54,6 +71,22 @@ export interface QueueItem {
   lastReason?: string;
 }
 
+/**
+ * The tools a press asked for, as a list the queue can hold.
+ *
+ * The page sends what its selector has on; this decides what that means. An
+ * unknown key is dropped rather than refused, because a page from a newer
+ * build naming a tool this server has never heard of should still queue the
+ * issue with the ones it does know. Nothing selected, or nothing recognised,
+ * falls back to the one tool every install has a mark for, which is what the
+ * older single-choice payload always meant.
+ */
+export function queuedTools(body: { tool?: string; tools?: unknown }): string[] {
+  const asked = toolList({ tool: body.tool, tools: body.tools });
+  const known = asked.filter((t) => t in TOOLS);
+  return known.length ? known : ["claude-code"];
+}
+
 export function queuePath(projectDir: string): string {
   return join(projectDir, LOOKOUT_DIR, "queue.json");
 }
@@ -67,18 +100,38 @@ export function queueMtime(projectDir: string): number {
   }
 }
 
+/**
+ * The tools on a record, in either spelling.
+ *
+ * A queue written before the picker became a selector names one `tool`, and
+ * that file is sitting in projects right now. Reading both here rather than
+ * migrating the file means an old queue keeps working and a downgrade does not
+ * strand it: the first tool of a list is exactly what the older reader wants.
+ */
+function toolList(r: Record<string, unknown>): string[] {
+  const raw = Array.isArray(r.tools) ? r.tools : typeof r.tool === "string" ? [r.tool] : [];
+  const out: string[] = [];
+  for (const t of raw) {
+    if (typeof t !== "string" || !t.trim()) continue;
+    if (!out.includes(t.trim())) out.push(t.trim());
+  }
+  return out;
+}
+
 function one(raw: unknown): QueueItem | null {
   if (typeof raw !== "object" || raw === null) return null;
   const r = raw as Record<string, unknown>;
-  // The id and the tool are the two fields nothing works without; the rest of
+  // The id and at least one tool are what nothing works without; the rest of
   // the record is progress, and a missing one just means "not yet".
   if (typeof r.issue !== "string" || !r.issue.trim()) return null;
-  if (typeof r.tool !== "string" || !r.tool.trim()) return null;
+  const tools = toolList(r);
+  if (!tools.length) return null;
   const item: QueueItem = {
     issue: r.issue.trim(),
-    tool: r.tool.trim(),
+    tools,
     queuedAt: typeof r.queuedAt === "string" ? r.queuedAt : new Date(0).toISOString(),
   };
+  if (typeof r.turn === "number" && Number.isInteger(r.turn) && r.turn >= 0) item.turn = r.turn;
   if (typeof r.handedOffAt === "string") item.handedOffAt = r.handedOffAt;
   if (typeof r.handedOffAtAttempt === "number") item.handedOffAtAttempt = r.handedOffAtAttempt;
   if (typeof r.failedAt === "string") item.failedAt = r.failedAt;

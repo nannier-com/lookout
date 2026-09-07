@@ -202,14 +202,27 @@ async function drive(): Promise<number> {
   check("escape restores the board", (await shown()).join() === before.join());
   check("filter bar goes away", !(await page.locator("#filterbar").isVisible()));
 
+  // The tool picker is a selector, not a switch: pressing the second one adds
+  // it to the first rather than replacing it, because two selected means they
+  // take turns on one issue. The last one on cannot be turned off, since a
+  // selection of nothing leaves the play button with nobody to hand an issue to.
   const buttons = page.locator("#toolToggle button");
   if ((await buttons.count()) > 1) {
+    const first = buttons.nth(0);
     const second = buttons.nth(1);
     const key = await second.getAttribute("data-tool");
     await second.click();
     await page.waitForTimeout(1200);
-    check("tool choice sticks", (await second.getAttribute("aria-pressed")) === "true", String(key));
-    check("tool choice is remembered", (await page.evaluate(() => localStorage.getItem("lookout.tool"))) === key);
+    check("a second tool can be selected", (await second.getAttribute("aria-pressed")) === "true", String(key));
+    check("selecting one does not deselect the other", (await first.getAttribute("aria-pressed")) === "true");
+    const stored = await page.evaluate(() => localStorage.getItem("lookout.tools"));
+    check("both are remembered", (stored ?? "").includes(String(key)), String(stored));
+    await second.click();
+    await page.waitForTimeout(900);
+    check("and one can be taken back off", (await second.getAttribute("aria-pressed")) === "false");
+    await first.click();
+    await page.waitForTimeout(900);
+    check("but never the last one", (await first.getAttribute("aria-pressed")) === "true");
   } else {
     check("tool toggle has choices", false, `only ${await buttons.count()}`);
   }

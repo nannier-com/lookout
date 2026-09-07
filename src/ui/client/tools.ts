@@ -1,43 +1,76 @@
 /**
- * Which coding tool an issue opens in, and the two things a card can do to one.
+ * Which coding tools work an issue, and the two things a card can do to one.
  *
  * The choice is remembered per browser rather than per project, because it is a
  * preference about the reader: whoever is looking at this page opens issues in
  * the same editor whichever repository they are looking at.
+ *
+ * It is a selector rather than a switch. Naming two tools does not mean "either
+ * will do", it means they work the issue together: the queue hands it to the
+ * first, and the turn after a spent attempt goes to the next one, which opens
+ * on a tree the first has already worked and the note it left. Turns, not a
+ * committee, because they share one working tree and two agents in one tree is
+ * the bug the queue's lease exists to prevent.
  */
 import { esc, paint, slot } from "./dom.js";
 import type { ToolChoice } from "../../report/handoff.js";
 
-// Which coding tool a launch opens. Remembered per browser, because it is a
-// preference about the reader, not about the project.
+// Which coding tools a launch opens, in the order they take their turns.
+// Remembered per browser, because it is a preference about the reader, not
+// about the project.
 let tools: ToolChoice[] = [];
-let tool: string | null = null;
-try {
-  tool = localStorage.getItem("lookout.tool");
-} catch {
-  // A private window refuses storage. The preference is then per visit.
-  tool = null;
+let chosen: string[] = read();
+
+/**
+ * What was chosen last visit, in either spelling.
+ *
+ * The old key held one name. Reading it here rather than migrating on write
+ * means a browser that has only ever seen the switch comes back with that tool
+ * selected, instead of silently reset to the first one in the list.
+ */
+function read(): string[] {
+  try {
+    const many = localStorage.getItem("lookout.tools");
+    if (many) {
+      const parsed = JSON.parse(many) as unknown;
+      if (Array.isArray(parsed)) return parsed.filter((x): x is string => typeof x === "string" && !!x);
+    }
+    const one = localStorage.getItem("lookout.tool");
+    return one ? [one] : [];
+  } catch {
+    // A private window refuses storage, and a half-written value is not worth
+    // failing over. The preference is then per visit.
+    return [];
+  }
 }
+
+/** The tools chosen, in the order they were offered, as objects. */
+function picked(): ToolChoice[] {
+  return tools.filter((t) => chosen.includes(t.key));
+}
+
 export function toolLabel(): string {
-  const t = tools.find((x) => x.key === tool);
-  return t ? t.label : "your editor";
+  const names = picked().map((t) => t.label);
+  if (!names.length) return "your editor";
+  if (names.length === 1) return names[0]!;
+  return names.slice(0, -1).join(", ") + " and " + names[names.length - 1]!;
 }
 export function toolMark(): string {
-  const t = tools.find((x) => x.key === tool);
-  return t ? t.mark : "";
+  return picked().map((t) => t.mark).join("");
 }
 export function paintToggle(): void {
   const html = tools.map((t) =>
     '<button type="button" data-tool="' + esc(t.key) + '"'
-    + ' aria-pressed="' + (t.key === tool ? 'true' : 'false') + '"'
+    + ' aria-pressed="' + (chosen.includes(t.key) ? 'true' : 'false') + '"'
     + ' aria-label="' + esc(t.label) + '"'
     + (t.installed ? '' : ' data-missing="1"')
-    + ' title="' + (t.installed ? 'open issues in ' + esc(t.label)
+    + ' title="' + (t.installed ? 'work issues in ' + esc(t.label)
+        + '; select both and they take turns on the same issue'
         : esc(t.bin) + ' is not on PATH; the command is shown so you can run it yourself')
     // The mark is markup, not text, so it is the one thing here not escaped:
     // it comes from lookout itself or from a file in the project.
     + '">' + t.mark + '</button>').join("");
-  paint("toolToggle", tool + "|" + html, html);
+  paint("toolToggle", chosen.join(",") + "|" + html, html);
 }
 
 export async function loadTools(): Promise<void> {
@@ -46,7 +79,11 @@ export async function loadTools(): Promise<void> {
   } catch {
     tools = [];
   }
-  if (!tools.some((t) => t.key === tool)) tool = tools[0]?.key ?? null;
+  // Anything this server has never heard of goes, and an empty selection falls
+  // back to the first tool offered: a selector with nothing on can hand nothing
+  // over, and a play button that refuses every press says nothing about why.
+  chosen = chosen.filter((k) => tools.some((t) => t.key === k));
+  if (!chosen.length && tools[0]) chosen = [tools[0].key];
   paintToggle();
 }
 
@@ -88,7 +125,7 @@ export async function enqueue(issue: string, btn: HTMLButtonElement): Promise<vo
     const r = await fetch("/api/queue", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ issue: issue, tool: tool }),
+      body: JSON.stringify({ issue: issue, tools: chosen }),
     });
     const j = (await r.json()) as { error?: string; queue?: { issue: string }[] };
     // A refusal says why rather than queueing something the pump would drop on
@@ -137,16 +174,29 @@ function nth(n: number): string {
   return n + (["th", "st", "nd", "rd"][n % 10] ?? "th");
 }
 
-/** The tool a launch will open, for whoever is asking. */
-export function currentTool(): string | null {
-  return tool;
+/** The tools a launch will open, for whoever is asking. */
+export function currentTools(): string[] {
+  return [...chosen];
 }
 
-/** Remember a different one. */
-export function chooseTool(next: string): void {
-  tool = next;
+/**
+ * Turn one on or off.
+ *
+ * The last one on cannot be turned off. An empty selector would leave the play
+ * button with nobody to hand an issue to, and a control that quietly stops
+ * working is worse than one that declines the press.
+ */
+export function toggleTool(next: string): void {
+  const has = chosen.includes(next);
+  if (has && chosen.length === 1) return;
+  // Kept in the order the server offered them, so the turn order on the queue
+  // is the order the buttons read left to right rather than the order they
+  // happened to be clicked.
+  chosen = has
+    ? chosen.filter((k) => k !== next)
+    : tools.filter((t) => t.key === next || chosen.includes(t.key)).map((t) => t.key);
   try {
-    localStorage.setItem("lookout.tool", tool);
+    localStorage.setItem("lookout.tools", JSON.stringify(chosen));
   } catch {
     // A private window refuses storage; the choice still holds for this visit.
   }

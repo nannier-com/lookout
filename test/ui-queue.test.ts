@@ -9,7 +9,7 @@ import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { advanceQueue, queueableReason, setHandoff, type Handoff } from "../src/ui/queue-pump.js";
 import { clearLease, leasePath, leaseScript } from "../src/ui/lease.js";
-import { loadQueue, queueDigest, queuePath, saveQueue, type QueueItem } from "../src/ui/queue.js";
+import { loadQueue, queueDigest, queuePath, queuedTools, saveQueue, type QueueItem } from "../src/ui/queue.js";
 import { handle } from "../src/ui/routes.js";
 import { boardNow, forgetBoard, statusBody } from "../src/ui/payload.js";
 import { session, setCurrentProject } from "../src/ui/session.js";
@@ -77,7 +77,7 @@ afterEach(() => {
 });
 
 function queued(...ids: string[]): QueueItem[] {
-  return ids.map((issue) => ({ issue, tool: "claude-code", queuedAt: "2026-09-02T00:00:00.000Z" }));
+  return ids.map((issue) => ({ issue, tools: ["claude-code"], queuedAt: "2026-09-02T00:00:00.000Z" }));
 }
 
 describe("the queue file", () => {
@@ -96,6 +96,32 @@ describe("the queue file", () => {
       JSON.stringify({ items: [{ tool: "claude-code" }, ...queued("100003", "100003")] }),
     );
     expect((await loadQueue(project.projectDir)).map((q) => q.issue)).toEqual(["100003"]);
+  });
+
+  // A queue written before the picker became a selector is sitting in projects
+  // right now, and it names one `tool`. Reading it as a one-tool list is what
+  // keeps that press from being lost on the upgrade.
+  test("reads a queue written when there was only one tool", async () => {
+    await Bun.write(
+      queuePath(project.projectDir),
+      JSON.stringify({ items: [{ issue: "100004", tool: "codex", queuedAt: "2026-09-02T00:00:00.000Z" }] }),
+    );
+    expect((await loadQueue(project.projectDir))[0]?.tools).toEqual(["codex"]);
+  });
+
+  test("an entry naming no tool at all is dropped, like one naming no issue", async () => {
+    await Bun.write(
+      queuePath(project.projectDir),
+      JSON.stringify({ items: [{ issue: "100005", tools: [] }, ...queued("100006")] }),
+    );
+    expect((await loadQueue(project.projectDir)).map((q) => q.issue)).toEqual(["100006"]);
+  });
+
+  test("what a press asks for is filtered to the tools this server knows", () => {
+    expect(queuedTools({ tools: ["codex", "claude-code"] })).toEqual(["codex", "claude-code"]);
+    expect(queuedTools({ tools: ["nonesuch"] })).toEqual(["claude-code"]);
+    expect(queuedTools({ tool: "codex" })).toEqual(["codex"]);
+    expect(queuedTools({})).toEqual(["claude-code"]);
   });
 
   test("a queue nobody can parse loads as empty rather than throwing", async () => {
@@ -127,6 +153,37 @@ describe("the pump", () => {
     await advanceQueue(project, [entry("100001", "open", 0)]);
     await advanceQueue(project, [entry("100001", "still-open", 1)]);
     expect(opened).toEqual(["100001", "100001"]);
+  });
+
+  // Two tools selected means they work the issue together, and the only way to
+  // do that in one working tree is to take turns. The turn cannot advance on
+  // anything softer than a spent attempt: that is the same evidence a second
+  // handoff already waited for, so a board that has not moved never rotates.
+  test("passes the turn to the next tool when an attempt was spent", async () => {
+    const turns: string[] = [];
+    setHandoff((_r, issue, tools, turn) => {
+      turns.push(`${issue}:${tools[turn % tools.length]}`);
+      return Promise.resolve({ launched: true });
+    });
+    session.queue = [
+      { issue: "100001", tools: ["claude-code", "codex"], queuedAt: "2026-09-02T00:00:00.000Z" },
+    ];
+    await advanceQueue(project, [entry("100001", "open", 0)]);
+    await advanceQueue(project, [entry("100001", "still-open", 1)]);
+    await advanceQueue(project, [entry("100001", "still-open", 2)]);
+    expect(turns).toEqual(["100001:claude-code", "100001:codex", "100001:claude-code"]);
+  });
+
+  test("one tool selected keeps getting its own issue back", async () => {
+    const turns: string[] = [];
+    setHandoff((_r, issue, tools, turn) => {
+      turns.push(`${issue}:${tools[turn % tools.length]}`);
+      return Promise.resolve({ launched: true });
+    });
+    session.queue = queued("100001");
+    await advanceQueue(project, [entry("100001", "open", 0)]);
+    await advanceQueue(project, [entry("100001", "still-open", 1)]);
+    expect(turns).toEqual(["100001:claude-code", "100001:claude-code"]);
   });
 
   for (const status of ["done", "archived", "blocked"]) {

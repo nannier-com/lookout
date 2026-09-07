@@ -26,7 +26,7 @@ import { readNarration } from "../report/narration.js";
 import { boardNow, learningNow, statusBody } from "./payload.js";
 import { clearNarration, resetProject } from "./reset.js";
 import { pumpQueue, queueableReason } from "./queue-pump.js";
-import { saveQueue } from "./queue.js";
+import { queuedTools, saveQueue } from "./queue.js";
 import { applyBaseUrl, pickFolder, settingsView, switchProject } from "./project.js";
 import { startCheck, startRuling, stopCheck } from "./run.js";
 import { currentProject, session } from "./session.js";
@@ -180,8 +180,10 @@ export async function handle(req: Request, server: Server<undefined>): Promise<R
   // a time.
   if (url.pathname === "/api/queue" && req.method === "POST") {
     try {
-      const { issue, tool } = (await readJson(req)) as { issue?: string; tool?: string };
+      const body = (await readJson(req)) as { issue?: string; tool?: string; tools?: unknown };
+      const issue = body.issue;
       if (!issue) throw new Error("no issue given");
+      const tools = queuedTools(body);
       const board = await boardNow(resolved);
       const why = queueableReason(board.find((b) => b.id === issue), DEFAULT_MAX_ATTEMPTS);
       // Refused at the door rather than queued and silently dropped by the
@@ -190,7 +192,7 @@ export async function handle(req: Request, server: Server<undefined>): Promise<R
       if (!session.queue.some((q) => q.issue === issue)) {
         session.queue = [
           ...session.queue,
-          { issue, tool: tool ?? "claude-code", queuedAt: new Date().toISOString() },
+          { issue, tools, queuedAt: new Date().toISOString() },
         ];
         session.queueRev++;
         await saveQueue(resolved.projectDir, session.queue);

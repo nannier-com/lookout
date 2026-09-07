@@ -65,6 +65,40 @@ export const TOOLS: Record<string, { bin: string; label: string; mark: string }>
   codex: { bin: "codex", label: "Codex", mark: MARKS.codex! },
 };
 
+/**
+ * Where two agents working one issue leave each other notes.
+ *
+ * In the issue's own folder, beside the document and the pixels, because it is
+ * about this issue and it is as disposable as they are. A tree is a poor place
+ * to consult through: the reviewer can see WHAT changed and not why, and "why"
+ * is the whole of what a second opinion is for.
+ */
+export const CONSULT_FILE = "consult.md";
+
+/**
+ * What to say to an agent that is not working alone, or nothing when it is.
+ *
+ * Deliberately two sentences rather than a protocol document. lookout is not
+ * running a meeting: it hands over an issue, and when it hands the same issue
+ * to a second tool it says so and points at the note. Everything else about how
+ * to fix code belongs to the tool and to the repository's own rules, which the
+ * issue document already lists.
+ */
+export function consultBrief(tools: string[], turn: number, notes: string): string {
+  if (tools.length < 2) return "";
+  const mine = tools[turn % tools.length]!;
+  const others = tools.filter((t) => t !== mine).map((t) => TOOLS[t]?.label ?? t);
+  // Only the very first turn is the drafting one. A tool that comes round again
+  // after a full rotation is reviewing what happened since, not starting.
+  if (turn === 0) {
+    return ` ${others.join(" and ")} will review your work after you,`
+      + ` so write what you changed and why to ${notes} before you finish.`;
+  }
+  return ` ${others.join(" and ")} worked this issue before you: read ${notes} and the`
+    + ` working tree, say in that file where their reasoning is wrong or incomplete,`
+    + ` and fix what is left.`;
+}
+
 /** A logo the project supplied, which beats anything lookout draws itself. */
 function suppliedMark(resolved: ResolvedConfig, key: string): string | null {
   const p = join(resolved.projectDir, ".lookout", "logos", `${key}.svg`);
@@ -116,15 +150,26 @@ export interface LaunchResult {
 }
 
 /**
- * Write the handoff and, where the platform allows it, open it in the chosen
- * tool in a new terminal. Reports honestly when it cannot: a button that
- * silently does nothing is worse than one that hands you the command.
+ * Write the handoff and, where the platform allows it, open it in the tool
+ * whose turn it is, in a new terminal. Reports honestly when it cannot: a
+ * button that silently does nothing is worse than one that hands you the
+ * command.
+ *
+ * `tools` is a list because the page's picker is a selector. One name is the
+ * whole story and behaves exactly as it always did. Two mean they consult, and
+ * consulting is turns rather than a committee: `turn` indexes the list, so the
+ * second agent opens on a tree the first has already worked and a note saying
+ * what it did. Nothing here decides when a turn is over; the queue does, on the
+ * only evidence there is that one was spent.
  */
 export async function launchHandoff(
   resolved: ResolvedConfig,
   issueId: string,
-  toolKey: string,
+  tools: string[],
+  turn = 0,
 ): Promise<LaunchResult> {
+  if (!tools.length) throw new LookoutError("no tool to hand this to", "the page sends the selected tools");
+  const toolKey = tools[turn % tools.length]!;
   const tool = TOOLS[toolKey];
   if (!tool) {
     throw new LookoutError(
@@ -153,6 +198,7 @@ export async function launchHandoff(
   const verify = `${await invocation()} verify-fix --issue ${issueId}`;
   const prompt =
     `Read ${doc} and fix the issue it describes.`
+    + consultBrief(tools, turn, join(dir, CONSULT_FILE))
     + ` When you believe it is fixed, run \`${verify}\` so lookout can rule on it.`;
   const command = `${tool.bin} ${JSON.stringify(prompt)}`;
   const result: LaunchResult = {

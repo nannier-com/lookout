@@ -9,7 +9,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { launchHandoff, TOOLS, toolsAvailable } from "../src/report/handoff.js";
+import { CONSULT_FILE, consultBrief, launchHandoff, TOOLS, toolsAvailable } from "../src/report/handoff.js";
 import { renderIssueDocument } from "../src/issues/document.js";
 import { issuesOf } from "../src/issues/registry.js";
 import { issueDir } from "../src/issues/paths.js";
@@ -198,7 +198,7 @@ describe("a handoff stands on its own", () => {
 
   test("an id nobody filed is an error, not an empty document", async () => {
     const r = withBacklog([finding()]);
-    await expect(launchHandoff(r, "404040", "codex")).rejects.toThrow("no issue with id");
+    await expect(launchHandoff(r, "404040", ["codex"])).rejects.toThrow("no issue with id");
   });
 
   test("the document names the folder that holds everything about the issue", async () => {
@@ -207,6 +207,36 @@ describe("a handoff stands on its own", () => {
     expect(id).toMatch(/^[1-9][0-9]{5}$/);
     expect(markdown).toContain(`issue:      ${id}`);
     expect(markdown).toContain(`folder:     ${issueDir(r, id)}`);
+  });
+});
+
+describe("two tools working one issue", () => {
+  const notes = `/p/.lookout/issues/100001/${CONSULT_FILE}`;
+
+  // One tool is the whole story, and it is the case that has always worked.
+  // Saying anything about consulting there would be telling an agent to write
+  // notes for a reader who is never coming.
+  test("says nothing at all when one tool was selected", () => {
+    expect(consultBrief(["claude-code"], 0, notes)).toBe("");
+  });
+
+  test("tells the first it is drafting for a reviewer, and where to leave the why", () => {
+    const brief = consultBrief(["claude-code", "codex"], 0, notes);
+    expect(brief).toContain("Codex will review your work after you");
+    expect(brief).toContain(notes);
+  });
+
+  test("tells the next one whose work it is reading, and to say where it is wrong", () => {
+    const brief = consultBrief(["claude-code", "codex"], 1, notes);
+    expect(brief).toContain("Claude Code worked this issue before you");
+    expect(brief).toContain("where their reasoning is wrong");
+    expect(brief).toContain(notes);
+  });
+
+  // A tool that comes round again is not starting over: the tree and the note
+  // have both moved since its turn, and it is reviewing what happened.
+  test("a tool coming round a second time is reviewing, not drafting", () => {
+    expect(consultBrief(["claude-code", "codex"], 2, notes)).toContain("worked this issue before you");
   });
 });
 
