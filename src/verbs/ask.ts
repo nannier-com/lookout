@@ -13,7 +13,7 @@
  */
 import { join } from "node:path";
 import { evidenceDir } from "../config.js";
-import { invokeClaude } from "../judge/engine.js";
+import { DEFAULT_JUDGE_MODEL, invokeClaude } from "../judge/engine.js";
 import { manifestOf, preparePieces } from "../judge/manifest.js";
 import { loadSkill, renderSkill } from "../skills/load.js";
 import { LookoutError, type Scheme } from "../types.js";
@@ -62,7 +62,7 @@ export async function ask(parsed: Parsed): Promise<number> {
     manifest,
   });
 
-  const model = str(parsed.flags.model) ?? "sonnet";
+  const model = str(parsed.flags.model) ?? DEFAULT_JUDGE_MODEL;
   const res = await invokeClaude({ prompt, model });
 
   if (parsed.flags.json) {

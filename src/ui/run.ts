@@ -23,8 +23,39 @@ import { deviceDownReason, preflightDevices } from "../capture/native-preflight.
 import { detectProjectKind } from "../project-kind.js";
 import { pushNow } from "./live.js";
 import { session } from "./session.js";
-import { navigationConsented } from "./stored-settings.js";
+import { navigationConsented, type UiSettings } from "./stored-settings.js";
 import type { ResolvedConfig } from "../types.js";
+import { JUDGES } from "../judge/engine.js";
+
+/**
+ * What the play button spends, as the words the child process gets.
+ *
+ * Pure, and exported, because the settings panel and this spawn are two
+ * modules that must never disagree: what the page shows as on has to be what
+ * the run is actually given, and the only way to assert that without opening a
+ * browser and a model account is to be able to ask.
+ *
+ * --first: one run, stopping at the first issue. The loop this button serves is
+ * find one, fix one, verify it, so judging on for another eight minutes hands
+ * back twenty-six more answers to a question nobody has asked yet.
+ */
+export function checkArgs(cli: string, settings: UiSettings, projectDir: string): string[] {
+  const args = [cli, "check", "--quiet", "--first"];
+  // The toggle beside the button, spent one run at a time. It is passed only
+  // for the project it was given for, so a page pointed somewhere new starts
+  // from no again: what this authorizes is clicking the application's own
+  // controls, destructive ones included, and that is a promise about one
+  // repository rather than a preference the page carries around.
+  if (navigationConsented(settings, projectDir)) args.push("--navigation");
+  // Which model rules on this project, chosen under the cog. Passed only when
+  // somebody chose one: an absent flag is how every verb asks for lookout's own
+  // default, and spelling that default out here would be a second copy of it
+  // that goes stale the day the first one moves. `--model` is the flag the one
+  // judge lookout has takes; a second judge will bring its own.
+  const model = settings.judgeModels[JUDGES[0] ?? ""];
+  if (model) args.push("--model", model);
+  return args;
+}
 
 export async function startCheck(project: ResolvedConfig): Promise<{ started: boolean; reason?: string }> {
   if (session.running && session.running.child.exitCode === null) {
@@ -71,16 +102,7 @@ export async function startCheck(project: ResolvedConfig): Promise<{ started: bo
   // finding issues and writing them down. It narrates to the event log as it
   // goes, and the page is already tailing that.
   const cli = fileURLToPath(new URL("../cli.js", import.meta.url));
-  // --first: one run, stopping at the first issue. The loop this button serves
-  // is find one, fix one, verify it, so judging on for another eight minutes to
-  // hand back twenty-six more answers a question nobody has asked yet.
-  const args = [cli, "check", "--quiet", "--first"];
-  // The toggle beside the button, spent one run at a time. It is passed only
-  // for the project it was given for, so a page pointed somewhere new starts
-  // from no again: what this authorizes is clicking the application's own
-  // controls, destructive ones included, and that is a promise about one
-  // repository rather than a preference the page carries around.
-  if (navigationConsented(session.settings, project.projectDir)) args.push("--navigation");
+  const args = checkArgs(cli, session.settings, project.projectDir);
   const child = spawn(process.execPath, args, checkSpawnOptions(project.projectDir));
   let stderr = "";
   child.stderr?.on("data", (chunk: Buffer) => {

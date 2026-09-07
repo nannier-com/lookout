@@ -5,7 +5,7 @@
  * probe is what makes the panel worth opening: a wrong port shows up before a
  * run is spent on it rather than after.
  */
-import { el, esc, repaint } from "./dom.js";
+import { el, esc, paint, repaint } from "./dom.js";
 import { paintPlay, say } from "./shell.js";
 import { page, refresh } from "./state.js";
 import type { SettingsView } from "../project.js";
@@ -46,6 +46,7 @@ export function paintSettings(): void {
       '<div class="tgt"><span class="' + (d.up ? "up" : "down") + '">' + esc(d.line) + "</span></div>").join("");
   }
   paintNav();
+  paintJudges();
   paintPlay();
 }
 
@@ -116,7 +117,9 @@ async function applySettingsResponse(res: Response): Promise<void> {
   await refresh();
 }
 
-export async function saveConfigState(body: Record<string, string | boolean>): Promise<void> {
+export async function saveConfigState(
+  body: Record<string, string | boolean | Record<string, string>>,
+): Promise<void> {
   await applySettingsResponse(
     await fetch("/api/settings", {
       method: "POST",
@@ -149,4 +152,32 @@ export function toggleSettings(): void {
   panel.hidden = !open;
   el("cog").setAttribute("aria-expanded", String(open));
   if (open) loadConfigState();
+}
+
+/**
+ * Which model each judge rules with.
+ *
+ * Free text rather than a menu of names: the models a CLI accepts change under
+ * lookout, and a list baked into this page would be wrong within a release
+ * while still looking authoritative. The placeholder carries the default the
+ * SERVER reported, so the panel never states one of its own.
+ *
+ * The signature deliberately excludes what is typed in the box. A repaint runs
+ * whenever the run log moves, and one that redrew the row would delete a
+ * half-typed model name and look like the page fighting back.
+ */
+export function paintJudges(): void {
+  const judges = page.config.judges ?? [];
+  const sig = judges.map((j) => j.key + ":" + (j.model ?? "") + ":" + j.installed).join("|");
+  const html = judges.map((j) =>
+    '<div class="srow"><span>' + esc(j.label) + " model</span>"
+    + '<input type="text" data-model="' + esc(j.key) + '" spellcheck="false" autocomplete="off"'
+    + ' value="' + esc(j.model ?? "") + '"'
+    + ' placeholder="' + esc(j.defaultModel) + ' (lookout\'s default)"'
+    + ' aria-label="Model ' + esc(j.label) + ' judges with">'
+    + '<button type="button" class="mini" data-save-model="' + esc(j.key) + '">Save</button></div>'
+    + '<p class="shint">What rules on this project, and what the ledger files each verdict under. '
+    + (j.installed ? "" : esc(j.label) + " is not on PATH here, so nothing will run until it is. ")
+    + "Empty means " + esc(j.defaultModel) + ", which is what every run uses when nobody has chosen.</p>").join("");
+  paint("setJudges", sig, html);
 }

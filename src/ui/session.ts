@@ -15,7 +15,7 @@
 import type { ChildProcess } from "node:child_process";
 import { LookoutError, type ResolvedConfig } from "../types.js";
 import type { QueueItem } from "./queue.js";
-import type { UiSettings } from "./stored-settings.js";
+import { EMPTY_SETTINGS, type UiSettings } from "./stored-settings.js";
 
 /**
  * The project being served. Mutable, because the page can point lookout at a
@@ -136,7 +136,7 @@ export const session: {
   queueMtime: number;
 } = {
   launchDir: null,
-  settings: { baseUrl: null, navigationFor: null, projectDir: null },
+  settings: { ...EMPTY_SETTINGS },
   running: null,
   lastFailure: null,
   queue: [],

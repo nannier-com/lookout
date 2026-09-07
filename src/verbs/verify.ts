@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { evidenceDir } from "../config.js";
 import { loadReport } from "../capture/store.js";
 import { verifyCriteria } from "../judge/criteria.js";
+import { DEFAULT_JUDGE_MODEL } from "../judge/engine.js";
 import { loadSkill } from "../skills/load.js";
 import { LookoutError } from "../types.js";
 import { nowIso, printJson, str, type Parsed } from "../util.js";
@@ -38,7 +39,7 @@ export async function verify(parsed: Parsed): Promise<number> {
   const shots = report.shots.filter((s) => s.runId === latestRun.id);
 
   const evDir = evidenceDir(resolved);
-  const model = str(parsed.flags.model) ?? "sonnet";
+  const model = str(parsed.flags.model) ?? DEFAULT_JUDGE_MODEL;
   const skill = await loadSkill(resolved, "verify-acceptance");
   const result = await verifyCriteria(
     skill.text,

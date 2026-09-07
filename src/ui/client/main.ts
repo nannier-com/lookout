@@ -179,6 +179,17 @@ document.addEventListener("click", (e) => {
     void saveConfigState({ baseUrl: (el("setUrl") as HTMLInputElement).value });
     return;
   }
+  // One judge's model. Read off the box beside the button rather than by id,
+  // because how many of these rows there are is lookout's answer, not the
+  // page's, and ids for rows that may not exist is how a panel grows dead
+  // markup.
+  const saveModel = hit(e, "[data-save-model]");
+  if (saveModel?.dataset.saveModel) {
+    const key = saveModel.dataset.saveModel;
+    const box = document.querySelector('[data-model="' + CSS.escape(key) + '"]') as HTMLInputElement | null;
+    if (box) void saveConfigState({ judgeModels: { [key]: box.value } });
+    return;
+  }
   const go = hit(e, "[data-queue]");
   if (go?.dataset.queue) { void enqueue(go.dataset.queue, go as HTMLButtonElement); return; }
   // Both the queue's own X and a card whose button is already pressed.

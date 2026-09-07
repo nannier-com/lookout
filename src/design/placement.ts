@@ -18,7 +18,7 @@
  * is an oracle, and an oracle that edits the code it advises on is just another
  * agent with an opinion.
  */
-import { invokeClaude, extractJson } from "../judge/engine.js";
+import { DEFAULT_JUDGE_MODEL, invokeClaude, extractJson } from "../judge/engine.js";
 import { existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { loadSkill, renderSkill } from "../skills/load.js";
@@ -95,7 +95,7 @@ export async function placeDefect(
   resolved: ResolvedConfig,
   cluster: FixCluster,
   inv: DesignInventory,
-  model = "sonnet",
+  model = DEFAULT_JUDGE_MODEL,
 ): Promise<{ placement: Placement | null; costUsd: number }> {
   if (inv.kits.length === 0) return { placement: null, costUsd: 0 };
 

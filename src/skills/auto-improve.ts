@@ -26,6 +26,7 @@ import { lockHeld, nowIso } from "../util.js";
 import { emit } from "../report/events.js";
 import type { Parsed } from "../util.js";
 import type { ResolvedConfig } from "../types.js";
+import { DEFAULT_JUDGE_MODEL } from "../judge/engine.js";
 
 export const DEFAULT_THRESHOLD = 3;
 export const DEFAULT_COOLDOWN_HOURS = 24;
@@ -80,7 +81,7 @@ export async function maybeAutoImprove(
   parsed: Parsed,
   log: (line: string) => void,
 ): Promise<AutoImproveResult> {
-  const model = typeof parsed.flags.model === "string" ? parsed.flags.model : "sonnet";
+  const model = typeof parsed.flags.model === "string" ? parsed.flags.model : DEFAULT_JUDGE_MODEL;
   try {
     const learn = resolved.config.learn ?? {};
     const signals = await gatherSignals(resolved);

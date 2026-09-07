@@ -45,6 +45,27 @@ export interface JudgeInvocation {
 }
 
 /**
+ * The model lookout judges with when nobody has said otherwise.
+ *
+ * One name because the page now offers to change it, and a panel that reports
+ * a default the verbs do not share would be reporting a guess. Every path that
+ * takes a `--model` flag falls back to this, so the answer the settings panel
+ * shows is the answer the next run uses.
+ */
+export const DEFAULT_JUDGE_MODEL = "sonnet";
+
+/**
+ * The AIs lookout can judge with, by the key the page knows each tool as.
+ *
+ * A list rather than "every tool the picker offers", because handing an issue
+ * to a coding tool and asking one to rule on evidence are different powers:
+ * the second needs an adapter in this directory, and lookout has one. A tool
+ * with no adapter here is a fixer and not a judge, and the settings panel only
+ * offers a model for what it can actually ask.
+ */
+export const JUDGES: readonly string[] = ["claude-code"];
+
+/**
  * The claude binary: overridable for nonstandard install paths and for test
  * doubles. The judge otherwise assumes `claude` on PATH, logged in (run
  * `claude` interactively once; `lookout doctor --handshake` verifies).

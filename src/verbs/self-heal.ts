@@ -37,7 +37,7 @@ import {
   recordHeal,
   type ActiveGroup,
 } from "../skills/heal-select.js";
-import { extractJson, invokeClaude } from "../judge/engine.js";
+import { DEFAULT_JUDGE_MODEL, extractJson, invokeClaude } from "../judge/engine.js";
 import { LookoutError } from "../types.js";
 import { execFileAsync, lockHeld, LOCK_STALE_MS, nowIso, printJson, str, type Parsed } from "../util.js";
 
@@ -220,7 +220,7 @@ async function heal(parsed: Parsed, checkout: string): Promise<number> {
     return 0;
   }
 
-  const model = str(parsed.flags.model) ?? "sonnet";
+  const model = str(parsed.flags.model) ?? DEFAULT_JUDGE_MODEL;
   const stamp = nowIso().replace(/[:.]/g, "-");
   const before = await git(checkout, ["rev-parse", "HEAD"]);
 

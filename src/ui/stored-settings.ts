@@ -57,9 +57,58 @@ export interface UiSettings {
    * and then asks that directory where it was last told to look.
    */
   projectDir: string | null;
+  /**
+   * Which model each AI judges this project with, keyed by its tool key.
+   *
+   * Per project rather than per browser, unlike the tool selector, because it
+   * is not a preference about the reader: the ledger caches a verdict against
+   * the model that gave it, so judging this project with a different model is a
+   * different body of evidence about this repository. An absent key means
+   * lookout's own default, which the settings panel reports rather than
+   * guessing at.
+   */
+  judgeModels: Record<string, string>;
 }
 
-export const EMPTY_SETTINGS: UiSettings = { baseUrl: null, navigationFor: null, projectDir: null };
+export const EMPTY_SETTINGS: UiSettings = {
+  baseUrl: null,
+  navigationFor: null,
+  projectDir: null,
+  judgeModels: {},
+};
+
+/**
+ * A model name that can be handed to a CLI as an argument.
+ *
+ * The value reaches a spawn as the word after `--model`, so the one thing it
+ * must not be able to do is arrive as a flag of its own: a leading dash would
+ * let a stored setting turn into an option nobody typed. Everything real is
+ * letters, digits and the three separators the vendors' names use, which is
+ * narrow enough to say no to the rest without a list of models that goes stale.
+ */
+export function validModel(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 80) return null;
+  return /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(trimmed) ? trimmed : null;
+}
+
+/**
+ * The stored models, keeping only what could still be passed to a CLI.
+ *
+ * A file somebody edited by hand is the normal case here, not the exceptional
+ * one: `.lookout/ui.json` is plain JSON sitting in their repository. One bad
+ * entry costs that entry rather than the whole panel.
+ */
+function models(raw: unknown): Record<string, string> {
+  if (typeof raw !== "object" || raw === null) return {};
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof value !== "string") continue;
+    const clean = validModel(value);
+    if (clean) out[key] = clean;
+  }
+  return out;
+}
 
 export function settingsPath(projectDir: string): string {
   return join(projectDir, LOOKOUT_DIR, "ui.json");
@@ -76,6 +125,7 @@ export async function loadSettings(projectDir: string): Promise<UiSettings> {
         typeof raw.navigationFor === "string" && raw.navigationFor.trim() ? raw.navigationFor.trim() : null,
       projectDir:
         typeof raw.projectDir === "string" && raw.projectDir.trim() ? raw.projectDir.trim() : null,
+      judgeModels: models(raw.judgeModels),
     };
   } catch {
     // Unreadable settings are not worth failing to start over; the page will

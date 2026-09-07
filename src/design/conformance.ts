@@ -54,6 +54,7 @@ import type {
   ConformanceResult,
 } from "./conformance-types.js";
 import type { ResolvedConfig } from "../types.js";
+import { DEFAULT_JUDGE_MODEL } from "../judge/engine.js";
 
 /** Files handed to one model call. Small enough that each one is actually read. */
 const FILES_PER_BATCH = 8;
@@ -118,7 +119,7 @@ export async function readConformance(
   if (candidates.length === 0) return empty;
 
   const skill = await loadSkill(resolved, "kit-conformance");
-  const model = opts.model ?? "sonnet";
+  const model = opts.model ?? DEFAULT_JUDGE_MODEL;
   const result: ConformanceResult = { ...empty, considered: candidates.length };
   const byPath = new Map(candidates.map((c) => [c.path, c]));
 

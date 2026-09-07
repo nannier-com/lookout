@@ -22,6 +22,8 @@ import { locateOrCreateConfig } from "../config-write.js";
 import { preflight, resolveTargets } from "../targets.js";
 import { deviceLines, preflightDevices } from "../capture/native-preflight.js";
 import { detectProjectKind } from "../project-kind.js";
+import { DEFAULT_JUDGE_MODEL, JUDGES } from "../judge/engine.js";
+import { toolsAvailable } from "../report/handoff.js";
 import { execFileAsync } from "../util.js";
 import { currentProjectOrNull, session, setCurrentProject } from "./session.js";
 import { forgetNarration } from "./narration.js";
@@ -45,6 +47,14 @@ export interface SettingsView {
    */
   navigation: boolean;
   targets: { name: string; url: string; routes: number; up: boolean; status: number | null }[];
+  /**
+   * The AIs lookout can judge this project with, and which model each uses.
+   *
+   * `model` is what has been chosen, or null for lookout's own default, which
+   * travels beside it so the page can say what the default IS rather than
+   * printing a name of its own that could drift from the verbs.
+   */
+  judges: { key: string; label: string; model: string | null; defaultModel: string; installed: boolean }[];
   /**
    * The device fold, one line per booted device or per gap, in the words
    * `lookout targets` prints. Empty for a project judged in the web fold only.
@@ -165,6 +175,27 @@ export async function applyBaseUrl(): Promise<void> {
  * Probing here is what makes the panel worth opening: a wrong port is visible
  * before a run is spent on it, rather than after.
  */
+/**
+ * One row per AI lookout can ask to judge, with what it would use today.
+ *
+ * The installed flag is the same probe the tool picker runs, because the
+ * answer to "why did that run not judge" is usually that the binary is not
+ * there, and a model chosen for a CLI nobody has is worth saying out loud.
+ */
+async function judgeViews(): Promise<SettingsView["judges"]> {
+  const tools = await toolsAvailable();
+  return JUDGES.map((key) => {
+    const tool = tools.find((t) => t.key === key);
+    return {
+      key,
+      label: tool?.label ?? key,
+      model: session.settings.judgeModels[key] ?? null,
+      defaultModel: DEFAULT_JUDGE_MODEL,
+      installed: tool?.installed ?? false,
+    };
+  });
+}
+
 export async function settingsView(): Promise<SettingsView> {
   const project = currentProjectOrNull();
   const configured = project?.configPath !== null && project?.configPath !== undefined;
@@ -201,6 +232,7 @@ export async function settingsView(): Promise<SettingsView> {
     configured,
     targets,
     devices,
+    judges: await judgeViews(),
     error,
   };
 }

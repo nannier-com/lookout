@@ -28,6 +28,7 @@ import {
 } from "../skills/regression.js";
 import { LookoutError } from "../types.js";
 import { nowIso, printJson, str, type Parsed } from "../util.js";
+import { DEFAULT_JUDGE_MODEL } from "../judge/engine.js";
 
 // The names other modules have always imported from the verb.
 export { SKILL_NAMES, historyPath, improveLockPath } from "../skills/history.js";
@@ -40,7 +41,7 @@ export async function skills(parsed: Parsed): Promise<number> {
     url: str(parsed.flags.url),
     baseUrl: str(parsed.flags["base-url"]),
   });
-  const model = str(parsed.flags.model) ?? "sonnet";
+  const model = str(parsed.flags.model) ?? DEFAULT_JUDGE_MODEL;
 
   if (sub === "list") {
     const list = await Promise.all(SKILL_NAMES.map((n) => loadSkill(resolved, n)));

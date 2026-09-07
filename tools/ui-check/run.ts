@@ -259,6 +259,38 @@ async function drive(): Promise<number> {
     "play says the run will click things",
     ((await page.locator("#findfix").getAttribute("title")) ?? "").includes("Calls to action are ON"),
   );
+  // The judge's model, which is the other thing in this panel that a run
+  // actually spends. The failure worth catching is the panel and the server
+  // disagreeing: a box showing a model the next run will not use files its
+  // verdicts in the ledger under a name nobody chose.
+  const modelBox = page.locator('[data-model="claude-code"]');
+  check("a model row is offered for the judge", await modelBox.isVisible());
+  check(
+    "and it starts on lookout's own default",
+    ((await modelBox.getAttribute("placeholder")) ?? "").includes("default"),
+    (await modelBox.getAttribute("placeholder")) ?? "",
+  );
+  await modelBox.fill("fable");
+  await page.locator('[data-save-model="claude-code"]').click();
+  await page.waitForTimeout(900);
+  const saved = await page.request.get(URL + "api/settings");
+  const judges = ((await saved.json()) as { judges?: { key: string; model: string | null }[] }).judges ?? [];
+  check(
+    "the server took the model the box was saved with",
+    judges.find((j) => j.key === "claude-code")?.model === "fable",
+    JSON.stringify(judges),
+  );
+  await modelBox.fill("");
+  await page.locator('[data-save-model="claude-code"]').click();
+  await page.waitForTimeout(900);
+  const cleared = await page.request.get(URL + "api/settings");
+  const back = ((await cleared.json()) as { judges?: { key: string; model: string | null }[] }).judges ?? [];
+  check(
+    "and an empty box puts it back to the default",
+    back.find((j) => j.key === "claude-code")?.model === null,
+    JSON.stringify(back),
+  );
+
   const consent = await page.request.get(URL + "api/settings");
   check(
     "the server agrees it is on",

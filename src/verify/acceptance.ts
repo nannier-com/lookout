@@ -23,6 +23,7 @@ import {
   type JudgedCriterion,
 } from "../issues/rule-acceptance.js";
 import { MAX_VERIFY_SHOTS, verifyCriteria } from "../judge/criteria.js";
+import { DEFAULT_JUDGE_MODEL } from "../judge/engine.js";
 import { loadSkill } from "../skills/load.js";
 import { emit } from "../report/events.js";
 import { recordIncident } from "../skills/incidents.js";
@@ -143,7 +144,7 @@ export async function ruleIssueAcceptance(args: {
         asCriteriaText(judgeable),
         shotsForCriteria,
         evidenceDir(resolved),
-        str(parsed.flags.model) ?? "sonnet",
+        str(parsed.flags.model) ?? DEFAULT_JUDGE_MODEL,
       );
       judged = matchJudged(judgeable, result.criteria);
       acceptanceCost = result.costUsd ?? 0;

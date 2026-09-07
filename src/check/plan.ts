@@ -12,7 +12,7 @@
  * as gone when only its partner had changed, which is exactly the false "fixed"
  * an automatic fix loop must never see.
  */
-import { groupShots, type PriorFinding } from "../judge/engine.js";
+import { DEFAULT_JUDGE_MODEL, groupShots, type PriorFinding } from "../judge/engine.js";
 import { loadJudges, type PanelRubric } from "../judge/rubric.js";
 import { loadSkill, type Skill } from "../skills/load.js";
 import {
@@ -101,7 +101,7 @@ export async function planJudging(
   // 3. Skills + cache partition. Every AI pass is loaded once per run: a
   // skill amended mid-run would judge two batches by two different rules.
   const refute = await loadSkill(resolved, "refute-finding");
-  const model = str(parsed.flags.model) ?? "sonnet";
+  const model = str(parsed.flags.model) ?? DEFAULT_JUDGE_MODEL;
   const ledger = await loadLedger(resolved);
   const allPanels: PanelRubric[] = judges ?? (await loadJudges(resolved));
   // --panels narrows which panels JUDGE; every applicable panel still serves

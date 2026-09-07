@@ -17,6 +17,7 @@ import { evidenceDir } from "../config.js";
 import { issuesDir } from "../issues/paths.js";
 import { toolsAvailable } from "../report/handoff.js";
 import { DEFAULT_MAX_ATTEMPTS } from "../fix/rule.js";
+import { JUDGES } from "../judge/engine.js";
 import { json, readJson, sameOrigin, text } from "./http.js";
 import { serveClient } from "./assets.js";
 import { serveIssueDoc } from "./document.js";
@@ -30,7 +31,7 @@ import { queuedTools, saveQueue } from "./queue.js";
 import { applyBaseUrl, pickFolder, settingsView, switchProject } from "./project.js";
 import { startCheck, startRuling, stopCheck } from "./run.js";
 import { currentProject, session } from "./session.js";
-import { saveSettings, validBaseUrl } from "./stored-settings.js";
+import { saveSettings, validBaseUrl, validModel } from "./stored-settings.js";
 import { servePage } from "./page.js";
 
 export async function handle(req: Request, server: Server<undefined>): Promise<Response | undefined> {
@@ -87,6 +88,21 @@ export async function handle(req: Request, server: Server<undefined>): Promise<R
       // directory it was given for, which is the project this server serves.
       if (typeof body.navigation === "boolean") {
         session.settings.navigationFor = body.navigation ? resolved.projectDir : null;
+      }
+      // Which model each judge rules with. An empty string is how the page
+      // clears one, which is not the same as leaving it alone: cleared means
+      // "use lookout's default", and the panel says what that is.
+      if (typeof body.judgeModels === "object" && body.judgeModels !== null) {
+        for (const [key, value] of Object.entries(body.judgeModels as Record<string, unknown>)) {
+          if (!JUDGES.includes(key) || typeof value !== "string") continue;
+          if (!value.trim()) {
+            delete session.settings.judgeModels[key];
+            continue;
+          }
+          const clean = validModel(value);
+          if (!clean) return json(400, { error: `not a model name: ${value.trim().slice(0, 40)}` });
+          session.settings.judgeModels[key] = clean;
+        }
       }
       // A server that has no config has nowhere to keep settings and no
       // targets to apply them to: say so rather than writing a `.lookout/`

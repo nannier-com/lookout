@@ -58,6 +58,7 @@ export const page: {
     configPath: null,
     project: null,
     targets: [],
+    judges: [],
     devices: [],
     error: null,
   },

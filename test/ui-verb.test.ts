@@ -16,7 +16,9 @@ import { join } from "node:path";
 import { projectToServe } from "../src/verbs/ui.js";
 import { handle } from "../src/ui/routes.js";
 import { session, setCurrentProject } from "../src/ui/session.js";
-import { settingsPath } from "../src/ui/stored-settings.js";
+import { settingsView } from "../src/ui/project.js";
+import { DEFAULT_JUDGE_MODEL, JUDGES } from "../src/judge/engine.js";
+import { EMPTY_SETTINGS, settingsPath } from "../src/ui/stored-settings.js";
 import { tmpProject } from "./tmp-project.js";
 import type { ResolvedConfig } from "../src/types.js";
 
@@ -81,11 +83,69 @@ describe("the project lookout ui serves", () => {
   });
 });
 
+describe("the model a judge rules with", () => {
+  async function post(body: unknown): Promise<Response | undefined> {
+    return handle(
+      new Request("http://127.0.0.1/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+      null as never,
+    );
+  }
+
+  test("is stored per project, and cleared back to the default by an empty box", async () => {
+    const r = tmpProject("lookout-uimodel-");
+    setCurrentProject(r);
+    session.settings = { ...EMPTY_SETTINGS };
+
+    expect((await post({ judgeModels: { "claude-code": "fable" } }))?.status).toBe(200);
+    expect(JSON.parse(readFileSync(settingsPath(r.projectDir), "utf8")).judgeModels)
+      .toEqual({ "claude-code": "fable" });
+
+    expect((await post({ judgeModels: { "claude-code": "" } }))?.status).toBe(200);
+    expect(JSON.parse(readFileSync(settingsPath(r.projectDir), "utf8")).judgeModels).toEqual({});
+  });
+
+  // The value becomes the word after `--model` in a spawn. A leading dash would
+  // let a stored setting arrive as an option nobody typed, which is the one
+  // thing this field must not be able to do.
+  test("refuses anything that could arrive as a flag of its own", async () => {
+    const r = tmpProject("lookout-uimodel-");
+    setCurrentProject(r);
+    session.settings = { ...EMPTY_SETTINGS };
+    const res = await post({ judgeModels: { "claude-code": "--dangerously-skip-permissions" } });
+    expect(res?.status).toBe(400);
+    expect(session.settings.judgeModels).toEqual({});
+  });
+
+  test("ignores a key that is not a judge lookout has", async () => {
+    const r = tmpProject("lookout-uimodel-");
+    setCurrentProject(r);
+    session.settings = { ...EMPTY_SETTINGS };
+    expect((await post({ judgeModels: { nonesuch: "fable" } }))?.status).toBe(200);
+    expect(session.settings.judgeModels).toEqual({});
+  });
+
+  test("the panel reports each judge with the default it would otherwise use", async () => {
+    const r = tmpProject("lookout-uimodel-");
+    setCurrentProject(r);
+    session.settings = { ...EMPTY_SETTINGS };
+    const view = await settingsView();
+    expect(view.judges.map((j) => j.key)).toEqual([...JUDGES]);
+    for (const judge of view.judges) {
+      expect(judge.model).toBeNull();
+      expect(judge.defaultModel).toBe(DEFAULT_JUDGE_MODEL);
+    }
+  });
+});
+
 describe("what the settings route will write", () => {
   test("into the project it is serving", async () => {
     const r = tmpProject("lookout-uiset-route-");
     setCurrentProject(r);
-    session.settings = { baseUrl: null, navigationFor: null, projectDir: null };
+    session.settings = { ...EMPTY_SETTINGS };
     const res = await handle(
       new Request("http://127.0.0.1/api/settings", {
         method: "POST",
@@ -127,7 +187,7 @@ describe("pointing the page at another project", () => {
   function launchedIn(launch: ResolvedConfig): void {
     setCurrentProject(launch);
     session.launchDir = launch.projectDir;
-    session.settings = { baseUrl: null, navigationFor: null, projectDir: null };
+    session.settings = { ...EMPTY_SETTINGS };
     session.queue = [];
   }
 

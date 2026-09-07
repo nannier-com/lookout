@@ -12,7 +12,7 @@
  */
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { extractJson, invokeClaude } from "../judge/engine.js";
+import { DEFAULT_JUDGE_MODEL, extractJson, invokeClaude } from "../judge/engine.js";
 import { loadSkill, renderSkill } from "../skills/load.js";
 import { evidenceDir } from "../config.js";
 import { nowIso } from "../util.js";
@@ -228,7 +228,7 @@ export async function planRoute(args: {
   // The plan is written into the workspace below, and a capture may not have
   // happened in this project yet.
   await mkdir(evDir, { recursive: true });
-  const res = await invokeClaude({ prompt, model: args.model ?? "sonnet" });
+  const res = await invokeClaude({ prompt, model: args.model ?? DEFAULT_JUDGE_MODEL });
   const cost = res.costUsd ?? 0;
   let raw: unknown;
   try {
