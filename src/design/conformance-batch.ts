@@ -147,7 +147,7 @@ export async function readBatch(ctx: BatchContext, batch: Candidate[]): Promise<
       // not acceptable for the visual judge.
       cwd: ctx.resolved.projectDir,
       model: ctx.model,
-      allowedTools: ["Read", "Grep", "Glob"],
+      capabilities: ["read-files", "search-files"],
     });
   } catch (e) {
     // A batch failing is not the sweep failing. The files it covered are

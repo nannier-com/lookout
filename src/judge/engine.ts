@@ -382,7 +382,9 @@ export async function judgeBatch(
 // The subprocess contract and the grouping rules live beside this file; they
 // are re-exported because this is the module every caller has always asked for
 // them from.
-export { claudeBin, DEFAULT_JUDGE_MODEL, extractJson, invokeClaude, JUDGES, type JudgeInvocation } from "./claude.js";
+export { claudeBin, DEFAULT_JUDGE_MODEL, extractJson, invokeClaude, type JudgeInvocation } from "./claude.js";
+// Who may judge is the registry's answer now, not one adapter's.
+export { ADAPTERS, adapterFor, invokeAi, isJudge, JUDGES } from "./adapters.js";
 export { type JudgeSay } from "./stream.js";
 export { batchShots, groupShots, viewGroupId } from "./grouping.js";
 export { ingestJudgeReply, type ContractLapse, type PanelLane } from "./reply.js";

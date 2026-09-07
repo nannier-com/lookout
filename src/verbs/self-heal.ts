@@ -38,11 +38,17 @@ import {
   type ActiveGroup,
 } from "../skills/heal-select.js";
 import { DEFAULT_JUDGE_MODEL, extractJson, invokeClaude } from "../judge/engine.js";
+import type { Capability } from "../judge/ai-types.js";
 import { LookoutError } from "../types.js";
 import { execFileAsync, lockHeld, LOCK_STALE_MS, nowIso, printJson, str, type Parsed } from "../util.js";
 
-/** What the healer may do: read and edit its own source, and nothing else. */
-const ALLOWED_TOOLS = ["Read", "Edit", "Write", "Glob", "Grep"];
+/**
+ * What the healer may do: read, search and edit its own source, and nothing
+ * else. Capabilities rather than one CLI's tool names, because which words
+ * spell them is the adapter's business; a shell is withheld either way, since
+ * lookout runs the gates itself rather than trusting the reply.
+ */
+const CAPABILITIES: Capability[] = ["read-files", "search-files", "edit-files"];
 
 /** Long enough for a cold type check and a full suite on a busy machine. */
 const GATE_TIMEOUT_MS = 10 * 60_000;
@@ -239,7 +245,7 @@ async function heal(parsed: Parsed, checkout: string): Promise<number> {
     prompt,
     cwd: checkout,
     model,
-    allowedTools: ALLOWED_TOOLS,
+    capabilities: CAPABILITIES,
     timeoutMs: GATE_TIMEOUT_MS,
   });
 

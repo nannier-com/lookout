@@ -15,34 +15,12 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ReplyStream, type JudgeSay, type ResultLine } from "./stream.js";
+import { ReplyStream, type ResultLine } from "./stream.js";
+import { probeCli, type CliFacts } from "./cli-probe.js";
+import type { AiAdapter, Capability, JudgeInvocation, JudgeReply } from "./ai-types.js";
 import { LookoutError } from "../types.js";
 
-export interface JudgeInvocation {
-  prompt: string;
-  /**
-   * Where the subprocess runs. Defaults to a scratch directory outside every
-   * project (`judgeCwd`), which is what every judging path wants; `self-heal`
-   * is the one caller that names its own, because it is editing that checkout.
-   */
-  cwd?: string;
-  model: string;
-  timeoutMs?: number;
-  /**
-   * What the subprocess may do. Read-only by default, which is what every
-   * judging path wants: an oracle that can edit is not an oracle. `self-heal`
-   * is the one caller that widens it, and it still withholds Bash, because
-   * lookout runs the gates itself rather than trusting the reply.
-   */
-  allowedTools?: string[];
-  /**
-   * Called as the model works, if the caller wants to watch.
-   *
-   * Supplying one also asks the CLI for its reply token by token rather than
-   * turn by turn, which is only worth the traffic when somebody is reading it.
-   */
-  onSay?: (say: JudgeSay) => void;
-}
+export type { JudgeInvocation };
 
 /**
  * The model lookout judges with when nobody has said otherwise.
@@ -54,16 +32,26 @@ export interface JudgeInvocation {
  */
 export const DEFAULT_JUDGE_MODEL = "sonnet";
 
+
 /**
- * The AIs lookout can judge with, by the key the page knows each tool as.
+ * What this CLI calls the things lookout asks for.
  *
- * A list rather than "every tool the picker offers", because handing an issue
- * to a coding tool and asking one to rule on evidence are different powers:
- * the second needs an adapter in this directory, and lookout has one. A tool
- * with no adapter here is a fixer and not a judge, and the settings panel only
- * offers a model for what it can actually ask.
+ * The mapping lives here rather than at the call sites because "let it read the
+ * files I name" is a request every judging path makes and only this file should
+ * know that Claude Code spells it `Read`. The name is load-bearing beyond the
+ * flag: the stream reader watches for tool calls by this name to build the list
+ * of files the model actually opened.
  */
-export const JUDGES: readonly string[] = ["claude-code"];
+const TOOLS: Record<Capability, string[]> = {
+  "read-files": ["Read"],
+  "search-files": ["Grep", "Glob"],
+  "edit-files": ["Edit", "Write"],
+};
+
+/** The tool names for a set of capabilities, deduplicated and ordered. */
+export function claudeTools(caps: readonly Capability[]): string[] {
+  return [...new Set(caps.flatMap((c) => TOOLS[c]))];
+}
 
 /**
  * The claude binary: overridable for nonstandard install paths and for test
@@ -122,7 +110,7 @@ export function invokeClaude(inv: JudgeInvocation): Promise<{ text: string; cost
     // magnitude and buy nothing for a caller that just wants the verdict.
     ...(inv.onSay ? ["--include-partial-messages"] : []),
     "--allowedTools",
-    (inv.allowedTools ?? ["Read"]).join(","),
+    claudeTools(inv.capabilities ?? ["read-files"]).join(","),
     "--model",
     inv.model,
   ];
@@ -242,3 +230,23 @@ export function extractJson(text: string): unknown {
  * here is fact about the evidence.
  */
 /** A defect already open against one of the views being judged. */
+
+/**
+ * Claude Code as one AI among others.
+ *
+ * `reportsReads` is true because the stream envelope names every tool call, so
+ * lookout can tell a shot that was called clean after being opened from one
+ * that was called clean without being looked at.
+ */
+export const claudeAdapter: AiAdapter = {
+  key: "claude-code",
+  label: "Claude Code",
+  defaultModel: DEFAULT_JUDGE_MODEL,
+  reportsReads: true,
+  bin: async () => claudeBin(),
+  probe: (): Promise<CliFacts> => probeCli(claudeBin()),
+  invoke: async (inv: JudgeInvocation): Promise<JudgeReply> => {
+    const r = await invokeClaude(inv);
+    return { text: r.text, reads: r.reads, ...(r.costUsd === undefined ? {} : { spend: { usd: r.costUsd } }) };
+  },
+};

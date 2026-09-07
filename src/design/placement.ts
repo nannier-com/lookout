@@ -118,7 +118,7 @@ export async function placeDefect(
     // for the judge.
     cwd: resolved.projectDir,
     model,
-    allowedTools: ["Read", "Grep", "Glob"],
+    capabilities: ["read-files", "search-files"],
   });
 
   // A reply that is not the contract is a miss, not a crash: placement is
