@@ -1,5 +1,11 @@
 # @nannier-com/lookout
 
+## 0.54.2
+
+### Patch Changes
+
+- 5716833: Prevent distinct routes from sharing screenshot paths, finding fingerprints, and accessibility issue keys. Existing unambiguous evidence migrates automatically, while legacy pixels from colliding routes are discarded for recapture.
+
 ## 0.54.1
 
 ### Patch Changes
