@@ -60,6 +60,16 @@ describe("what the installed CLI offers", () => {
     expect(facts.version).toBe("9.9.9");
   });
 
+  test("the version is found wherever the CLI puts its own name", async () => {
+    // One CLI prints `2.1.263 (Claude Code)` and another `codex-cli 0.153.4`.
+    // Taking the leading token answers the second with its whole line.
+    expect((await probeCli(fakeInstall({ version: "9.9.9 (Some Tool)" }))).version).toBe("9.9.9");
+    expect((await probeCli(fakeInstall({ version: "some-cli 0.153.4" }))).version).toBe("0.153.4");
+    // A CLI that versions itself in some way lookout did not anticipate is
+    // quoted rather than dropped: what it said beats nothing.
+    expect((await probeCli(fakeInstall({ version: "build alpha" }))).version).toBe("build alpha");
+  });
+
   test("a newer CLI moves the menu without lookout being changed", async () => {
     const facts = await probeCli(
       fakeInstall({ typings: TYPINGS.replace('"fable"', '"fable" | "something-new-7"'), help: HELP }),

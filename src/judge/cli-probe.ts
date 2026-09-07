@@ -50,15 +50,22 @@ const CLIMB = 4;
 /**
  * The version, from the CLI's own `--version`.
  *
- * Only the leading token is kept: the CLI prints its version followed by its
- * name in parentheses, and the panel is labelling a version rather than
- * repeating the product name it already sits under.
+ * The number is picked out of the line rather than taken from the front of it,
+ * because where a CLI puts its own name is its business: one prints
+ * `2.1.263 (Claude Code)` and another `codex-cli 0.153.4`, and a parser that
+ * took the leading token would answer the second with its whole line. The
+ * panel prints this under a label that already names the tool, so repeating
+ * the product name there would say it twice.
+ *
+ * A line with no dotted number in it is handed back whole. That is a CLI
+ * versioning itself in a way lookout did not anticipate, and showing what it
+ * actually said beats showing nothing.
  */
 export async function cliVersion(bin: string): Promise<string | null> {
   try {
     const { stdout } = await execFileAsync(bin, ["--version"]);
-    const first = stdout.trim().split(/\s+/)[0];
-    return first && /^[0-9]/.test(first) ? first : (stdout.trim() || null);
+    const line = stdout.trim();
+    return /\d+(?:\.\d+)+/.exec(line)?.[0] ?? (line || null);
   } catch {
     // Not installed, not on PATH, or not answering. The panel says so already
     // through `installed`; there is no version to add to that.
