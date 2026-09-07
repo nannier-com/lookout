@@ -18,9 +18,9 @@
 import { chromium, type Page } from "playwright";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
-import { mkdirSync, readdirSync, existsSync, rmSync } from "node:fs";
+import { mkdirSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { buildFixture, LIVE_INSPECTOR_ISSUE } from "./fixture.js";
+import { buildFixture } from "./fixture.js";
 import { changeSaid, diffPng, writeDiffCrop } from "../../src/verify/pixels.js";
 
 const ROOT = join(import.meta.dir, "..", "..");
@@ -209,20 +209,6 @@ async function stopServer(child: ChildProcess): Promise<void> {
   if (!(await waitForExit(child, 5_000))) throw new Error("lookout ui did not exit after SIGKILL");
 }
 
-/**
- * The fixture's intentional issue must keep no durable folder so its card uses
- * the live evidence strip, which is the only place the provenance inspector is
- * offered. UI startup materializes missing issue records, so put this deliberate
- * legacy state back after startup and before a browser reads the board.
- */
-function restoreLiveInspectorFixture(): void {
-  const { project } = fixturePaths();
-  rmSync(join(project, ".lookout", "issues", LIVE_INSPECTOR_ISSUE), {
-    recursive: true,
-    force: true,
-  });
-}
-
 /** The noninteractive CI gate: fixture, real server, screenshots, and behavior. */
 async function ci(): Promise<number> {
   if (process.env.UI_CHECK_PORT == null) {
@@ -233,7 +219,6 @@ async function ci(): Promise<number> {
   const child = startServer();
   try {
     await waitForServer(child);
-    restoreLiveInspectorFixture();
     return (await shots("ci")) + (await drive());
   } finally {
     await stopServer(child);
@@ -837,7 +822,6 @@ if (command === "fixture") {
   const child = startServer();
   process.on("SIGINT", () => child.kill("SIGINT"));
   await waitForServer(child);
-  restoreLiveInspectorFixture();
   await waitUntilExit(child);
 } else if (command === "shots") {
   process.exit((await shots(a ?? "shots")) === 0 ? 0 : 1);

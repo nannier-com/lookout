@@ -20,7 +20,7 @@ import { evidenceDir } from "../../src/config.js";
 import { attemptsDir } from "../../src/checkout.js";
 import { composeAcceptance, type AcceptanceCriterion } from "../../src/issues/acceptance.js";
 import { renderIssueDocument } from "../../src/issues/document.js";
-import { issuesOf } from "../../src/issues/registry.js";
+import { issuesOf, reconcileIssues } from "../../src/issues/registry.js";
 import type { Backlog, BacklogFinding } from "../../src/backlog/lib.js";
 import type { ResolvedConfig } from "../../src/types.js";
 
@@ -36,7 +36,6 @@ const AT = "2026-08-28T14:02:11.000Z";
  */
 const OPEN_ISSUE = "418203";
 const INTENTIONAL_ISSUE = "552140";
-export const LIVE_INSPECTOR_ISSUE = INTENTIONAL_ISSUE;
 const SETTLED_ISSUE = "731094";
 // Two deterministic findings on one route, which lookout clusters into a single
 // route-scoped issue. They carry the two shapes a problem text comes in: one
@@ -329,6 +328,7 @@ export async function buildFixture(root: string): Promise<{ project: string; che
   const backlog = {
         project: "fixture-app",
         generatedAt: AT,
+        routeIdentity: 2 as const,
         findings: {
           [stillOpen.fingerprint as string]: stillOpen,
           // Filed by a check, not a judge, on the same screenshot the open
@@ -491,6 +491,7 @@ export async function buildFixture(root: string): Promise<{ project: string; che
           },
         },
   } as unknown as Backlog;
+  reconcileIssues(backlog, AT);
   writeFileSync(join(lk, "backlog.json"), JSON.stringify(backlog, null, 2));
 
   // A queue with something in every state a row can be in: the head handed off
