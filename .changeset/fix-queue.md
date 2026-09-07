@@ -1,5 +1,5 @@
 ---
-"lookout": minor
+"@nannier-com/lookout": minor
 ---
 
 A fix queue in the page: pressing play on an issue queues it, and lookout hands

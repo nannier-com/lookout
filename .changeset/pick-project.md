@@ -1,5 +1,5 @@
 ---
-"lookout": minor
+"@nannier-com/lookout": minor
 ---
 
 Minor justification (new public capability): the settings panel points lookout

@@ -1,5 +1,5 @@
 ---
-"lookout": patch
+"@nannier-com/lookout": patch
 ---
 
 A card's pre/post pairs each say which route and state they picture.

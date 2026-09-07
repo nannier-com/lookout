@@ -1,5 +1,5 @@
 ---
-"lookout": patch
+"@nannier-com/lookout": patch
 ---
 
 An incident's `project` is only trusted when it is an absolute path.

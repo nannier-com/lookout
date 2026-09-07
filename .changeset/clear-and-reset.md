@@ -1,5 +1,5 @@
 ---
-"lookout": minor
+"@nannier-com/lookout": minor
 ---
 
 Two clear buttons in the page: one empties the judge's transcript, one deletes

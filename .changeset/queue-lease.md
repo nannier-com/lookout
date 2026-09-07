@@ -1,5 +1,5 @@
 ---
-"lookout": patch
+"@nannier-com/lookout": patch
 ---
 
 The queue holds until the agent it launched has gone, not until lookout has
