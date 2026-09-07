@@ -36,6 +36,7 @@ const AT = "2026-08-28T14:02:11.000Z";
  */
 const OPEN_ISSUE = "418203";
 const INTENTIONAL_ISSUE = "552140";
+export const LIVE_INSPECTOR_ISSUE = INTENTIONAL_ISSUE;
 const SETTLED_ISSUE = "731094";
 // Two deterministic findings on one route, which lookout clusters into a single
 // route-scoped issue. They carry the two shapes a problem text comes in: one

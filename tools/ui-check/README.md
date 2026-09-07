@@ -5,7 +5,7 @@ nothing about what a browser draws, and this repo has now found three real bugs
 that every other gate passed over: a filter bar that could not be hidden, and
 two optional fields dereferenced after being guarded on a copy.
 
-It is four commands, meant to be run in this order around a change:
+The manual commands run in this order around a change:
 
 ```bash
 bun tools/ui-check/run.ts fixture              # a throwaway project with issues, history and incidents
@@ -16,6 +16,16 @@ bun tools/ui-check/run.ts shots after
 bun tools/ui-check/run.ts diff before after    # pixel comparison, per view
 bun tools/ui-check/run.ts drive                # every interaction check
 ```
+
+CI runs the complete gate without a second terminal:
+
+```bash
+bun run test:ui                                # fixture + server + shots + drive + cleanup
+```
+
+`ci` exits nonzero for screenshot page/console errors or a failed interaction,
+and always stops the server it started. Chromium must already be installed;
+the shared validation action installs it before this command.
 
 Everything lands under `.lookout-ui-check/` in the repo root, which is ignored.
 

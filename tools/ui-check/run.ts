@@ -7,24 +7,26 @@
  * no `[hidden]` rule that could not be hidden, and two optional fields
  * dereferenced after being guarded on a copy.
  *
- * Four commands, meant to bracket a change: `fixture` builds a throwaway
+ * The manual commands bracket a change: `fixture` builds a throwaway
  * project with something in every part of the page, `serve` points the ui at
  * it, `shots` captures a fixed set of views, `diff` compares two captures pixel
  * by pixel, and `drive` clicks through the page and asserts what should happen.
  *
- * See README.md beside this file for the order to run them in.
+ * `ci` owns that whole lifecycle for automation. See README.md beside this
+ * file for the manual order.
  */
 import { chromium, type Page } from "playwright";
-import { spawn } from "node:child_process";
-import { mkdirSync, readdirSync, existsSync } from "node:fs";
+import { spawn, type ChildProcess } from "node:child_process";
+import { createServer } from "node:net";
+import { mkdirSync, readdirSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { buildFixture } from "./fixture.js";
+import { buildFixture, LIVE_INSPECTOR_ISSUE } from "./fixture.js";
 import { changeSaid, diffPng, writeDiffCrop } from "../../src/verify/pixels.js";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const WORK = join(ROOT, ".lookout-ui-check");
-const PORT = Number(process.env.UI_CHECK_PORT ?? 7399);
-const URL = `http://127.0.0.1:${PORT}/`;
+let port = Number(process.env.UI_CHECK_PORT ?? 7399);
+let url = `http://127.0.0.1:${port}/`;
 
 function fixturePaths(): { project: string; checkout: string } {
   return {
@@ -45,72 +47,197 @@ async function view(
   problems: string[],
 ): Promise<void> {
   const ctx = await browser.newContext({ colorScheme: scheme, viewport: { width, height } });
-  const page = await ctx.newPage();
-  page.on("pageerror", (e) => problems.push(`${name}: ${String(e)}`));
-  page.on("console", (m) => {
-    if (m.type() === "error") problems.push(`${name}: console ${m.text()}`);
-  });
-  await page.goto(URL, { waitUntil: "networkidle" });
-  await page.waitForTimeout(600);
-  await act(page);
-  // Settle: a filter tile smooth-scrolls and flashes for over a second, and a
-  // focus ring on whatever was clicked differs between runs rather than between
-  // revisions. Both are noise this gate must not report.
-  await page.waitForTimeout(1600);
-  await page.evaluate(() => {
-    (document.activeElement as HTMLElement | null)?.blur();
-    window.scrollTo(0, 0);
-  });
-  await page.waitForTimeout(400);
-  // A card mid-verify pulses its pill and blinks a cursor on its feed. Those
-  // are infinite animations, and two captures of one would differ by whatever
-  // frame each happened to land on. Playwright parks them at a fixed state.
-  await page.screenshot({ path: join(out, `${name}.png`), fullPage: true, animations: "disabled" });
-  await ctx.close();
+  try {
+    const page = await ctx.newPage();
+    page.on("pageerror", (e) => problems.push(`${name}: ${String(e)}`));
+    page.on("console", (m) => {
+      if (m.type() === "error") problems.push(`${name}: console ${m.text()}`);
+    });
+    await page.goto(url, { waitUntil: "networkidle" });
+    await page.waitForTimeout(600);
+    await act(page);
+    // Settle: a filter tile smooth-scrolls and flashes for over a second, and a
+    // focus ring on whatever was clicked differs between runs rather than between
+    // revisions. Both are noise this gate must not report.
+    await page.waitForTimeout(1600);
+    await page.evaluate(() => {
+      (document.activeElement as HTMLElement | null)?.blur();
+      window.scrollTo(0, 0);
+    });
+    await page.waitForTimeout(400);
+    // A card mid-verify pulses its pill and blinks a cursor on its feed. Those
+    // are infinite animations, and two captures of one would differ by whatever
+    // frame each happened to land on. Playwright parks them at a fixed state.
+    await page.screenshot({ path: join(out, `${name}.png`), fullPage: true, animations: "disabled" });
+  } finally {
+    await ctx.close();
+  }
 }
 
-async function shots(label: string): Promise<void> {
+async function shots(label: string): Promise<number> {
   const out = join(WORK, "shots", label);
   mkdirSync(out, { recursive: true });
   const browser = await chromium.launch();
   const problems: string[] = [];
-  const nothing = async (): Promise<void> => {};
-  await view(browser, out, "board-dark", "dark", 1440, 950, nothing, problems);
-  await view(browser, out, "board-light", "light", 1440, 950, nothing, problems);
-  await view(browser, out, "board-narrow", "light", 430, 900, nothing, problems);
-  await view(browser, out, "board-filtered", "dark", 1440, 950, (p) => p.click('button.stat[data-value="archived"]'), problems);
-  // The settled issue, which is the only card carrying both halves of a pre and
-  // post fix pair. It is filtered off the default board, so without this view
-  // the comparison the page exists to show is never captured.
-  await view(browser, out, "board-done", "dark", 1440, 950, (p) => p.click('button.stat[data-value="done"]'), problems);
-  await view(browser, out, "settings-open", "dark", 1440, 950, (p) => p.click("#cog"), problems);
-  // The same panel where it has the least room. It floats beside the rail
-  // rather than filling a header row, so how wide it is and whether it still
-  // fits above its own button are questions only a narrow capture answers.
-  await view(browser, out, "settings-narrow", "light", 430, 900, (p) => p.click("#cog"), problems);
-  // The judge's column folded away. A state the page can be left in, so it is a
-  // state the gate has to have a picture of: the strip at the edge and the
-  // board's new width are both things only a capture shows.
-  await view(browser, out, "judge-shut", "dark", 1440, 950, (p) => p.click("#streamFold"), problems);
-  await view(browser, out, "learning-dark", "dark", 1440, 950, (p) => p.click('[data-view="learning"]'), problems);
-  await view(browser, out, "learning-light", "light", 1440, 950, (p) => p.click('[data-view="learning"]'), problems);
-  await view(browser, out, "learning-narrow", "dark", 430, 900, (p) => p.click('[data-view="learning"]'), problems);
-  // The shot inspector over the one fixture shot that carries a sidecar: the
-  // archived card's live tile (cards with frozen frames show the frames,
-  // which are copies and never advertise). Deterministic because the hint is
-  // painted on open and a box is clicked rather than hovered.
-  const openTile = async (p: Page): Promise<void> => {
-    await p.click('button.stat[data-value="archived"]');
-    await p.click("a.tile[data-prov]");
-    await p.waitForTimeout(400);
-    await p.click('.svbox[aria-label*="Heading.tsx"]');
-  };
-  await view(browser, out, "shot-overlay-dark", "dark", 1440, 950, openTile, problems);
-  await view(browser, out, "shot-overlay-light", "light", 1440, 950, openTile, problems);
-  await view(browser, out, "shot-overlay-narrow", "dark", 430, 900, openTile, problems);
-  await browser.close();
+  try {
+    const nothing = async (): Promise<void> => {};
+    await view(browser, out, "board-dark", "dark", 1440, 950, nothing, problems);
+    await view(browser, out, "board-light", "light", 1440, 950, nothing, problems);
+    await view(browser, out, "board-narrow", "light", 430, 900, nothing, problems);
+    await view(browser, out, "board-filtered", "dark", 1440, 950, (p) => p.click('button.stat[data-value="archived"]'), problems);
+    // The settled issue, which is the only card carrying both halves of a pre and
+    // post fix pair. It is filtered off the default board, so without this view
+    // the comparison the page exists to show is never captured.
+    await view(browser, out, "board-done", "dark", 1440, 950, (p) => p.click('button.stat[data-value="done"]'), problems);
+    await view(browser, out, "settings-open", "dark", 1440, 950, (p) => p.click("#cog"), problems);
+    // The same panel where it has the least room. It floats beside the rail
+    // rather than filling a header row, so how wide it is and whether it still
+    // fits above its own button are questions only a narrow capture answers.
+    await view(browser, out, "settings-narrow", "light", 430, 900, (p) => p.click("#cog"), problems);
+    // The judge's column folded away. A state the page can be left in, so it is a
+    // state the gate has to have a picture of: the strip at the edge and the
+    // board's new width are both things only a capture shows.
+    await view(browser, out, "judge-shut", "dark", 1440, 950, (p) => p.click("#streamFold"), problems);
+    await view(browser, out, "learning-dark", "dark", 1440, 950, (p) => p.click('[data-view="learning"]'), problems);
+    await view(browser, out, "learning-light", "light", 1440, 950, (p) => p.click('[data-view="learning"]'), problems);
+    await view(browser, out, "learning-narrow", "dark", 430, 900, (p) => p.click('[data-view="learning"]'), problems);
+    // The shot inspector over the one fixture shot that carries a sidecar: the
+    // archived card's live tile (cards with frozen frames show the frames,
+    // which are copies and never advertise). Deterministic because the hint is
+    // painted on open and a box is clicked rather than hovered.
+    const openTile = async (p: Page): Promise<void> => {
+      await p.click('button.stat[data-value="archived"]');
+      await p.click("a.tile[data-prov]");
+      await p.waitForTimeout(400);
+      await p.click('.svbox[aria-label*="Heading.tsx"]');
+    };
+    await view(browser, out, "shot-overlay-dark", "dark", 1440, 950, openTile, problems);
+    await view(browser, out, "shot-overlay-light", "light", 1440, 950, openTile, problems);
+    await view(browser, out, "shot-overlay-narrow", "dark", 430, 900, openTile, problems);
+  } finally {
+    await browser.close();
+  }
   console.log(`${label}: ${readdirSync(out).filter((n) => n.endsWith(".png")).length} views in ${out}`);
   console.log(problems.length ? `PROBLEMS:\n${problems.join("\n")}` : "no page or console errors");
+  return problems.length;
+}
+
+/** Wait until the real UI server answers before opening Chromium. */
+async function waitForServer(child: ChildProcess): Promise<void> {
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    if (terminated(child)) throw new Error(`lookout ui terminated ${child.exitCode ?? child.signalCode} before it became ready`);
+    try {
+      const response = await fetch(url);
+      if (response.ok) return;
+    } catch {
+      // The socket is not listening yet. Try again until the bounded deadline.
+    }
+    await Bun.sleep(100);
+  }
+  throw new Error(`lookout ui did not answer ${url} within 15 seconds`);
+}
+
+function terminated(child: ChildProcess): boolean {
+  return child.exitCode !== null || child.signalCode !== null;
+}
+
+async function waitForExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
+  if (terminated(child)) return true;
+  return await new Promise<boolean>((resolve) => {
+    let settled = false;
+    const done = (exited: boolean): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.off("exit", onExit);
+      resolve(exited);
+    };
+    const onExit = (): void => done(true);
+    const timer = setTimeout(() => done(false), timeoutMs);
+    child.once("exit", onExit);
+    if (terminated(child)) done(true);
+  });
+}
+
+async function waitUntilExit(child: ChildProcess): Promise<void> {
+  if (terminated(child)) return;
+  await new Promise<void>((resolve) => {
+    const onExit = (): void => {
+      child.off("exit", onExit);
+      resolve();
+    };
+    child.once("exit", onExit);
+    if (terminated(child)) onExit();
+  });
+}
+
+/** Start the same source or installed CLI that a person runs. */
+function startServer(): ChildProcess {
+  const { project, checkout } = fixturePaths();
+  const cli = process.env.UI_CHECK_CLI ?? join(ROOT, "src", "cli.ts");
+  return spawn(process.execPath, [cli, "ui", "--port", String(port)], {
+    cwd: project,
+    env: { ...process.env, LOOKOUT_CHECKOUT: checkout, LOOKOUT_NO_HANDOFF: "1" },
+    stdio: "inherit",
+  });
+}
+
+async function freePort(): Promise<number> {
+  return await new Promise<number>((resolve, reject) => {
+    const server = createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        server.close();
+        reject(new Error("could not allocate a loopback port"));
+        return;
+      }
+      server.close((error) => error ? reject(error) : resolve(address.port));
+    });
+  });
+}
+
+async function stopServer(child: ChildProcess): Promise<void> {
+  if (terminated(child)) return;
+  child.kill("SIGINT");
+  if (await waitForExit(child, 5_000)) return;
+  child.kill("SIGTERM");
+  if (await waitForExit(child, 5_000)) return;
+  child.kill("SIGKILL");
+  if (!(await waitForExit(child, 5_000))) throw new Error("lookout ui did not exit after SIGKILL");
+}
+
+/**
+ * The fixture's intentional issue must keep no durable folder so its card uses
+ * the live evidence strip, which is the only place the provenance inspector is
+ * offered. UI startup materializes missing issue records, so put this deliberate
+ * legacy state back after startup and before a browser reads the board.
+ */
+function restoreLiveInspectorFixture(): void {
+  const { project } = fixturePaths();
+  rmSync(join(project, ".lookout", "issues", LIVE_INSPECTOR_ISSUE), {
+    recursive: true,
+    force: true,
+  });
+}
+
+/** The noninteractive CI gate: fixture, real server, screenshots, and behavior. */
+async function ci(): Promise<number> {
+  if (process.env.UI_CHECK_PORT == null) {
+    port = await freePort();
+    url = `http://127.0.0.1:${port}/`;
+  }
+  await buildFixture(join(WORK, "fixture"));
+  const child = startServer();
+  try {
+    await waitForServer(child);
+    restoreLiveInspectorFixture();
+    return (await shots("ci")) + (await drive());
+  } finally {
+    await stopServer(child);
+  }
 }
 
 /**
@@ -155,16 +282,13 @@ async function diff(a: string, b: string): Promise<number> {
 }
 
 /** Click through the page and assert what each control is supposed to do. */
-async function drive(): Promise<number> {
-  const browser = await chromium.launch();
-  const ctx = await browser.newContext({ colorScheme: "dark", viewport: { width: 1440, height: 950 } });
-  const page = await ctx.newPage();
+async function drivePage(page: Page): Promise<number> {
   const problems: string[] = [];
   page.on("pageerror", (e) => problems.push(`pageerror: ${String(e)}`));
   page.on("console", (m) => {
     if (m.type() === "error") problems.push(`console: ${m.text()}`);
   });
-  await page.goto(URL, { waitUntil: "networkidle" });
+  await page.goto(url, { waitUntil: "networkidle" });
   await page.waitForTimeout(900);
 
   let failed = 0;
@@ -185,7 +309,7 @@ async function drive(): Promise<number> {
   const links = await docs.count();
   check("every card links its document", links === before.length, `${links} links for ${before.length} cards`);
   const href = links > 0 ? await docs.first().getAttribute("href") : null;
-  const doc = href ? await page.request.get(URL + href.replace(/^\//, "")) : null;
+  const doc = href ? await page.request.get(url + href.replace(/^\//, "")) : null;
   check("the document link resolves", doc?.status() === 200, `${href} -> ${doc?.status() ?? "not requested"}`);
   const text = doc ? await doc.text() : "";
   check("what comes back is that issue's document", text.includes(`issue:      ${before[0]}`), text.slice(0, 40));
@@ -270,7 +394,7 @@ async function drive(): Promise<number> {
   const modelMenu = page.locator('[data-model-menu="claude-code"]');
   const modelBox = page.locator('[data-model="claude-code"]');
   const judgeModel = async (): Promise<string | null | undefined> => {
-    const res = await page.request.get(URL + "api/settings");
+    const res = await page.request.get(url + "api/settings");
     const judges = ((await res.json()) as { judges?: { key: string; model: string | null }[] }).judges ?? [];
     return judges.find((j) => j.key === "claude-code")?.model;
   };
@@ -286,7 +410,10 @@ async function drive(): Promise<number> {
   const names = await modelMenu.locator("option").allTextContents();
   check("the menu carries names the installed CLI offered", names.length > 2, names.join(","));
   check("and it starts on lookout's own default", (await modelMenu.inputValue()) === "", names.join(","));
-  check("the version of the CLI those names came from is under the menu", await page.locator(".sver").isVisible());
+  check(
+    "the version of the CLI those names came from is under the menu",
+    await page.locator(".sver").filter({ hasText: "Claude Code" }).isVisible(),
+  );
   // A name from the menu: the failure worth catching is the panel and the
   // server disagreeing, because a menu showing a model the next run will not
   // use files its verdicts in the ledger under a name nobody chose.
@@ -316,7 +443,7 @@ async function drive(): Promise<number> {
   await save();
   check("and choosing lookout's default puts it back", (await judgeModel()) === null);
 
-  const consent = await page.request.get(URL + "api/settings");
+  const consent = await page.request.get(url + "api/settings");
   check(
     "the server agrees it is on",
     ((await consent.json()) as { navigation?: boolean }).navigation === true,
@@ -334,7 +461,7 @@ async function drive(): Promise<number> {
   check("clicking it again withdraws it", (await nav.getAttribute("aria-pressed")) === "false");
   check(
     "and the server agrees it is off",
-    ((await (await page.request.get(URL + "api/settings")).json()) as { navigation?: boolean })
+    ((await (await page.request.get(url + "api/settings")).json()) as { navigation?: boolean })
       .navigation === false,
   );
   // The way out of the panel. The cog is the only control that opens it, so
@@ -403,14 +530,14 @@ async function drive(): Promise<number> {
   }
   if (clearTile) {
     await openPanel("the shot tile");
-    const tabsBefore = ctx.pages().length;
+    const tabsBefore = page.context().pages().length;
     await clearTile.click();
     await page.waitForTimeout(1000);
     check("a shot tile counts as outside too", !(await page.locator("#settings").isVisible()));
     check(
       "and does not open its picture on the way",
-      ctx.pages().length === tabsBefore,
-      `${tabsBefore} tabs then ${ctx.pages().length}`,
+      page.context().pages().length === tabsBefore,
+      `${tabsBefore} tabs then ${page.context().pages().length}`,
     );
     check("nor the inspector", !(await page.locator("#shotview").isVisible()));
   } else {
@@ -677,8 +804,22 @@ async function drive(): Promise<number> {
   check("and it still names that project", (await page.locator("#setProject").inputValue()) === served);
 
   console.log(problems.length ? `\nPROBLEMS:\n${problems.join("\n")}` : "\nno page or console errors");
-  await browser.close();
   return failed + problems.length;
+}
+
+/** Own the Playwright resources independently of every interaction assertion. */
+async function drive(): Promise<number> {
+  const browser = await chromium.launch();
+  try {
+    const ctx = await browser.newContext({ colorScheme: "dark", viewport: { width: 1440, height: 950 } });
+    try {
+      return await drivePage(await ctx.newPage());
+    } finally {
+      await ctx.close();
+    }
+  } finally {
+    await browser.close();
+  }
 }
 
 const [command, a, b] = process.argv.slice(2);
@@ -687,24 +828,19 @@ if (command === "fixture") {
   const paths = await buildFixture(join(WORK, "fixture"));
   console.log(`fixture built:\n  project  ${paths.project}\n  checkout ${paths.checkout}`);
 } else if (command === "serve") {
-  const { project, checkout } = fixturePaths();
+  const { project } = fixturePaths();
   if (!existsSync(project)) {
     console.error("no fixture yet: run `bun tools/ui-check/run.ts fixture` first");
     process.exit(2);
   }
   // Inherit stdio so the ui's own startup lines are visible; this blocks.
-  const child = spawn(process.execPath, [join(ROOT, "src", "cli.ts"), "ui", "--port", String(PORT)], {
-    cwd: project,
-    // The gate drives a real server against the fixture, and the fixture has a
-    // queue in it. Without this the pump would hand its head over for real and
-    // open a Terminal window on whoever ran the gate.
-    env: { ...process.env, LOOKOUT_CHECKOUT: checkout, LOOKOUT_NO_HANDOFF: "1" },
-    stdio: "inherit",
-  });
+  const child = startServer();
   process.on("SIGINT", () => child.kill("SIGINT"));
-  await new Promise((done) => child.on("exit", done));
+  await waitForServer(child);
+  restoreLiveInspectorFixture();
+  await waitUntilExit(child);
 } else if (command === "shots") {
-  await shots(a ?? "shots");
+  process.exit((await shots(a ?? "shots")) === 0 ? 0 : 1);
 } else if (command === "diff") {
   if (!a || !b) {
     console.error("diff needs two labels, e.g. `diff before after`");
@@ -713,7 +849,9 @@ if (command === "fixture") {
   process.exit((await diff(a, b)) === 0 ? 0 : 1);
 } else if (command === "drive") {
   process.exit((await drive()) === 0 ? 0 : 1);
+} else if (command === "ci") {
+  process.exit((await ci()) === 0 ? 0 : 1);
 } else {
-  console.log("usage: bun tools/ui-check/run.ts <fixture|serve|shots <label>|diff <a> <b>|drive>");
+  console.log("usage: bun tools/ui-check/run.ts <fixture|serve|shots <label>|diff <a> <b>|drive|ci>");
   process.exit(2);
 }

@@ -16,7 +16,15 @@ const patch = '---\n"release-fixture": patch\n---\n\nFix a defect.\n';
 describe("the release gates", () => {
   test("CI and Release share the complete gate, after preparation and before any push or publish", () => {
     expect(validation.using).toBe("composite");
-    expect(validation.steps.map((s) => s.run)).toEqual(["bun run typecheck", "bun run lint", "bun test", "bun run build"]);
+    expect(validation.steps.map((s) => s.run)).toEqual([
+      "bun run typecheck",
+      "bun run lint",
+      "bun test",
+      "bun run build",
+      "bunx playwright install --with-deps chromium",
+      "bun run test:ui",
+      "bun run test:package",
+    ]);
     const shared = "./.github/actions/validate";
     expect(ci.jobs.check!.steps.some((s) => s.uses === shared)).toBe(true);
     expect(step("validate").uses).toBe(shared);
@@ -36,7 +44,7 @@ describe("the release gates", () => {
     for (const s of steps.slice(steps.indexOf(step("validate")))) expect(s.run ?? "").not.toMatch(/git (rebase|merge|checkout|reset)/);
   });
 
-  for (const fail of ["typecheck", "lint", "test", "build"]) {
+  for (const fail of ["typecheck", "lint", "test", "build", "chromium", "ui", "package"]) {
     test(`a failing ${fail} gate neither pushes the version commit nor reaches publishing`, () => {
       const f = fixture(patch);
       const original = f.git(["rev-parse", "origin/main"]);
@@ -78,7 +86,13 @@ describe("the release gates", () => {
     const result = f.gateAndPush();
     expect(result.status, result.stdout + result.stderr).toBe(0);
     expect(readFileSync(f.env.GATE_LOG!, "utf8").trim().split("\n")).toEqual([
-      "typecheck:0.1.0", "lint:0.1.0", "test:0.1.0", "build:0.1.0",
+      "typecheck:0.1.0",
+      "lint:0.1.0",
+      "test:0.1.0",
+      "build:0.1.0",
+      "chromium:0.1.0",
+      "ui:0.1.0",
+      "package:0.1.0",
     ]);
     expect(existsSync(f.env.PUBLISHED_MARKER!)).toBe(true);
   });

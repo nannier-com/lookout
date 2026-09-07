@@ -47,6 +47,8 @@
     "lint": "eslint .",
     "build": "rm -rf dist && tsc -p tsconfig.build.json && cp src/ui/client/*.css src/ui/client/*.html dist/ui/client/ && chmod +x dist/cli.js",
     "test": "bun test",
+    "test:ui": "bun tools/ui-check/run.ts ci",
+    "test:package": "bun tools/package/smoke.ts",
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "changeset publish",

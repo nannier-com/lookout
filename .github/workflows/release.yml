@@ -20,7 +20,7 @@ jobs:
   npm:
     if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.npm) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     permissions:
       contents: write
     steps:

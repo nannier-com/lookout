@@ -59,6 +59,7 @@ export class ReleaseFixture {
       scripts: {
         changeset: cli, "version-packages": `${cli} version`,
         typecheck: "node gate.cjs typecheck", lint: "node gate.cjs lint", build: "node gate.cjs build",
+        "test:ui": "node gate.cjs ui", "test:package": "node gate.cjs package",
       },
     }, null, 2) + "\n");
     writeFileSync(join(this.repo, ".gitignore"), "node_modules/\n");
@@ -114,7 +115,7 @@ test("release fixture", () => {
     // Bash stops at the first failing gate just as the default Actions steps
     // do. This final marker represents reaching the publish boundary only.
     return this.shell([
-      ...validation.steps.map((s) => s.run),
+      ...validation.steps.map((s) => s.name === "Install Chromium" ? "node gate.cjs chromium" : s.run),
       step("push").run,
       'printf reached > "$PUBLISHED_MARKER"',
     ].join("\n"), { RELEASE_SHA: this.outputs().sha, FAIL_GATE: fail });

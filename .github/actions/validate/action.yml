@@ -15,3 +15,12 @@ runs:
     - name: Build
       shell: bash
       run: bun run build
+    - name: Install Chromium
+      shell: bash
+      run: bunx playwright install --with-deps chromium
+    - name: Browser UI gate
+      shell: bash
+      run: bun run test:ui
+    - name: Packed package smoke
+      shell: bash
+      run: bun run test:package
