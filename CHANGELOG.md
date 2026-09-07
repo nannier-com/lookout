@@ -1,5 +1,11 @@
 # @nannier-com/lookout
 
+## 0.54.3
+
+### Patch Changes
+
+- 5155614: Serialize persistent state changes across Lookout processes and replace fixed temporary files with durable atomic writes.
+
 ## 0.54.2
 
 ### Patch Changes
