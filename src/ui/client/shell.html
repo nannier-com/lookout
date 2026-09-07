@@ -73,6 +73,17 @@
       <button type="button" class="mini" id="navToggle" aria-pressed="false">Turn on</button>
     </div>
     <p class="shint" id="setNavHint"></p>
+    <!-- The one destructive control on the page, kept off the always-visible
+         chrome on purpose: a wipe one click from the run button is a wipe
+         somebody eventually presses by accident. -->
+    <div class="srow danger">
+      <span>Danger</span>
+      <span class="val">Delete everything lookout found here</span>
+      <button type="button" class="mini warn" id="resetProject">Delete</button>
+    </div>
+    <p class="shint">The backlog, every issue folder with its before and after
+      screenshots, the capture workspace and the queue. None of it is in git.
+      Your settings are kept, so lookout stays pointed at this project.</p>
   </div>
 </header>
 <main>
@@ -121,6 +132,11 @@
     <i class="sdot" aria-hidden="true"></i>
     <h2>Judge</h2>
     <span class="who" id="streamWho"></span>
+    <button type="button" class="sclear" id="streamClear"
+      aria-label="Clear the judge's transcript" title="Clear the judge's transcript">
+      <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none"
+        stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 7h16M9 7V5h6v2M7 7l1 12h8l1-12"/></svg></button>
   </div>
   <div class="streamlog" id="streamLog" role="log" aria-live="polite"></div>
   <div class="queuetop">

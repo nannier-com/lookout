@@ -22,6 +22,7 @@ import { connected, listen } from "./stream.js";
 import { addNarration } from "./transcript.js";
 import { archive, chooseTool, enqueue, loadTools, ruleNow, unqueue } from "./tools.js";
 import { onRefresh, page, type Filter } from "./state.js";
+import { clearJudge, resetProject } from "./clear.js";
 import { closeConfirm, confirmBackdrop, confirmOpen } from "./confirm.js";
 import { closeShot, openShot, shotBackdrop, shotOpen } from "./shot-view.js";
 import type { NarrationFrame } from "../narration.js";
@@ -169,6 +170,8 @@ document.addEventListener("click", (e) => {
   }
   if (hit(e, "#cog")) { toggleSettings(); return; }
   if (hit(e, "#streamFold")) { toggleJudge(); return; }
+  if (hit(e, "#streamClear")) { void clearJudge(); return; }
+  if (hit(e, "#resetProject")) { void resetProject(); return; }
   // The picker is the server's to open: a browser cannot hand back a real
   // filesystem path.
   if (hit(e, "#pickProject")) { void pickProject(); return; }

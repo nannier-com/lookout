@@ -181,6 +181,18 @@ font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}
 background:var(--panel);color:var(--ink);font-size:11px;cursor:pointer;flex:0 0 auto}
 .mini:hover{border-color:var(--dim)}
 .shint{margin:0 0 0 106px;font-size:11px;color:var(--faint);max-width:70ch}
+/* The destructive row, last in the panel and ruled off from the settings above
+   it: everything before it changes where lookout looks, and this one throws
+   away what it found. The rule is what stops the two reading as one list. */
+.srow.danger{margin-top:4px;padding-top:12px;border-top:1px solid var(--line)}
+.srow.danger>span:first-child{color:var(--crit)}
+/* Outlined in the critical colour rather than filled with it: the button that
+   is actually destructive is the one in the prompt this opens, and a filled red
+   button here would make the panel look like the point of no return when it is
+   only the way to the question. */
+.mini.warn{color:var(--crit);border-color:var(--crit)}
+.mini.warn:hover{background:var(--crit);color:var(--panel);border-color:var(--crit)}
+.mini.warn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .targets{margin-left:106px;display:flex;flex-direction:column;gap:3px}
 .tgt{font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dim)}
 .tgt b{font-weight:600;color:var(--ink)}

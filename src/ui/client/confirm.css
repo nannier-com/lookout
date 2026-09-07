@@ -16,7 +16,12 @@
 .cfcard{width:min(420px,100%);background:var(--panel);color:var(--ink);
   border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);
   padding:18px 18px 14px}
-#cfTitle{margin:0 0 8px;font-size:15px;font-weight:600}
+/* The page's h2 is a section heading: small, uppercase, letter-spaced and
+   faint. A question is none of those, so the parts of that rule that would
+   shrink and mute it are undone here rather than the title being some other
+   element that happens to look right. */
+#cfTitle{margin:0 0 8px;font-size:15px;font-weight:600;text-transform:none;
+  letter-spacing:normal;color:var(--ink)}
 /* The cost, in the dim ink the hints under the settings rows use: it is the
    part that has to be read, not the part that has to shout. */
 #cfBody{margin:0 0 16px;font-size:13px;line-height:1.5;color:var(--dim);
