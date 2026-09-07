@@ -1,5 +1,172 @@
 # @nannier-com/lookout
 
+## 0.49.0
+
+### Minor Changes
+
+- db8916d: Two clear buttons in the page: one empties the judge's transcript, one deletes
+  everything lookout found here.
+
+  The page had no way to throw anything away. A finished run's transcript stayed
+  in the judge's column with only a fold button to hide it, and nothing anywhere
+  reset a project: no verb, no route. Starting clean meant deleting `.lookout/` by
+  hand, which does not work, and the way it fails is the reason both of these are
+  server-side rather than a wipe of the page.
+
+  What the page shows is assembled from three stores. The files under the
+  project's `.lookout/`; the server's caches over them, the status body and the
+  narration cursor, neither of which re-reads a file it has already answered from;
+  and the server's own memory, which for the queue is not a cache at all, since
+  `session.queue` is the authority and `queue.json` is only its sidecar. Deleting
+  the directory reaches one of the three, which is why a page whose record was
+  removed by hand goes on reporting the shot count and duration of a run whose
+  files are gone.
+
+  So the reset reaches all three. It deletes the record entry by entry rather than
+  removing the directory, which keeps `ui.json` with no window where the settings
+  exist only in this process: wiping the record and being asked to choose the
+  folder again are two acts, and only one of them is this. It is refused with a
+  409 while a run is in flight, matching stop, since deleting the workspace
+  underneath a capture would race the writer.
+
+  Clearing the transcript truncates the narration file rather than unlinking it,
+  because a run in flight holds that path and goes on appending, and it resets the
+  cursor, without which every open page would keep showing what was cleared.
+
+  Both ask first, through one prompt that names what it costs rather than asking
+  whether you are sure: the issue folders and their frozen before and after
+  screenshots are not in git, and no undo reaches them. Focus lands on Cancel, and
+  Escape and the scrim both answer no. The transcript's clear sits at the end of
+  the judge's header; the wipe sits in the settings panel, ruled off below the
+  rows that only change where lookout looks.
+
+  New routes `/api/narration/clear` and `/api/reset`, both POST, both pushed to
+  every open tab.
+
+- fa736a4: A fix queue in the page: pressing play on an issue queues it, and lookout hands
+  one over at a time.
+
+  The play button on a card opened a Terminal there and then, so pressing it on
+  five cards opened five sessions into one working tree. It now writes the issue
+  into a queue kept at `<project>/.lookout/queue.json`, and a pump hands over the
+  head, waits, and moves on.
+
+  What it waits for is lookout's own ruling. A handoff opens a Terminal this
+  server has no handle on, so "the fix finished" is not something it can observe;
+  "the defect is gone" is, because `verify-fix` writes it down. The head leaves
+  the queue when the board says done, archived or blocked, and the next is handed
+  over with nothing clicked. The handoff prompt now carries the `verify-fix`
+  command itself rather than leaving it near the end of `Issue.md`, and the head's
+  row says how long it has been waiting and offers to have lookout rule on it now,
+  for the case where whoever was fixing it stopped without asking.
+
+  The judge's column is split to show it: the transcript on top, the queue
+  beneath, each row with an X that takes it back out. New routes `/api/queue`,
+  `/api/queue/remove` and `/api/rule`; `/api/launch` is gone, replaced by the
+  first of those. Starting a check is refused while an issue is being fixed,
+  since a check would photograph a half-edited tree.
+
+- 83c53d4: Minor justification (new public capability): a seventh judge panel,
+  `judge-taste`, files the generic defaults a build fell into under the new
+  `taste` category, and `--panels judge-taste` runs it alone.
+
+  The rubric's third band said every choice of palette, typeface, radius, density
+  and voice was the project's and never a defect. That excused the one thing a
+  model is best placed to see: a screen assembled from defaults nobody chose. The
+  band now separates DECLARED choices (a `neverFile` line, a `design:` hand-off,
+  and from the next release a declared `direction`) from undeclared ones.
+  Declared stays settled and unfiled. Undeclared is judged by the new panel
+  against a short list of tells every design practice in the source material
+  agrees on: the violet-to-blue wash and the coloured glow, three equal feature
+  cards, a stock hero stack, a headline wrapped into a wall, a label numbering
+  nothing, "scroll to explore", copy made of clichés, an error state that
+  apologises instead of explaining. Each is filed only when it is visible in the
+  pixels, opens at low, and reaches medium only when several compound until the
+  whole view reads as a template. On a device shot the platform's own idiom (the
+  system typeface, capsule and pill controls, tab bars, large titles, tonal
+  surfaces) is declared by construction and never a tell.
+
+  Every other panel keeps judging consequences in its own lane: `judge-craft`'s
+  guard sentence now hands the choice itself to the taste lane instead of
+  excusing it, and `judge-text` files placeholder people, brands and round
+  figures left on a production surface as copy that was never written.
+
+  The refuter gains a third band for these claims and a section carrying the
+  project's `neverFile` lines, so a taste finding that re-litigates an excused
+  choice is struck rather than confirmed.
+
+  Costs one more panel call per view group: six on a plain group, seven with a
+  design hand-off. `judge-core` rises to 12, `judge-craft` and `judge-text` to
+  5, `refute-finding` to 6, so every standing verdict is re-judged once. No
+  category was renamed, so no backlog is orphaned.
+
+- 35bbf67: Minor justification (new public capability): the settings panel points lookout
+  at another project, and remembers it.
+
+  The `Project` row under the cog was a label. It is a control now: a native
+  folder chooser beside a box you can type or paste a path into. Choosing one
+  re-resolves everything scoped to a project — its config, its own base URL and
+  calls-to-action consent, its queue, the board and the judges' transcript — so
+  the page is looking at the new repository without being restarted in it.
+
+  The choice is remembered, which is what the picker this replaces could not do
+  without a machine-wide home. The pointer is written to the directory the server
+  was STARTED in (`<launch>/.lookout/ui.json`), never the one it points at: a
+  pointer still cannot live inside the thing it points to, and the launch
+  directory is the somewhere else it needed. A `lookout ui` started there again
+  comes back pointed where you left it, and one whose remembered project has since
+  moved says so and serves the launch directory rather than refusing to start.
+
+  A directory that is no project at all is still refused rather than littered, and
+  one that is a repository without a config gets one written, exactly as launching
+  the verb inside it would.
+
+### Patch Changes
+
+- 58d891c: An incident's `project` is only trusted when it is an absolute path.
+
+  `incidentLogDir` handed whatever it was given to `locateConfig`, which resolves
+  against the working directory and climbs to the nearest `lookout.config.*`. A
+  display name such as "p" — which is not a directory at all — therefore found the
+  config of whichever repository the process happened to be standing in and logged
+  there, bypassing the checkout `LOOKOUT_CHECKOUT` had pointed it at. Two of the
+  self-heal tests failed from this the moment `lookout ui` was run inside lookout's
+  own checkout, because that writes a `lookout.config.ts` at the repository root by
+  design. The field was always documented absolute; it is now enforced.
+
+- 6cbeeb8: A card's pre/post pairs each say which route and state they picture.
+
+  The caption under a pair was form factor and scheme alone, so an issue frozen
+  across six interaction states of one route on phone showed "phone · dark" four
+  times in a row and "phone · light" four times after it, which reads as the same
+  screenshot pasted over and over. The pairs were always distinct; the caption was
+  not. It now carries the route and the state, the same words the inspector's own
+  label already used for the same frame.
+
+- 9a26c21: The queue holds until the agent it launched has gone, not until lookout has
+  ruled.
+
+  Handing an issue over opens a Terminal this server has no handle on, so the
+  pump had one way to ask whether an agent was still working: the board. An
+  issue was busy while its attempt count stood still and free the moment a
+  ruling landed. That reading is wrong in the one direction that costs a working
+  tree, because a ruling is something an agent asks for in the MIDDLE of its
+  turn — it runs `verify-fix`, reads the answer, reports, keeps editing.
+
+  Both halves of "one at a time" failed on it. A still-open ruling spends an
+  attempt, which the pump read as the agent having given up, so it opened a
+  second window on the same issue while the first agent was still in the file;
+  the two then spent both of that issue's attempts racing each other. And a
+  settled ruling dropped the head and started the next issue immediately, onto a
+  checkout the last agent had not left. Observed on a project where four issue
+  windows were open at once, two of them editing one component.
+
+  The handoff script now takes a lease before it starts the tool and drops it
+  however the window ends, and the pump refuses to hand anything over while one
+  is held. Liveness is the process rather than the file, so a Terminal that was
+  force-quit before its trap could run does not park the queue forever: a lease
+  whose pid is gone is not a lease, and is cleared as it is read.
+
 ## 0.48.1
 
 ### Patch Changes
