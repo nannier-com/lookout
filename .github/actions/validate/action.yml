@@ -1,0 +1,17 @@
+name: Validate lookout
+description: The checks every CI build and prepared release must pass.
+runs:
+  using: composite
+  steps:
+    - name: Typecheck
+      shell: bash
+      run: bun run typecheck
+    - name: Lint
+      shell: bash
+      run: bun run lint
+    - name: Test
+      shell: bash
+      run: bun test
+    - name: Build
+      shell: bash
+      run: bun run build

@@ -1,7 +1,7 @@
 name: Release
 
-# npm publishes itself on every push to main: `changeset publish` is a no-op unless
-# a changeset bumped the version. A MAJOR bump never releases automatically.
+# Prepare from main, validate that commit, then push and publish it unchanged.
+# A newer push can supersede a queued run; every run checks what it will ship.
 on:
   push:
     branches: [main]
@@ -18,14 +18,15 @@ concurrency:
 
 jobs:
   npm:
-    if: ${{ github.event_name == 'push' || inputs.npm }}
+    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.npm) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: main
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -35,77 +36,61 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      # A MAJOR bump is never allowed to happen automatically; a breaking release is
-      # a deliberate act via the manual run: a major changeset riding an ordinary
-      # push straight to a published 2.0.0 is exactly what this prevents.
-      - name: Block automatic major releases
-        id: major_guard
+      # Read Changesets' own parsed plan. A regex misses valid YAML spellings
+      # of major, and a manual rerun must not bypass the version policy.
+      - name: Check the release plan
+        id: plan
         run: |
-          major=$(grep -lE "^['\"]?@nannier-com/lookout['\"]?:[[:space:]]*major" .changeset/*.md 2>/dev/null | wc -l | tr -d ' ')
-          echo "major=$major" >> "$GITHUB_OUTPUT"
-          if [ "$major" != "0" ] && [ "${{ github.event_name }}" = "push" ]; then
-            echo "blocked=true" >> "$GITHUB_OUTPUT"
-            {
-              echo "### npm release held back"
-              echo ""
-              echo "$major pending changeset(s) request a **major** version bump, and automatic"
-              echo "publishing is limited to minor and patch releases."
-              echo ""
-              echo "Run the Release workflow manually with the npm box ticked to publish it,"
-              echo "or downgrade the changeset to \`minor\` if a breaking release was not intended."
-            } >> "$GITHUB_STEP_SUMMARY"
-            echo "::notice::Major bump pending; skipping the automatic release."
-          else
-            echo "blocked=false" >> "$GITHUB_OUTPUT"
-          fi
+          bun run changeset status --output "$RUNNER_TEMP/lookout-release-plan.json"
+          bun tools/release/plan.ts "$RUNNER_TEMP/lookout-release-plan.json"
 
-      - name: Check for pending changesets
-        if: steps.major_guard.outputs.blocked != 'true'
-        id: has_changesets
+      - name: Prepare the release commit
+        id: prepare
+        env:
+          CHANGESET_COUNT: ${{ steps.plan.outputs.changesets }}
         run: |
-          # Mirror changesets' own filter (no dotfiles, case-insensitive README).
-          count=$(find .changeset -maxdepth 1 -name "*.md" ! -iname "README.md" ! -name ".*" 2>/dev/null | wc -l | tr -d ' ')
-          echo "count=$count" >> "$GITHUB_OUTPUT"
-          echo "Found $count pending changeset(s)."
-
-      - name: Configure git
-        if: steps.major_guard.outputs.blocked != 'true' && steps.has_changesets.outputs.count != '0'
-        run: |
+          # Changesets creates an annotated tag even when recovering a version
+          # with no pending changesets, so that path needs an identity too.
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-      - name: Version packages
-        if: steps.major_guard.outputs.blocked != 'true' && steps.has_changesets.outputs.count != '0'
-        run: |
-          bun run version-packages
-          git add .
-          if git diff --cached --quiet; then
-            echo "No version changes to commit."
-          else
-            git commit -m "chore: version packages [skip ci]"
-            for attempt in 1 2 3; do
-              git fetch origin main
-              git rebase origin/main
-              if git push origin HEAD:main; then
-                break
-              fi
-              if [ "$attempt" = "3" ]; then
-                echo "::error::could not push the version commit after 3 attempts. Re-run the release."
-                exit 1
-              fi
-              echo "Push rejected (main advanced); retrying ($attempt/3)..."
-            done
+          if [ "$CHANGESET_COUNT" != "0" ]; then
+            bun run version-packages
+            git add -- package.json CHANGELOG.md .changeset
+            if ! git diff --cached --quiet; then
+              git commit -m "chore: version packages [skip ci]"
+            fi
           fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "version=$(node -p 'require("./package.json").version')" >> "$GITHUB_OUTPUT"
+
+      - name: Validate the prepared release
+        id: validate
+        uses: ./.github/actions/validate
+
+      # This is the last git operation that can affect main. If main advanced,
+      # fail before publishing: the newer push has its own release run. Never
+      # rebase here, since that would change the code the checks just passed.
+      - name: Push the validated commit
+        id: push
+        env:
+          RELEASE_SHA: ${{ steps.prepare.outputs.sha }}
+        run: |
+          if [ "$(git rev-parse HEAD)" != "$RELEASE_SHA" ] || [ -n "$(git status --porcelain)" ]; then
+            echo "::error::The checkout changed during validation; nothing will be published."
+            exit 1
+          fi
+          git push origin HEAD:main
 
       - name: Authenticate npm (npmjs.org)
-        if: steps.major_guard.outputs.blocked != 'true'
-        run: |
-          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" >> .npmrc
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN" > .npmrc
 
-      # Unconditional: publish is idempotent, so this also retries any version
-      # already on main but missing from npm.
+      # No pending changesets is still a validated attempt to publish a version
+      # already on main but missing from npm. Changesets leaves published ones
+      # alone. Neither this path nor a manual rerun bypasses validation.
       - name: Publish to npmjs.org
-        if: steps.major_guard.outputs.blocked != 'true'
+        id: publish
         run: bun run release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -113,20 +98,31 @@ jobs:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Push release tags
-        if: steps.major_guard.outputs.blocked != 'true'
+        id: tags
         run: git push --tags
 
       - name: Summarise the release
         if: always()
+        env:
+          RELEASE_VERSION: ${{ steps.prepare.outputs.version }}
+          PUBLISH_OUTCOME: ${{ steps.publish.outcome }}
+          TAGS_OUTCOME: ${{ steps.tags.outcome }}
         run: |
-          version=$(node -p "require('./package.json').version")
           {
             echo "### npm"
-            if [ "${{ steps.has_changesets.outputs.count }}" = "0" ]; then
-              echo "No pending changesets, so nothing was published. Current version is \`$version\`."
-            else
-              echo "Published **@nannier-com/lookout@$version**"
-              echo ""
-              echo "- [View on npm](https://www.npmjs.com/package/@nannier-com/lookout/v/$version)"
-            fi
+            case "$PUBLISH_OUTCOME" in
+              success)
+                echo "Release command succeeded for **@nannier-com/lookout@$RELEASE_VERSION**."
+                echo "Already published versions are left unchanged."
+                if [ "$TAGS_OUTCOME" != "success" ]; then
+                  echo "Release is incomplete: pushing the release tags did not succeed."
+                fi
+                ;;
+              failure)
+                echo "Publishing failed. Inspect the publish step for the registry outcome."
+                ;;
+              *)
+                echo "Publishing did not run successfully. Inspect the preceding steps."
+                ;;
+            esac
           } >> "$GITHUB_STEP_SUMMARY"
