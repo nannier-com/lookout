@@ -70,6 +70,7 @@ green:
 | the local page's server | `src/ui/` (routes, payload, evidence, document, run, project, session) |
 | how the page is told something moved | `src/ui/live.ts` (the socket, and what is pushed), `src/ui/watch.ts` (noticing a run wrote) |
 | the local page in the browser | `src/ui/client/` (`shell.css` for the frame, `board.css` for a card, one module per area) |
+| what a clear or a reset throws away, and what survives one | `src/ui/reset.ts` (the three stores it has to reach), `src/ui/client/clear.ts` (the two buttons), `src/ui/client/confirm.ts` (the asking) |
 | how lookout amends its own instructions | `src/skills/` (history, replay, amend, propose, signals, regression) |
 | how a replay is graded, and how a violation is proven | `src/skills/verdict.ts` (what a claim's identity is), `src/skills/gate.ts` (reproduce, then control) |
 | what a verb prints or exits with | `src/verbs/<verb>.ts` |
