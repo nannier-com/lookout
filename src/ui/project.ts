@@ -146,6 +146,7 @@ export async function switchProject(dir: string): Promise<string | null> {
   setCurrentProject(resolved);
   session.settings = settings;
   session.queue = await loadQueue(found.projectDir);
+  session.queueProjectDir = found.projectDir;
   session.queueMtime = queueMtime(found.projectDir);
   session.queueRev++;
   forgetBoard();

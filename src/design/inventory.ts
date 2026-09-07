@@ -16,10 +16,12 @@
  * a person who has written down what their project uses has said something the
  * scanner is not entitled to argue with.
  */
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { lookoutDir } from "../config.js";
+import { atomicWriteJson } from "../state/atomic.js";
+import { withStateLock } from "../state/lock.js";
 import type { ResolvedConfig } from "../types.js";
 import type { SignalStrength } from "./registry.js";
 
@@ -137,8 +139,7 @@ export async function saveInventory(
   inv: DesignInventory,
 ): Promise<string> {
   const p = inventoryPath(resolved);
-  await mkdir(dirname(p), { recursive: true });
-  await writeFile(p, JSON.stringify(inv, null, 2) + "\n");
+  await withStateLock(resolved, "design", async () => atomicWriteJson(p, inv));
   return p;
 }
 

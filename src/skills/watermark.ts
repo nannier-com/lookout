@@ -13,10 +13,12 @@
  * amendment layers are: a fresh clone must not re-learn lessons its committed
  * amendments already encode.
  */
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { lookoutDir } from "../config.js";
+import { atomicWriteJson } from "../state/atomic.js";
+import { withStateLock } from "../state/lock.js";
 import { nowIso } from "../util.js";
 import type { ResolvedConfig } from "../types.js";
 import type { Signal } from "./signals.js";
@@ -68,6 +70,5 @@ export async function stampSeen(
   mark.lastImproveAt = at;
   mark.lastAction = action;
   const p = seenPath(resolved);
-  await mkdir(dirname(p), { recursive: true });
-  await writeFile(p, JSON.stringify(mark, null, 2) + "\n");
+  await withStateLock(resolved, "improve", async () => atomicWriteJson(p, mark));
 }

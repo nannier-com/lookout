@@ -26,6 +26,8 @@ import type {
 } from "../types.js";
 import { evidenceDir } from "../config.js";
 import { nowIso } from "../util.js";
+import { atomicWriteJson } from "../state/atomic.js";
+import { withProjectLock, withStateLock } from "../state/lock.js";
 import {
   canonicalShotId,
   canonicalShotRelPath,
@@ -69,10 +71,22 @@ export async function loadReport(
   opts: { preservePaths?: ReadonlySet<string> } = {},
 ): Promise<CaptureReport | null> {
   const p = reportPath(resolved);
-  if (!existsSync(p)) return null;
-  const parsed = JSON.parse(await readFile(p, "utf8")) as CaptureReport;
+  const parsed = await readReportFile(p);
+  if (!parsed) return null;
   if (parsed.version !== 1) return null; // future versions rebuild from scratch
-  return migrateReportRouteIdentity(resolved, parsed, p, opts.preservePaths ?? new Set());
+  if (parsed.routeIdentity === 2) return parsed;
+  return withProjectLock(resolved, "capture report migration", async () =>
+    withStateLock(resolved, "report", async () => {
+      const current = await readReportFile(p);
+      if (!current || current.version !== 1) return null;
+      if (current.routeIdentity === 2) return current;
+      return migrateReportRouteIdentity(resolved, current, p, opts.preservePaths ?? new Set());
+    }));
+}
+
+async function readReportFile(path: string): Promise<CaptureReport | null> {
+  if (!existsSync(path)) return null;
+  return JSON.parse(await readFile(path, "utf8")) as CaptureReport;
 }
 
 function ambiguousLegacyRoutes(resolved: ResolvedConfig, report: CaptureReport): Set<string> {
@@ -157,9 +171,7 @@ async function migrateReportRouteIdentity(
     shots: migrated,
     ...(changed ? { updatedAt: nowIso() } : {}),
   };
-  const tmp = `${path}.route-identity-${process.pid}.tmp`;
-  await writeFile(tmp, JSON.stringify(next, null, 2));
-  await rename(tmp, path);
+  await atomicWriteJson(path, next);
   if (changed) {
     await rm(join(root, "judge-report.json"), { force: true });
     await rm(join(root, "judge-replies"), { recursive: true, force: true });
@@ -186,6 +198,16 @@ export async function mergeRun(
     /** Synthesized states navigation.json still names, per target|route key. */
     plannedStates?: ReadonlyMap<string, ReadonlySet<string>>;
   } = {},
+): Promise<{ report: CaptureReport; pruned: number }> {
+  return withProjectLock(resolved, "capture report update", async () =>
+    withStateLock(resolved, "report", async () => mergeRunLocked(resolved, run, shots, opts)));
+}
+
+async function mergeRunLocked(
+  resolved: ResolvedConfig,
+  run: RunRecord,
+  shots: ShotRecord[],
+  opts: NonNullable<Parameters<typeof mergeRun>[3]>,
 ): Promise<{ report: CaptureReport; pruned: number }> {
   const preservePaths = new Set(
     shots.flatMap((shot) => [shot.path, shot.provenance, shot.aria].filter((p): p is string => !!p)),
@@ -218,9 +240,7 @@ export async function mergeRun(
   };
   const p = reportPath(resolved);
   await mkdir(dirname(p), { recursive: true });
-  const tmp = `${p}.tmp`;
-  await writeFile(tmp, JSON.stringify(report, null, 2));
-  await rename(tmp, p);
+  await atomicWriteJson(p, report);
   return { report, pruned };
 }
 
@@ -259,9 +279,7 @@ export async function writeShotAria(
   const rel = ariaRelPath(axes);
   const abs = join(evidenceDir(resolved), rel);
   await mkdir(dirname(abs), { recursive: true });
-  const tmp = `${abs}.tmp`;
-  await writeFile(tmp, JSON.stringify(sidecar, null, 2));
-  await rename(tmp, abs);
+  await atomicWriteJson(abs, sidecar);
   return { rel, abs };
 }
 
@@ -273,8 +291,6 @@ export async function writeShotSidecar(
   const rel = sidecarRelPath(axes);
   const abs = join(evidenceDir(resolved), rel);
   await mkdir(dirname(abs), { recursive: true });
-  const tmp = `${abs}.tmp`;
-  await writeFile(tmp, JSON.stringify(sidecar, null, 2));
-  await rename(tmp, abs);
+  await atomicWriteJson(abs, sidecar);
   return { rel, abs };
 }

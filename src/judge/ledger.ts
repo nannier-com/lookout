@@ -20,13 +20,15 @@
  * Lives in .lookout/ledger.json (committed by projects that want cheap re-runs
  * across machines; harmless if ignored).
  */
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ResolvedConfig, ShotRecord } from "../types.js";
 import { lookoutDir } from "../config.js";
 import { nowIso, sha256 } from "../util.js";
 import type { VerifiedFinding } from "./verify.js";
+import { atomicWriteJson } from "../state/atomic.js";
+import { withStateLock } from "../state/lock.js";
 
 export interface LedgerEntry {
   verdict: "clean" | "findings";
@@ -184,11 +186,25 @@ export async function loadLedger(resolved: ResolvedConfig): Promise<Ledger> {
 }
 
 export async function saveLedger(resolved: ResolvedConfig, ledger: Ledger): Promise<void> {
+  await withStateLock(resolved, "ledger", async () => saveLedgerLocked(resolved, ledger));
+}
+
+async function saveLedgerLocked(resolved: ResolvedConfig, ledger: Ledger): Promise<void> {
   const p = ledgerPath(resolved);
   await mkdir(dirname(p), { recursive: true });
-  const tmp = `${p}.tmp`;
-  await writeFile(tmp, JSON.stringify(ledger, null, 2));
-  await rename(tmp, p);
+  await atomicWriteJson(p, ledger);
+}
+
+export async function updateLedger<T>(
+  resolved: ResolvedConfig,
+  mutate: (ledger: Ledger) => T | Promise<T>,
+): Promise<{ ledger: Ledger; result: T }> {
+  return withStateLock(resolved, "ledger", async () => {
+    const ledger = await loadLedger(resolved);
+    const result = await mutate(ledger);
+    await saveLedgerLocked(resolved, ledger);
+    return { ledger, result };
+  });
 }
 
 /**

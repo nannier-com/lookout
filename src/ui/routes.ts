@@ -27,12 +27,17 @@ import { readNarration } from "../report/narration.js";
 import { boardNow, learningNow, statusBody } from "./payload.js";
 import { clearNarration, resetProject } from "./reset.js";
 import { pumpQueue, queueableReason } from "./queue-pump.js";
-import { queuedTools, saveQueue } from "./queue.js";
+import { queuedTools, updateQueue } from "./queue.js";
 import { applyBaseUrl, pickFolder, settingsView, switchProject } from "./project.js";
 import { startCheck, startRuling, stopCheck } from "./run.js";
 import { currentProject, session } from "./session.js";
-import { saveSettings, validBaseUrl, validModel } from "./stored-settings.js";
+import { updateSettings, validBaseUrl, validModel } from "./stored-settings.js";
 import { servePage } from "./page.js";
+
+function mutationError(error: unknown): Response {
+  const message = (error as Error).message;
+  return json(message.startsWith("project state is busy:") ? 409 : 400, { error: message });
+}
 
 export async function handle(req: Request, server: Server<undefined>): Promise<Response | undefined> {
   const resolved = currentProject();
@@ -77,31 +82,30 @@ export async function handle(req: Request, server: Server<undefined>): Promise<R
   if (url.pathname === "/api/settings") {
     if (req.method === "POST") {
       const body = await readJson(req);
+      let baseUrl: string | null | undefined;
       if (typeof body.baseUrl === "string") {
         const cleaned = body.baseUrl.trim();
         if (cleaned && !validBaseUrl(cleaned)) {
           return json(400, { error: `not a valid URL: ${cleaned}` });
         }
-        session.settings.baseUrl = cleaned ? validBaseUrl(cleaned) : null;
+        baseUrl = cleaned ? validBaseUrl(cleaned) : null;
       }
       // Consent to click this project's calls to action, stored against the
       // directory it was given for, which is the project this server serves.
-      if (typeof body.navigation === "boolean") {
-        session.settings.navigationFor = body.navigation ? resolved.projectDir : null;
-      }
       // Which model each judge rules with. An empty string is how the page
       // clears one, which is not the same as leaving it alone: cleared means
       // "use lookout's default", and the panel says what that is.
+      const judgeModels: Record<string, string | null> = {};
       if (typeof body.judgeModels === "object" && body.judgeModels !== null) {
         for (const [key, value] of Object.entries(body.judgeModels as Record<string, unknown>)) {
           if (!JUDGES.includes(key) || typeof value !== "string") continue;
           if (!value.trim()) {
-            delete session.settings.judgeModels[key];
+            judgeModels[key] = null;
             continue;
           }
           const clean = validModel(value);
           if (!clean) return json(400, { error: `not a model name: ${value.trim().slice(0, 40)}` });
-          session.settings.judgeModels[key] = clean;
+          judgeModels[key] = clean;
         }
       }
       // A server that has no config has nowhere to keep settings and no
@@ -110,7 +114,21 @@ export async function handle(req: Request, server: Server<undefined>): Promise<R
       if (!resolved.configPath) {
         return json(409, { error: "no lookout.config.ts here; nothing to remember settings for" });
       }
-      await saveSettings(resolved.projectDir, session.settings);
+      try {
+        const changed = await updateSettings(resolved.projectDir, (settings) => {
+          if (baseUrl !== undefined) settings.baseUrl = baseUrl;
+          if (typeof body.navigation === "boolean") {
+            settings.navigationFor = body.navigation ? resolved.projectDir : null;
+          }
+          for (const [key, value] of Object.entries(judgeModels)) {
+            if (value === null) delete settings.judgeModels[key];
+            else settings.judgeModels[key] = value;
+          }
+        });
+        session.settings = changed.settings;
+      } catch (error) {
+        return json(409, { error: (error as Error).message });
+      }
       // Re-resolve so the new base URL reaches the targets immediately.
       await applyBaseUrl();
     }
@@ -205,18 +223,20 @@ export async function handle(req: Request, server: Server<undefined>): Promise<R
       // Refused at the door rather than queued and silently dropped by the
       // pump on its next tick, which is what a press with no answer looks like.
       if (why) return json(409, { error: why });
-      if (!session.queue.some((q) => q.issue === issue)) {
-        session.queue = [
-          ...session.queue,
-          { issue, tools, queuedAt: new Date().toISOString() },
-        ];
-        session.queueRev++;
-        await saveQueue(resolved.projectDir, session.queue);
-      }
+      const changed = await updateQueue(resolved.projectDir, (items) => {
+        if (!items.some((q) => q.issue === issue)) {
+          items.push({ issue, tools, queuedAt: new Date().toISOString() });
+          return true;
+        }
+        return false;
+      }, { save: (added) => added });
+      session.queue = changed.items;
+      session.queueProjectDir = resolved.projectDir;
+      if (changed.result) session.queueRev++;
       await pumpQueue(resolved);
       return json(200, { issue, queue: session.queue });
     } catch (err) {
-      return json(400, { error: (err as Error).message });
+      return mutationError(err);
     }
   }
 
@@ -227,16 +247,19 @@ export async function handle(req: Request, server: Server<undefined>): Promise<R
     try {
       const { issue } = (await readJson(req)) as { issue?: string };
       if (!issue) throw new Error("no issue given");
-      const next = session.queue.filter((q) => q.issue !== issue);
-      if (next.length !== session.queue.length) {
-        session.queue = next;
-        session.queueRev++;
-        await saveQueue(resolved.projectDir, next);
-      }
+      const changed = await updateQueue(resolved.projectDir, (items) => {
+        const index = items.findIndex((q) => q.issue === issue);
+        if (index < 0) return false;
+        items.splice(index, 1);
+        return true;
+      }, { save: (removed) => removed });
+      session.queue = changed.items;
+      session.queueProjectDir = resolved.projectDir;
+      if (changed.result) session.queueRev++;
       await pumpQueue(resolved);
       return json(200, { issue, queue: session.queue });
     } catch (err) {
-      return json(400, { error: (err as Error).message });
+      return mutationError(err);
     }
   }
 
@@ -248,7 +271,7 @@ export async function handle(req: Request, server: Server<undefined>): Promise<R
       const r = startRuling(resolved, issue);
       return json(r.started ? 200 : 409, r);
     } catch (err) {
-      return json(400, { error: (err as Error).message });
+      return mutationError(err);
     }
   }
 
@@ -262,20 +285,18 @@ export async function handle(req: Request, server: Server<undefined>): Promise<R
         archived?: boolean;
       };
       if (!issue) throw new Error("no issue given");
-      const { loadBacklog, saveBacklog } = await import("../verbs/backlog.js");
+      const { updateBacklog } = await import("../verbs/backlog.js");
       const { archiveIssue, unarchiveIssue } = await import("../issues/registry.js");
-      const backlog = await loadBacklog(resolved);
-      const outcome =
-        archived === false
+      const { result: outcome } = await updateBacklog(resolved, (backlog) => {
+        const result = archived === false
           ? unarchiveIssue(backlog, issue)
           : archiveIssue(backlog, issue, new Date().toISOString());
-      if (!outcome.ok) throw new Error(outcome.why);
-      // The save is what moves the folder: the record says which side the
-      // issue belongs on and materialising it puts the folder there.
-      await saveBacklog(resolved, backlog);
+        if (!result.ok) throw new Error(result.why);
+        return result;
+      }, { timeoutMs: 0 });
       return json(200, { issue, archived: archived !== false, reason: outcome.reason });
     } catch (err) {
-      return json(400, { error: (err as Error).message });
+      return mutationError(err);
     }
   }
 

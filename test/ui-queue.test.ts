@@ -5,7 +5,7 @@
 // it writes only when something changed, and a handoff that could not happen is
 // terminal rather than retried. Both are asserted here by counting.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { advanceQueue, queueableReason, setHandoff, type Handoff } from "../src/ui/queue-pump.js";
 import { clearLease, leasePath, leaseScript } from "../src/ui/lease.js";
@@ -13,6 +13,7 @@ import { loadQueue, queueDigest, queuePath, queuedTools, saveQueue, type QueueIt
 import { handle } from "../src/ui/routes.js";
 import { boardNow, forgetBoard, statusBody } from "../src/ui/payload.js";
 import { session, setCurrentProject } from "../src/ui/session.js";
+import { withProjectLock } from "../src/state/lock.js";
 import { tmpProject } from "./tmp-project.js";
 import type { BoardEntry } from "../src/report/board-types.js";
 import type { ResolvedConfig } from "../src/types.js";
@@ -65,6 +66,7 @@ beforeEach(() => {
     return Promise.resolve({ launched: true });
   });
   session.queue = [];
+  session.queueProjectDir = null;
   session.queueRev = 0;
   session.queueMtime = 0;
   session.running = null;
@@ -73,6 +75,7 @@ beforeEach(() => {
 afterEach(() => {
   setHandoff(restore);
   session.queue = [];
+  session.queueProjectDir = null;
   session.running = null;
 });
 
@@ -236,6 +239,104 @@ describe("the pump", () => {
     expect(session.queueRev).toBe(rev);
   });
 
+  test("concurrent pump requests launch the head once", async () => {
+    setHandoff(async (_r, issue) => {
+      opened.push(issue);
+      await Bun.sleep(50);
+      return { launched: true };
+    });
+    session.queue = queued("100001");
+    const board = [entry("100001", "open")];
+    await Promise.all([advanceQueue(project, board), advanceQueue(project, board)]);
+    expect(opened).toEqual(["100001"]);
+  });
+
+  test("pumps two projects independently and keeps the current project's queue in session", async () => {
+    const projectA = tmpProject("lookout-queue-a-");
+    const projectB = tmpProject("lookout-queue-b-");
+    await saveQueue(projectA.projectDir, queued("a1"));
+    await saveQueue(projectB.projectDir, queued("b1"));
+    let enterA!: () => void;
+    let releaseA!: () => void;
+    const aEntered = new Promise<void>((resolve) => { enterA = resolve; });
+    const aGate = new Promise<void>((resolve) => { releaseA = resolve; });
+    setHandoff(async (resolved, issue) => {
+      opened.push(`${resolved.project}:${issue}`);
+      if (resolved.projectDir === projectA.projectDir) {
+        enterA();
+        await aGate;
+      }
+      return { launched: true };
+    });
+
+    setCurrentProject(projectA);
+    session.queue = queued("a1");
+    session.queueProjectDir = projectA.projectDir;
+    const pumpA = advanceQueue(projectA, [entry("a1", "open")]);
+    await aEntered;
+
+    setCurrentProject(projectB);
+    session.queue = queued("b1");
+    session.queueProjectDir = projectB.projectDir;
+    const pumpB = advanceQueue(projectB, [entry("b1", "open")]);
+    await pumpB;
+    releaseA();
+    await pumpA;
+
+    expect(opened).toEqual([`${projectA.project}:a1`, `${projectB.project}:b1`]);
+    expect((await loadQueue(projectA.projectDir))[0]?.handedOffAt).toBeString();
+    expect((await loadQueue(projectB.projectDir))[0]?.handedOffAt).toBeString();
+    expect(session.queue.map((item) => item.issue)).toEqual(["b1"]);
+  });
+
+  test("does not launch while another process owns the project", async () => {
+    session.queue = queued("100001");
+    await saveQueue(project.projectDir, session.queue);
+    let release!: () => void;
+    let entered!: () => void;
+    const held = new Promise<void>((resolve) => { entered = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const lock = withProjectLock(project, "external capture", async () => {
+      entered();
+      await gate;
+    });
+    await held;
+    const board = [entry("100001", "open")];
+    await advanceQueue(project, board);
+    expect(opened).toEqual([]);
+    expect((await loadQueue(project.projectDir))[0]?.handedOffAt).toBeUndefined();
+    release();
+    await lock;
+    await advanceQueue(project, board);
+    expect(opened).toEqual(["100001"]);
+  });
+
+  test("persists a dispatch claim before launching the external handoff", async () => {
+    session.queue = queued("100001");
+    let diskClaim: unknown;
+    setHandoff(async () => {
+      diskClaim = (await loadQueue(project.projectDir))[0]?.dispatching;
+      return { launched: true };
+    });
+    await advanceQueue(project, [entry("100001", "open")]);
+    expect(diskClaim).toMatchObject({ pid: process.pid, token: expect.any(String), at: expect.any(String) });
+    expect((await loadQueue(project.projectDir))[0]?.dispatching).toBeUndefined();
+  });
+
+  test("fails an abandoned dispatch claim closed without relaunching it", async () => {
+    session.queue = [{
+      ...queued("100001")[0]!,
+      dispatching: { token: "abandoned", pid: 123, at: "2026-09-02T00:00:01.000Z" },
+    }];
+    await saveQueue(project.projectDir, session.queue);
+    await advanceQueue(project, [entry("100001", "open")]);
+    const recovered = (await loadQueue(project.projectDir))[0];
+    expect(opened).toEqual([]);
+    expect(recovered?.dispatching).toBeUndefined();
+    expect(recovered?.failedAt).toBeString();
+    expect(recovered?.lastReason).toContain("prior handoff stopped after claiming");
+  });
+
   test("holds the head while a check is running, rather than photographing a half-edited tree", async () => {
     session.queue = queued("100001");
     session.running = {
@@ -349,9 +450,14 @@ describe("the queue over HTTP", () => {
     // The pump hands the head over on the way out, which is the whole point:
     // one press both queues and starts it when nothing else is in the line.
     expect(opened).toEqual([id]);
+    const rev = session.queueRev;
+    const mtime = statSync(queuePath(project.projectDir)).mtimeMs;
+    await Bun.sleep(20);
     await post("/api/queue", { issue: id, tool: "claude-code" });
     expect(session.queue.filter((q) => q.issue === id)).toHaveLength(1);
     expect(opened).toEqual([id]);
+    expect(session.queueRev).toBe(rev);
+    expect(statSync(queuePath(project.projectDir)).mtimeMs).toBe(mtime);
   });
 
   test("an issue that is not on the board is refused, not queued", async () => {
@@ -366,6 +472,17 @@ describe("the queue over HTTP", () => {
     const r = await post("/api/queue/remove", { issue: id });
     expect(r.status).toBe(200);
     expect(session.queue).toEqual([]);
+  });
+
+  test("removing an absent issue does not rewrite or advance the queue", async () => {
+    await post("/api/queue", { issue: id });
+    const rev = session.queueRev;
+    const mtime = statSync(queuePath(project.projectDir)).mtimeMs;
+    await Bun.sleep(20);
+    const r = await post("/api/queue/remove", { issue: "999999" });
+    expect(r.status).toBe(200);
+    expect(session.queueRev).toBe(rev);
+    expect(statSync(queuePath(project.projectDir)).mtimeMs).toBe(mtime);
   });
 
   test("a queue change is not served from the cache of the one before it", async () => {

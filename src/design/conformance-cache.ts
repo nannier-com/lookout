@@ -21,10 +21,12 @@
  * everything here fails toward the miss.
  */
 import { createHash } from "node:crypto";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { lookoutDir } from "../config.js";
+import { atomicWriteJson } from "../state/atomic.js";
+import { withStateLock } from "../state/lock.js";
 import type { ConformanceFinding, Refutation } from "./conformance-types.js";
 import type { ResolvedConfig } from "../types.js";
 
@@ -91,7 +93,6 @@ export async function saveCache(
   cache: ConformanceCache,
 ): Promise<string> {
   const p = cachePath(resolved);
-  await mkdir(dirname(p), { recursive: true });
-  await writeFile(p, JSON.stringify(cache, null, 2) + "\n");
+  await withStateLock(resolved, "design", async () => atomicWriteJson(p, cache));
   return p;
 }

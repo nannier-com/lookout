@@ -171,6 +171,27 @@ describe("canonical route identity", () => {
 });
 
 describe("route identity migration", () => {
+  test("two first readers serialize one legacy report migration", async () => {
+    const resolved = project(["/settings/profile"]);
+    const legacyPath = "web/app/settings-profile/rest--desktop-light.png";
+    const legacy = shot(
+      "/settings/profile",
+      "web/app/settings-profile/rest/desktop/light",
+      legacyPath,
+    );
+    writeFileSync(join(evidenceDir(resolved), "capture-report.json"), JSON.stringify(report([legacy])));
+    mkdirSync(join(evidenceDir(resolved), "web/app/settings-profile"), { recursive: true });
+    writeFileSync(join(evidenceDir(resolved), legacyPath), "legacy");
+
+    const [left, right] = await Promise.all([loadReport(resolved), loadReport(resolved)]);
+    const canonicalPath = shotRelPath({ ...axes, route: "/settings/profile" });
+    expect(left?.routeIdentity).toBe(2);
+    expect(right?.routeIdentity).toBe(2);
+    expect(left?.shots[0]?.path).toBe(canonicalPath);
+    expect(right?.shots[0]?.path).toBe(canonicalPath);
+    expect(readFileSync(join(evidenceDir(resolved), canonicalPath), "utf8")).toBe("legacy");
+  });
+
   test("moves an unambiguous legacy shot and both sidecars", async () => {
     const resolved = project(["/settings/profile"]);
     const oldPath = "web/app/settings-profile/rest--desktop-light.png";

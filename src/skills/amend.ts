@@ -12,8 +12,7 @@
  * proposal instead. Auto-applying a change nothing can grade is the exact thing
  * the gate exists to prevent.
  */
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { readFile } from "node:fs/promises";
 import { lookoutDir } from "../config.js";
 import { loadBacklog } from "../verbs/backlog.js";
 import { extractJson, invokeClaude } from "../judge/engine.js";
@@ -33,9 +32,10 @@ import { recordIncident } from "./incidents.js";
 import { freezeRegressionSet, loadRegressionSet, usableCases } from "./regression.js";
 import { runGate, type GateOutcome } from "./gate.js";
 import { GATED_SKILLS } from "./replay.js";
-import { improveLockPath, record, SKILL_NAMES } from "./history.js";
+import { record, SKILL_NAMES } from "./history.js";
 import { LookoutError, type ResolvedConfig } from "../types.js";
-import { lockHeld, nowIso } from "../util.js";
+import { nowIso } from "../util.js";
+import { withStateLock } from "../state/lock.js";
 
 interface Amendment {
   skill: string;
@@ -375,15 +375,7 @@ export async function improveSkills(
   model: string,
   opts: ImproveOptions = {},
 ): Promise<number> {
-  const lock = improveLockPath(resolved);
-  if (lockHeld(lock)) {
-    throw new LookoutError("another skills improve is already running", `if it died, remove ${lock}`);
-  }
-  await mkdir(dirname(lock), { recursive: true });
-  await writeFile(lock, nowIso());
-  try {
-    return await improve(resolved, model, opts);
-  } finally {
-    await rm(lock, { force: true });
-  }
+  return withStateLock(resolved, "improve", () => improve(resolved, model, opts), {
+    command: "lookout skills improve",
+  });
 }

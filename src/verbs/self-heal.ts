@@ -16,7 +16,7 @@
  * It commits, and it never pushes. A local commit is one `git revert` away; a
  * push is somebody else's problem to undo.
  */
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { loadSkill, renderSkill } from "../skills/load.js";
@@ -41,6 +41,7 @@ import { DEFAULT_JUDGE_MODEL, extractJson, invokeClaude } from "../judge/engine.
 import type { Capability } from "../judge/ai-types.js";
 import { LookoutError } from "../types.js";
 import { execFileAsync, lockHeld, LOCK_STALE_MS, nowIso, printJson, str, type Parsed } from "../util.js";
+import { withExternalStateLock } from "../state/lock.js";
 
 /**
  * What the healer may do: read, search and edit its own source, and nothing
@@ -152,15 +153,8 @@ export async function selfHeal(parsed: Parsed): Promise<number> {
   await requireIgnoredState(checkout);
 
   const lock = selfHealLockPath(checkout);
-  if (lockHeld(lock)) {
-    throw new LookoutError(
-      "another self-heal is already running",
-      `if it died, remove ${lock}`,
-    );
-  }
   await mkdir(selfHealDir(checkout), { recursive: true });
-  await writeFile(lock, nowIso());
-  try {
+  return withExternalStateLock(lock, "lookout self-heal", async () => {
     // The one writer allowed to rewrite the append-only logs: old entries
     // leave once a file is big enough to matter. Once per source, because
     // each project keeps its own and each grows at its own rate.
@@ -168,10 +162,8 @@ export async function selfHeal(parsed: Parsed): Promise<number> {
       const compacted = compactIncidents(dir);
       if (compacted > 0) console.log(`${dir}: compacted ${compacted} incident(s) older than 90 days`);
     }
-    return await heal(parsed, checkout);
-  } finally {
-    await rm(lock, { force: true });
-  }
+    return heal(parsed, checkout);
+  });
 }
 
 /** The one group, with enough of its occurrences to see the pattern. */
@@ -394,4 +386,3 @@ async function heal(parsed: Parsed, checkout: string): Promise<number> {
   }
   return 0;
 }
-

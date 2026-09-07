@@ -19,10 +19,10 @@
  */
 import { gatherSignals } from "./signals.js";
 import { loadWatermark, newSignals } from "./watermark.js";
-import { improveLockPath } from "./history.js";
 import { recordIncident } from "./incidents.js";
 import { improveSkills } from "./amend.js";
-import { lockHeld, nowIso } from "../util.js";
+import { nowIso } from "../util.js";
+import { externalStateLockHeld, stateLockHeld } from "../state/lock.js";
 import { emit } from "../report/events.js";
 import type { Parsed } from "../util.js";
 import type { ResolvedConfig } from "../types.js";
@@ -95,8 +95,8 @@ export async function maybeAutoImprove(
       configured: !!resolved.configPath,
       declined: !!parsed.flags["no-improve"] || learn.auto === false,
       ci: !!process.env.CI,
-      improveLockHeld: lockHeld(improveLockPath(resolved)),
-      healLockHeld: !!checkout && lockHeld(selfHealLockPath(checkout)),
+      improveLockHeld: await stateLockHeld(resolved, "improve"),
+      healLockHeld: !!checkout && await externalStateLockHeld(selfHealLockPath(checkout)),
       lastImproveAt: mark.lastImproveAt,
       cooldownHours: learn.cooldownHours ?? DEFAULT_COOLDOWN_HOURS,
       now: nowIso(),

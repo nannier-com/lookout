@@ -27,12 +27,16 @@
  *    snapshot.
  */
 import { launchHandoff } from "../report/handoff.js";
+import { randomUUID } from "node:crypto";
 import { leaseHeld } from "./lease.js";
 import { boardNow } from "./payload.js";
-import { queueDigest, queueMtime, loadQueue, saveQueue, type QueueItem } from "./queue.js";
+import { queueDigest, queueMtime, saveQueue, updateQueue, type QueueItem } from "./queue.js";
 import { checkIsRunning, session } from "./session.js";
 import type { BoardEntry } from "../report/board-types.js";
 import type { ResolvedConfig } from "../types.js";
+import { assertStateLocksHealthy } from "../state/lock.js";
+import { withProjectLock } from "../state/lock.js";
+import { loadBacklog } from "../backlog/store.js";
 
 /**
  * A handoff, injectable so a test and the visual gate can drive the whole pump
@@ -106,8 +110,12 @@ export async function pumpQueue(resolved: ResolvedConfig): Promise<void> {
   }
 }
 
-let pumping = false;
-let pending = false;
+interface PumpState {
+  pumping: boolean;
+  pending: boolean;
+}
+
+const pumps = new Map<string, PumpState>();
 
 /**
  * Bring the queue up to date with the board, and hand over the head if it is
@@ -118,57 +126,80 @@ let pending = false;
  * times a second while a check is appending to it.
  */
 export async function advanceQueue(resolved: ResolvedConfig, board: BoardEntry[]): Promise<void> {
-  if (pumping) {
-    pending = true;
+  const key = resolved.projectDir;
+  const state = pumps.get(key) ?? { pumping: false, pending: false };
+  pumps.set(key, state);
+  if (state.pumping) {
+    state.pending = true;
     return;
   }
-  pumping = true;
+  state.pumping = true;
   try {
     let next = board;
     do {
-      pending = false;
+      state.pending = false;
       await pumpOnce(resolved, next);
       // A request that arrived mid-pump was about a board this one had already
       // read, so the repeat asks for a current one. It is a cache hit unless
       // something actually moved, which is exactly when it should not be.
-      if (pending) next = await boardNow(resolved);
-    } while (pending);
+      if (state.pending) next = await boardNow(resolved);
+    } while (state.pending);
   } catch {
     // Nothing above this catches, and a malformed backlog or an unknown id
     // must not take the watcher's timer down with it. The next write nudges
     // again; a queue that skipped one tick is not a queue that is broken.
   } finally {
-    pumping = false;
+    state.pumping = false;
+    if (!state.pending) pumps.delete(key);
   }
 }
 
 async function pumpOnce(resolved: ResolvedConfig, board: BoardEntry[]): Promise<void> {
-  // Another `lookout ui` on this project, or somebody with an editor, wrote the
-  // file since this process last touched it. Theirs is newer, so it wins.
-  const onDisk = queueMtime(resolved.projectDir);
-  if (onDisk > session.queueMtime) {
-    session.queue = await loadQueue(resolved.projectDir);
-    session.queueMtime = onDisk;
-    session.queueRev++;
-  }
-
-  const before = queueDigest(session.queue);
-  const byId = new Map(board.map((b) => [b.id, b]));
-  // Drop everything lookout has finished with, not only the head: an issue
-  // further down that somebody fixed out of order has no business waiting.
-  let items = session.queue.filter((q) => {
-    const entry = byId.get(q.issue);
-    return !(entry && SETTLED.has(entry.status));
-  });
-
-  const head = items[0];
-  if (head) items = [await stepHead(resolved, head, byId.get(head.issue)), ...items.slice(1)];
-
-  if (queueDigest(items) === before) return;
-  session.queue = items;
-  session.queueRev++;
-  await saveQueue(resolved.projectDir, items);
-  session.queueMtime = queueMtime(resolved.projectDir);
+  await withProjectLock(resolved, "queue dispatch", async () => {
+    // Complete any legacy backlog repair before taking the queue lock. Handoff
+    // reads the backlog, and project -> backlog -> queue is the safe order.
+    await loadBacklog(resolved);
+    const byId = new Map(board.map((b) => [b.id, b]));
+    const ownsSessionQueue = session.queueProjectDir === null
+      || session.queueProjectDir === resolved.projectDir;
+    const changed = await updateQueue(resolved.projectDir, async (items) => {
+      const before = queueDigest(items);
+      const kept = items.filter((q) => {
+        const entry = byId.get(q.issue);
+        return !(entry && SETTLED.has(entry.status));
+      });
+      items.splice(0, items.length, ...kept);
+      const head = kept[0];
+      if (head?.dispatching) {
+        const recovered = { ...head };
+        delete recovered.dispatching;
+        recovered.failedAt = new Date().toISOString();
+        recovered.lastReason =
+          "a prior handoff stopped after claiming this issue; remove and re-queue it to retry deliberately";
+        items[0] = recovered;
+      } else if (head) {
+        items[0] = await stepHead(resolved, head, byId.get(head.issue), async (claim) => {
+          items[0] = claim;
+          await saveQueue(resolved.projectDir, items);
+          assertStateLocksHealthy();
+        });
+      }
+      if (queueDigest(items) === before) return false;
+      return true;
+    }, {
+      initial: ownsSessionQueue ? session.queue : undefined,
+      save: (moved) => moved,
+    });
+    if (
+      ownsSessionQueue
+      && (session.queueProjectDir === null || session.queueProjectDir === resolved.projectDir)
+    ) {
+      session.queue = changed.items;
+      session.queueProjectDir = resolved.projectDir;
+      if (changed.result) session.queueRev++;
+      session.queueMtime = queueMtime(resolved.projectDir);
+    }
+  }, { timeoutMs: 0 });
 }
 
 /**
@@ -184,13 +215,14 @@ async function stepHead(
   resolved: ResolvedConfig,
   head: QueueItem,
   entry: BoardEntry | undefined,
+  persistClaim: (claim: QueueItem) => Promise<void>,
 ): Promise<QueueItem> {
   // Terminal until somebody acts. Retrying here is what turns a missing binary
   // into an unbounded loop, because recording the reason is itself a write.
   if (head.failedAt) return head;
   // A check screenshots the tree the fix agent is editing, and its event log
   // truncation erases the ruling overlay of anything in flight. One at a time.
-  if (checkIsRunning()) return head;
+  if (checkIsRunning(resolved)) return head;
   // An agent lookout launched is still going, so nothing else may start: not
   // the next issue, and not a second window on this one. A ruling is not the
   // end of a turn — an agent asks for one mid-flight and keeps editing — so the
@@ -212,11 +244,31 @@ async function stepHead(
   if (handoffSuppressed()) {
     return { ...head, turn, handedOffAt: new Date().toISOString(), handedOffAtAttempt: attempt };
   }
-  const r = await handoff(resolved, head.issue, head.tools, turn);
-  if (!r.launched) {
-    return { ...head, failedAt: new Date().toISOString(), lastReason: r.reason ?? "the handoff did not open" };
+  const claim: QueueItem = {
+    ...head,
+    turn,
+    dispatching: { token: randomUUID(), pid: process.pid, at: new Date().toISOString() },
+  };
+  await persistClaim(claim);
+  let r: Awaited<ReturnType<Handoff>>;
+  try {
+    r = await handoff(resolved, head.issue, head.tools, turn);
+  } catch (error) {
+    const failed: QueueItem = {
+      ...claim,
+      failedAt: new Date().toISOString(),
+      lastReason: `the handoff stopped after it was claimed: ${(error as Error).message}`,
+    };
+    delete failed.dispatching;
+    return failed;
   }
-  const done: QueueItem = { ...head, turn, handedOffAt: new Date().toISOString(), handedOffAtAttempt: attempt };
+  if (!r.launched) {
+    const failed: QueueItem = { ...claim, failedAt: new Date().toISOString(), lastReason: r.reason ?? "the handoff did not open" };
+    delete failed.dispatching;
+    return failed;
+  }
+  const done: QueueItem = { ...claim, handedOffAt: new Date().toISOString(), handedOffAtAttempt: attempt };
+  delete done.dispatching;
   delete done.lastReason;
   return done;
 }

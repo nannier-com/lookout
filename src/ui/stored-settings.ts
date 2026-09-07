@@ -22,10 +22,12 @@
  *                            in, rather than the one it ends up serving, is what
  *                            lets it be remembered without a machine-wide home.
  */
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { LOOKOUT_DIR } from "../config-locate.js";
+import { atomicWriteJson } from "../state/atomic.js";
+import { withProjectDirStateLock } from "../state/lock.js";
 
 export interface UiSettings {
   /**
@@ -116,7 +118,7 @@ export function settingsPath(projectDir: string): string {
 
 export async function loadSettings(projectDir: string): Promise<UiSettings> {
   const p = settingsPath(projectDir);
-  if (!existsSync(p)) return { ...EMPTY_SETTINGS };
+  if (!existsSync(p)) return { ...EMPTY_SETTINGS, judgeModels: {} };
   try {
     const raw = JSON.parse(await readFile(p, "utf8")) as Partial<UiSettings>;
     return {
@@ -130,16 +132,30 @@ export async function loadSettings(projectDir: string): Promise<UiSettings> {
   } catch {
     // Unreadable settings are not worth failing to start over; the page will
     // simply ask again.
-    return { ...EMPTY_SETTINGS };
+    return { ...EMPTY_SETTINGS, judgeModels: {} };
   }
 }
 
 export async function saveSettings(projectDir: string, s: UiSettings): Promise<void> {
+  await withProjectDirStateLock(projectDir, "settings", async () => saveSettingsLocked(projectDir, s));
+}
+
+async function saveSettingsLocked(projectDir: string, s: UiSettings): Promise<void> {
   const p = settingsPath(projectDir);
   await mkdir(join(projectDir, LOOKOUT_DIR), { recursive: true });
-  const tmp = `${p}.tmp`;
-  await writeFile(tmp, JSON.stringify(s, null, 2));
-  await rename(tmp, p);
+  await atomicWriteJson(p, s);
+}
+
+export async function updateSettings<T>(
+  projectDir: string,
+  mutate: (settings: UiSettings) => T | Promise<T>,
+): Promise<{ settings: UiSettings; result: T }> {
+  return withProjectDirStateLock(projectDir, "settings", async () => {
+    const settings = await loadSettings(projectDir);
+    const result = await mutate(settings);
+    await saveSettingsLocked(projectDir, settings);
+    return { settings, result };
+  });
 }
 
 /**
@@ -152,8 +168,9 @@ export async function saveSettings(projectDir: string, s: UiSettings): Promise<v
  * that never had one.
  */
 export async function rememberProject(launchDir: string, projectDir: string | null): Promise<void> {
-  const stored = await loadSettings(launchDir);
-  await saveSettings(launchDir, { ...stored, projectDir });
+  await updateSettings(launchDir, (stored) => {
+    stored.projectDir = projectDir;
+  });
 }
 
 /**

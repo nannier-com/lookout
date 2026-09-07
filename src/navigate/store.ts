@@ -14,11 +14,13 @@
  * hand-written recipe always wins), simply do not exist as far as capture,
  * scope, and pruning are concerned.
  */
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { evidenceDir, lookoutDir } from "../config.js";
 import type { ResolvedConfig } from "../types.js";
+import { atomicWriteJson } from "../state/atomic.js";
+import { withStateLock } from "../state/lock.js";
 
 export interface Affordance {
   /** Stable within one harvest: "a1", "a2", ... in document order. */
@@ -121,9 +123,7 @@ async function loadFile<T extends { version: 1 }>(path: string): Promise<T | nul
 
 async function saveFile(path: string, value: unknown): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
-  const tmp = `${path}.tmp`;
-  await writeFile(tmp, JSON.stringify(value, null, 2));
-  await rename(tmp, path);
+  await atomicWriteJson(path, value);
 }
 
 export async function loadHarvests(resolved: ResolvedConfig): Promise<HarvestFile> {
@@ -131,7 +131,7 @@ export async function loadHarvests(resolved: ResolvedConfig): Promise<HarvestFil
 }
 
 export async function saveHarvests(resolved: ResolvedConfig, file: HarvestFile): Promise<void> {
-  await saveFile(harvestPath(resolved), file);
+  await withStateLock(resolved, "navigation", async () => saveFile(harvestPath(resolved), file));
 }
 
 export async function loadPlans(resolved: ResolvedConfig): Promise<NavigationFile> {
@@ -139,7 +139,31 @@ export async function loadPlans(resolved: ResolvedConfig): Promise<NavigationFil
 }
 
 export async function savePlans(resolved: ResolvedConfig, file: NavigationFile): Promise<void> {
-  await saveFile(navigationPath(resolved), file);
+  await withStateLock(resolved, "navigation", async () => saveFile(navigationPath(resolved), file));
+}
+
+export async function updateHarvests<T>(
+  resolved: ResolvedConfig,
+  mutate: (file: HarvestFile) => T | Promise<T>,
+): Promise<{ file: HarvestFile; result: T }> {
+  return withStateLock(resolved, "navigation", async () => {
+    const file = await loadHarvests(resolved);
+    const result = await mutate(file);
+    await saveFile(harvestPath(resolved), file);
+    return { file, result };
+  });
+}
+
+export async function updatePlans<T>(
+  resolved: ResolvedConfig,
+  mutate: (file: NavigationFile) => T | Promise<T>,
+): Promise<{ file: NavigationFile; result: T }> {
+  return withStateLock(resolved, "navigation", async () => {
+    const file = await loadPlans(resolved);
+    const result = await mutate(file);
+    await saveFile(navigationPath(resolved), file);
+    return { file, result };
+  });
 }
 
 /**

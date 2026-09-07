@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { readFile, rename, rm, writeFile } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 import {
@@ -16,6 +16,7 @@ import type { RegressionSet } from "../skills/regression.js";
 import type { CaptureReport, ResolvedConfig } from "../types.js";
 import { fingerprintOf, legacyFingerprintOf } from "./fingerprint.js";
 import type { Backlog, BacklogFinding, EvidenceRef } from "./lib.js";
+import { atomicWriteJson } from "../state/atomic.js";
 
 function routeGroups(
   resolved: ResolvedConfig,
@@ -131,9 +132,7 @@ async function rewriteJson<T>(path: string, mutate: (value: T) => boolean): Prom
     return false;
   }
   if (!mutate(value)) return false;
-  const tmp = `${path}.route-identity-${process.pid}.tmp`;
-  await writeFile(tmp, JSON.stringify(value, null, 2) + "\n");
-  await rename(tmp, path);
+  await atomicWriteJson(path, value);
   return true;
 }
 

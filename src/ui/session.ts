@@ -118,11 +118,12 @@ export const session: {
   /**
    * The issues waiting to be handed over, head first.
    *
-   * Held here rather than read from disk per request because the pump asks for
-   * it many times a second, and because this process is the one that owns it:
-   * `queue.json` is the sidecar that survives a restart, not the authority.
+   * This is the current project's response cache. `queue.json` is authoritative
+   * because another Lookout process can update the same project.
    */
   queue: QueueItem[];
+  /** Project whose queue is cached above, or null before the first project load. */
+  queueProjectDir: string | null;
   /**
    * Bumped on every change to the queue.
    *
@@ -140,13 +141,17 @@ export const session: {
   running: null,
   lastFailure: null,
   queue: [],
+  queueProjectDir: null,
   queueRev: 0,
   queueMtime: 0,
 };
 
-export function checkIsRunning(): boolean {
+export function checkIsRunning(resolved?: ResolvedConfig): boolean {
   const r = session.running;
-  return r !== null && r.child.exitCode === null && !r.child.killed;
+  return r !== null
+    && r.child.exitCode === null
+    && !r.child.killed
+    && (!resolved || r.project.projectDir === resolved.projectDir);
 }
 
 /**
@@ -156,6 +161,6 @@ export function checkIsRunning(): boolean {
  * two between the signal and the last browser closing, both are true: the page
  * has to say the press landed rather than offer the button again.
  */
-export function checkIsStopping(): boolean {
-  return checkIsRunning() && session.running?.stopping === true;
+export function checkIsStopping(resolved?: ResolvedConfig): boolean {
+  return checkIsRunning(resolved) && session.running?.stopping === true;
 }

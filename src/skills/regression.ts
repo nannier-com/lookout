@@ -20,7 +20,7 @@
  * is graded against it lives in verdict.ts, which carries the argument about
  * what a claim's identity actually is.
  */
-import { copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile } from "node:fs/promises";
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { evidenceDir, lookoutDir } from "../config.js";
@@ -36,6 +36,7 @@ import type {
   Scheme,
   ShotRecord,
 } from "../types.js";
+import { atomicWriteJson } from "../state/atomic.js";
 
 /** Mirrors the acceptance verifier's cap: one judgement, one context. */
 export const MAX_FROZEN_SHOTS = 20;
@@ -303,9 +304,7 @@ export async function freezeRegressionSet(
 
   const set: RegressionSet = { note: NOTE, frozenAt: now, cases };
   const p = regressionManifestPath(resolved);
-  const tmp = `${p}.tmp`;
-  await writeFile(tmp, JSON.stringify(set, null, 2));
-  await rename(tmp, p);
+  await atomicWriteJson(p, set);
   return { set, outOfScope };
 }
 

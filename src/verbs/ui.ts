@@ -119,6 +119,7 @@ export async function ui(parsed: Parsed): Promise<number> {
   // it. Its mtime comes with it, so a second server on the same project is
   // noticed rather than silently overwritten.
   session.queue = root ? await loadQueue(root) : [];
+  session.queueProjectDir = root;
   session.queueMtime = root ? queueMtime(root) : 0;
   const baseUrl = str(parsed.flags["base-url"]) ?? session.settings.baseUrl ?? undefined;
   let resolved: ResolvedConfig;

@@ -6,7 +6,7 @@
  * do it from two copies of the code. This is the one copy, so a fact added to
  * the record reaches both verify-fix and the source-scan ruling at once.
  */
-import { loadState, saveState, type AttemptRecord, type RepoObservation, type RulingBaseline } from "../fix/state.js";
+import { loadState, updateState, type AttemptRecord, type RepoObservation, type RulingBaseline } from "../fix/state.js";
 import { rulingBaselineOf } from "./baseline.js";
 import { movesRecorded, type ShotMove } from "./moved.js";
 import type { PixelDiff } from "./pixels.js";
@@ -257,8 +257,8 @@ export async function recordAttempt(
   attempt: AttemptRecord,
   baseline?: RulingBaseline,
 ): Promise<void> {
-  const state = await loadState(resolved, issueId);
-  state.attempts.push(attempt);
-  if (baseline) state.baseline = baseline;
-  await saveState(resolved, state);
+  await updateState(resolved, issueId, (state) => {
+    state.attempts.push(attempt);
+    if (baseline) state.baseline = baseline;
+  });
 }

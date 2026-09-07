@@ -10,16 +10,17 @@
  * `ui.json`. It holds six-digit issue ids, which mean nothing outside that
  * project's backlog, so it cannot live anywhere else.
  *
- * The list a running server holds is the authority and this file is its
- * sidecar, with one exception: the mtime is remembered, so a second `lookout
- * ui` on the same project (restarting one is routine) is noticed rather than
- * silently overwritten.
+ * The file is authoritative because more than one Lookout process can update
+ * a project. A running server keeps the current project's queue in memory only
+ * as a response cache.
  */
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { LOOKOUT_DIR } from "../config-locate.js";
 import { TOOLS } from "../report/handoff.js";
+import { atomicWriteJson } from "../state/atomic.js";
+import { withProjectDirStateLock } from "../state/lock.js";
 
 /** One issue waiting its turn, and what has been done about it so far. */
 export interface QueueItem {
@@ -59,6 +60,8 @@ export interface QueueItem {
    * a queue watching an unchanged board never opens a second window.
    */
   handedOffAtAttempt?: number;
+  /** Durable claim written before an external handoff is invoked. */
+  dispatching?: { token: string; pid: number; at: string };
   /**
    * When a handoff was attempted and could not happen, and why.
    *
@@ -134,6 +137,14 @@ function one(raw: unknown): QueueItem | null {
   if (typeof r.turn === "number" && Number.isInteger(r.turn) && r.turn >= 0) item.turn = r.turn;
   if (typeof r.handedOffAt === "string") item.handedOffAt = r.handedOffAt;
   if (typeof r.handedOffAtAttempt === "number") item.handedOffAtAttempt = r.handedOffAtAttempt;
+  if (
+    typeof r.dispatching === "object" && r.dispatching !== null &&
+    typeof (r.dispatching as Record<string, unknown>).token === "string" &&
+    typeof (r.dispatching as Record<string, unknown>).pid === "number" &&
+    typeof (r.dispatching as Record<string, unknown>).at === "string"
+  ) {
+    item.dispatching = r.dispatching as QueueItem["dispatching"];
+  }
   if (typeof r.failedAt === "string") item.failedAt = r.failedAt;
   if (typeof r.lastReason === "string") item.lastReason = r.lastReason;
   return item;
@@ -165,11 +176,29 @@ export async function loadQueue(projectDir: string): Promise<QueueItem[]> {
 }
 
 export async function saveQueue(projectDir: string, items: QueueItem[]): Promise<void> {
+  await withProjectDirStateLock(projectDir, "queue", async () => saveQueueLocked(projectDir, items));
+}
+
+async function saveQueueLocked(projectDir: string, items: QueueItem[]): Promise<void> {
   const p = queuePath(projectDir);
   await mkdir(join(projectDir, LOOKOUT_DIR), { recursive: true });
-  const tmp = p + ".tmp";
-  await writeFile(tmp, JSON.stringify({ items }, null, 2) + "\n");
-  await rename(tmp, p);
+  await atomicWriteJson(p, { items });
+}
+
+/** Apply one queue intent to the latest on-disk value. */
+export async function updateQueue<T>(
+  projectDir: string,
+  mutate: (items: QueueItem[]) => T | Promise<T>,
+  opts: { initial?: readonly QueueItem[]; save?: (result: T) => boolean } = {},
+): Promise<{ items: QueueItem[]; result: T }> {
+  return withProjectDirStateLock(projectDir, "queue", async () => {
+    const items = existsSync(queuePath(projectDir))
+      ? await loadQueue(projectDir)
+      : opts.initial?.map((item) => ({ ...item, tools: [...item.tools] })) ?? [];
+    const result = await mutate(items);
+    if (opts.save?.(result) ?? true) await saveQueueLocked(projectDir, items);
+    return { items, result };
+  });
 }
 
 /** What is written to disk, for deciding whether writing is worth doing. */

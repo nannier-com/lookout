@@ -46,6 +46,15 @@ const NEEDS_CONFIG = new Set([
   "design-system",
 ]);
 
+const PROJECT_LOCKED_VERBS = new Set([
+  "capture",
+  "check",
+  "verify-fix",
+  "verify",
+  "ask",
+  "design-system",
+]);
+
 // Verbs register here as their phases land; the registry is the single source
 // for dispatch and help.
 const VERBS: Record<string, { load: () => Promise<Verb>; summary: string }> = {
@@ -219,6 +228,19 @@ async function main(): Promise<number> {
       url: str(parsed.flags.url),
     });
     if (ready === "stop") return 2;
+  }
+  const lockProject = PROJECT_LOCKED_VERBS.has(verbName) ||
+    (verbName === "skills" && ["freeze", "improve"].includes(parsed.positionals[0] ?? "")) ||
+    (verbName === "backlog" && ["merge", "set", "reopen", "regen"].includes(parsed.positionals[0] ?? ""));
+  if (lockProject) {
+    const { loadConfig } = await import("./config.js");
+    const { withProjectLock } = await import("./state/lock.js");
+    const resolved = await loadConfig({
+      configPath: str(parsed.flags.config),
+      url: str(parsed.flags.url),
+      baseUrl: str(parsed.flags["base-url"]),
+    });
+    return withProjectLock(resolved, `lookout ${verbName}`, () => verb(parsed));
   }
   return verb(parsed);
 }

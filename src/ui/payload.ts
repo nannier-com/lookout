@@ -147,11 +147,11 @@ export async function statusBody(resolved: ResolvedConfig): Promise<string> {
     // would keep saying lookout is idle while it is rewriting itself.
     learningKey(resolved) +
     "|" +
-    checkIsRunning() +
+    checkIsRunning(resolved) +
     "|" +
     // Pressing stop moves nothing on disk, so without this the cached body
     // would keep telling the page the button had not been pressed.
-    checkIsStopping() +
+    checkIsStopping(resolved) +
     "|" +
     (session.lastFailure ? `${session.lastFailure.code}:${session.lastFailure.message}` : "") +
     "|" +
@@ -186,9 +186,9 @@ export async function statusBody(resolved: ResolvedConfig): Promise<string> {
       ...status,
       board,
       issues: tally(board),
-      checkRunning: checkIsRunning(),
-      checkStopping: checkIsStopping(),
-      runKind: session.running ? session.running.kind : null,
+      checkRunning: checkIsRunning(resolved),
+      checkStopping: checkIsStopping(resolved),
+      runKind: checkIsRunning(resolved) ? session.running?.kind ?? null : null,
       queue: session.queue,
       attemptCap: DEFAULT_MAX_ATTEMPTS,
       findings: severityTally(outstanding),

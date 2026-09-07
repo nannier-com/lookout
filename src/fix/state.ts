@@ -12,7 +12,7 @@
  * Unlike Issue.json and Issue.md beside it, this file is NOT generated. Nothing
  * rewrites it from the backlog, because nothing else remembers what was tried.
  */
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { issueDir } from "../issues/paths.js";
@@ -21,6 +21,8 @@ import type { ResolvedConfig } from "../types.js";
 export type { Verdict } from "./rule.js";
 import type { Verdict } from "./rule.js";
 import type { ShotMove } from "../verify/moved.js";
+import { atomicWriteJson } from "../state/atomic.js";
+import { withStateLock } from "../state/lock.js";
 
 /**
  * What lookout saw in the repository when it ruled: facts it observed, kept
@@ -117,9 +119,24 @@ export async function loadState(
 }
 
 export async function saveState(resolved: ResolvedConfig, state: ClusterState): Promise<void> {
+  await withStateLock(resolved, "attempts", async () => saveStateLocked(resolved, state));
+}
+
+async function saveStateLocked(resolved: ResolvedConfig, state: ClusterState): Promise<void> {
   const p = statePath(resolved, state.id);
   await mkdir(issueDir(resolved, state.id), { recursive: true });
-  const tmp = `${p}.tmp`;
-  await writeFile(tmp, JSON.stringify(state, null, 2));
-  await rename(tmp, p);
+  await atomicWriteJson(p, state);
+}
+
+export async function updateState<T>(
+  resolved: ResolvedConfig,
+  issueId: string,
+  mutate: (state: ClusterState) => T | Promise<T>,
+): Promise<{ state: ClusterState; result: T }> {
+  return withStateLock(resolved, "attempts", async () => {
+    const state = await loadState(resolved, issueId);
+    const result = await mutate(state);
+    await saveStateLocked(resolved, state);
+    return { state, result };
+  });
 }

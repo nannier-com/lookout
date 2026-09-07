@@ -37,8 +37,9 @@ import { DEFAULT_THRESHOLD } from "../skills/auto-improve.js";
 import { loadSkill, projectProposalPath } from "../skills/load.js";
 import { loadRegressionSet, regressionManifestPath } from "../skills/regression.js";
 import { bySkill, gatherSignals } from "../skills/signals.js";
-import { historyPath, improveLockPath, SKILL_NAMES } from "../verbs/skills.js";
-import { execFileAsync, lockHeld } from "../util.js";
+import { historyPath, SKILL_NAMES } from "../verbs/skills.js";
+import { execFileAsync } from "../util.js";
+import { externalStateLockHeld, lockTarget, stateLockHeld } from "../state/lock.js";
 import type { ResolvedConfig } from "../types.js";
 
 /** One of lookout's instruction files, as it stands in this project. */
@@ -144,7 +145,7 @@ export function learningKey(resolved: ResolvedConfig): string {
   const checkout = ownCheckout();
   for (const p of [
     historyPath(resolved),
-    improveLockPath(resolved),
+    lockTarget(resolved, "improve"),
     join(lookoutDir(resolved), "skills"),
     regressionManifestPath(resolved),
     incidentsPath(resolved.projectDir),
@@ -366,8 +367,8 @@ export async function buildLearning(resolved: ResolvedConfig): Promise<Learning>
 
   return {
     running: {
-      improve: lockHeld(improveLockPath(resolved)),
-      heal: !!checkout && lockHeld(selfHealLockPath(checkout)),
+      improve: await stateLockHeld(resolved, "improve"),
+      heal: !!checkout && await externalStateLockHeld(selfHealLockPath(checkout)),
     },
     instructions: { skills, history, frozen, pending },
     code: { checkout, incidents, attempts, commits },

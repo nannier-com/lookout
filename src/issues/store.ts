@@ -24,7 +24,7 @@
  * so the only copying left here is the live-workspace guess for an issue
  * nothing could ever freeze.
  */
-import { copyFile, mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readdir, rename, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
 import { evidenceDir } from "../config.js";
@@ -43,6 +43,7 @@ import { renderIssueDocumentFrom } from "./document.js";
 import { loadIssueContext, type IssueExtras } from "./context.js";
 import { ensureBeforeFrames, type Frame, type FrameSet } from "./frames.js";
 import type { ResolvedConfig } from "../types.js";
+import { atomicWriteFile } from "../state/atomic.js";
 
 export type { IssueDocument, IssueShot, ShotSide } from "./record.js";
 
@@ -148,9 +149,7 @@ async function syncShots(
 }
 
 async function writeAtomic(path: string, body: string): Promise<void> {
-  const tmp = `${path}.tmp`;
-  await writeFile(tmp, body);
-  await rename(tmp, path);
+  await atomicWriteFile(path, body);
 }
 
 /**

@@ -9,24 +9,19 @@
  *   check            validate schema, reasons, markdown freshness, drift; exit 1 on problems
  *   stats            counts by status and severity
  */
-import { readFile, rename, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { evidenceDir, loadConfig, lookoutDir } from "../config.js";
 import { loadReport } from "../capture/store.js";
-import { reconcileIssues } from "../issues/registry.js";
-import { materializeIssues } from "../issues/store.js";
 import { loadFrames } from "../issues/frames.js";
 import {
   aiToFindings,
   type Backlog,
   checkBacklog,
   deterministicToFindings,
-  emptyBacklog,
   failing,
   mergeFindings,
-  normalizeBacklog,
-  renderMarkdown,
   setStatus,
   stats,
 } from "../backlog/lib.js";
@@ -34,56 +29,8 @@ import type { CheckOutcome } from "./check.js";
 import { emit } from "../report/events.js";
 import { LookoutError, type ResolvedConfig } from "../types.js";
 import { nowIso, printJson, str, type Parsed } from "../util.js";
-import { migrateBacklogRouteIdentity } from "../backlog/route-migration.js";
-
-export function backlogPath(resolved: ResolvedConfig): string {
-  return join(lookoutDir(resolved), "backlog.json");
-}
-
-export function markdownPath(resolved: ResolvedConfig): string {
-  return join(lookoutDir(resolved), "BACKLOG.md");
-}
-
-/**
- * The backlog, with every root cause holding an id.
- *
- * Reconciling on load repairs a backlog written before ids existed, and writes
- * the repair straight back: an id drawn at random and then forgotten would come
- * back different next time, and the folder named after the first one would be
- * orphaned. Minting happens here and in save, and nowhere else.
- */
-export async function loadBacklog(resolved: ResolvedConfig): Promise<Backlog> {
-  const p = backlogPath(resolved);
-  if (!existsSync(p)) return emptyBacklog(resolved.project, nowIso());
-  // Parsed, then made to hold the shape the type promises. This is the one
-  // place the file becomes a `Backlog`, so it is the one place worth checking:
-  // every verb and every board build below iterates `findings` and `issues`
-  // directly, and none of them can say which file the key was missing from.
-  //
-  // A parse failure is deliberately NOT swallowed the way `loadQueue` swallows
-  // one. The queue is a sidecar that one pump rebuilds; the backlog is the
-  // record itself, and reading a corrupt one as empty would show every finding
-  // as gone and then make that true on the next save. So it throws, and the
-  // callers that run from a timer contain it rather than pretend it parsed.
-  const backlog = normalizeBacklog(JSON.parse(await readFile(p, "utf8")) as Backlog);
-  const migrated = await migrateBacklogRouteIdentity(resolved, backlog, await loadReport(resolved));
-  const minted = reconcileIssues(backlog, nowIso());
-  if (migrated || minted.length > 0) await saveBacklog(resolved, backlog);
-  return backlog;
-}
-
-export async function saveBacklog(resolved: ResolvedConfig, backlog: Backlog): Promise<void> {
-  reconcileIssues(backlog, nowIso());
-  const p = backlogPath(resolved);
-  const tmp = `${p}.tmp`;
-  await writeFile(tmp, JSON.stringify(backlog, null, 2));
-  await rename(tmp, p);
-  await writeFile(markdownPath(resolved), renderMarkdown(backlog));
-  // The folders are a projection of what was just written, so they are written
-  // with it. A save that left them behind would leave `.lookout/issues/` saying
-  // something the backlog no longer does.
-  await materializeIssues(resolved, backlog);
-}
+export { backlogPath, loadBacklog, markdownPath, saveBacklog, updateBacklog } from "../backlog/store.js";
+import { loadBacklog, markdownPath, saveBacklog } from "../backlog/store.js";
 
 /** What one conformance sweep did, for the run summary. */
 export interface ConformanceRun {

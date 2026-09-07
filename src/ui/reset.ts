@@ -15,9 +15,8 @@
  *  - the SERVER's caches over those files: the status body cached in
  *    `payload.ts` and the narration cursor in `narration.ts`, neither of which
  *    re-reads a file it has already answered from;
- *  - the SERVER's own memory, which for the queue is not a cache at all.
- *    `session.queue` is the authority and `queue.json` is its sidecar, so
- *    deleting the file empties nothing.
+ *  - the SERVER's current queue cache, which must be cleared when its backing
+ *    file is deleted.
  *
  * That third one is the trap. Deleting `.lookout/` by hand is exactly what a
  * reader would try first, and it leaves the header still counting a run whose
@@ -30,6 +29,7 @@ import { lookoutDir } from "../config.js";
 import { narrationPath } from "../report/narration.js";
 import { forgetNarration } from "./narration.js";
 import { forgetBoard } from "./payload.js";
+import { withProjectLock, withStateLock } from "../state/lock.js";
 import { checkIsRunning, session } from "./session.js";
 import type { ResolvedConfig } from "../types.js";
 
@@ -41,7 +41,7 @@ import type { ResolvedConfig } from "../types.js";
  * and being asked to choose the folder again is two acts, and only one of them
  * was asked for.
  */
-const KEEP = new Set(["ui.json"]);
+const KEEP = new Set(["ui.json", "locks"]);
 
 /**
  * Empty the judge's transcript.
@@ -89,9 +89,19 @@ export interface ResetOutcome {
  * make deliberately, not one this hides inside a wipe.
  */
 export async function resetProject(resolved: ResolvedConfig): Promise<ResetOutcome> {
-  if (checkIsRunning()) {
+  if (checkIsRunning(resolved)) {
     return { ok: false, why: "a run is in flight; stop it first", removed: [] };
   }
+
+  try {
+    return await withProjectLock(resolved, "lookout ui reset", async () =>
+      withStateLock(resolved, "queue", async () => resetProjectLocked(resolved)), { timeoutMs: 0 });
+  } catch (error) {
+    return { ok: false, why: (error as Error).message, removed: [] };
+  }
+}
+
+async function resetProjectLocked(resolved: ResolvedConfig): Promise<ResetOutcome> {
 
   // The files. Entry by entry rather than removing the directory itself, which
   // is what keeps `ui.json` without having to read it out and write it back:
@@ -113,11 +123,11 @@ export async function resetProject(resolved: ResolvedConfig): Promise<ResetOutco
   forgetBoard();
   forgetNarration();
 
-  // The memory that is not a cache. The queue lives here and `queue.json` is
-  // its sidecar, so the delete above emptied nothing; `queueRev` is what the
+  // Clear the queue cache after deleting its authoritative file. `queueRev` is what the
   // status cache keys on, and `queueMtime` is what an outside edit is noticed
   // against, so a stale one would make the next read look unchanged.
   session.queue = [];
+  session.queueProjectDir = resolved.projectDir;
   session.queueRev += 1;
   session.queueMtime = 0;
   // A failure banner from the run that no longer exists outlives its run

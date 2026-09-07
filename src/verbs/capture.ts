@@ -10,10 +10,9 @@ import { preflight, requireUp, resolveTargets } from "../targets.js";
 import { captureWeb, type WebCaptureOptions } from "../capture/web.js";
 import { mergeRun, loadReport } from "../capture/store.js";
 import {
-  loadHarvests,
   loadPlans,
   plannedStateIndex,
-  saveHarvests,
+  updateHarvests,
   type RouteHarvest,
 } from "../navigate/store.js";
 import { navigationOn } from "../navigate/consent.js";
@@ -154,9 +153,9 @@ export async function runCapture(parsed: Parsed): Promise<{
       emit("note", line, { pruned });
     }
     if (navEnabled && harvests.size > 0) {
-      const file = await loadHarvests(resolved);
-      for (const [key, harvest] of harvests) file.routes[key] = harvest;
-      await saveHarvests(resolved, file);
+      await updateHarvests(resolved, (file) => {
+        for (const [key, harvest] of harvests) file.routes[key] = harvest;
+      });
       const line = `navigation: harvested ${harvests.size} route(s)`;
       if (!quiet) console.log(line);
       emit("note", line, { harvested: harvests.size });
