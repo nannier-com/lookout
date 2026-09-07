@@ -355,6 +355,143 @@ async function drive(): Promise<number> {
     (await page.locator("#cog").getAttribute("aria-label")) === "Settings",
   );
 
+  // The way out people reach for before either of those: a click beside the
+  // panel. What has to be true is not only that the panel goes away but that
+  // nothing else moved, because the panel floats over a board whose buttons
+  // file an issue and reorder the queue. The tile is the probe for that: it is
+  // a control that visibly changes the page, so a filter bar appearing here
+  // would mean the dismissing click was also spent on whatever it landed on.
+  // Each probe starts from the panel open whatever the one before it left
+  // behind, and says so. A probe that ran against a shut panel would report a
+  // pass for the wrong reason, which is worse than not running: that is exactly
+  // how the first draft of the tool-toggle check below reported green while the
+  // behaviour it was meant to catch was broken. Anything a failing probe left
+  // over the page is cleared through the page's own controls first, so one
+  // broken assertion reports as one failure rather than timing out every probe
+  // after it.
+  const openPanel = async (label: string): Promise<void> => {
+    if (await page.locator("#shotview").isVisible()) await page.click("#svClose");
+    if (await page.locator("#confirm").isVisible()) await page.click("#cfNo");
+    // The board back under the panel: a leaked rail click leaves the learning
+    // area up, where the headline tiles a later probe clicks do not exist.
+    if (!(await page.locator("#viewIssues").isVisible())) {
+      await page.click('[data-view="issues"]');
+      await page.waitForTimeout(500);
+    }
+    if (!(await page.locator("#settings").isVisible())) await page.click("#cog");
+    await page.waitForTimeout(700);
+    check(`the panel is open for ${label}`, await page.locator("#settings").isVisible());
+  };
+
+  await openPanel("the click inside it");
+  await page.locator("#settings h2").click();
+  await page.waitForTimeout(500);
+  check("a click inside the panel leaves it open", await page.locator("#settings").isVisible());
+
+  // A shot tile is an anchor to the raw PNG with target="_blank", so it is the
+  // one control on the board whose default action survives being handled: the
+  // dismissal has to cancel it, or the press that puts the panel away also
+  // leaves a picture open in a tab nobody asked for. Counted rather than
+  // asserted on the URL, because the tab it opened was never this one. The tile
+  // is found by position rather than by index: the panel covers the left of the
+  // board, and Playwright will not click through it.
+  const tiles = page.locator("a.tile");
+  let clearTile = null as ReturnType<typeof page.locator> | null;
+  for (let i = 0; i < (await tiles.count()); i++) {
+    const box = await tiles.nth(i).boundingBox();
+    if (box && box.x > 600) { clearTile = tiles.nth(i); break; }
+  }
+  if (clearTile) {
+    await openPanel("the shot tile");
+    const tabsBefore = ctx.pages().length;
+    await clearTile.click();
+    await page.waitForTimeout(1000);
+    check("a shot tile counts as outside too", !(await page.locator("#settings").isVisible()));
+    check(
+      "and does not open its picture on the way",
+      ctx.pages().length === tabsBefore,
+      `${tabsBefore} tabs then ${ctx.pages().length}`,
+    );
+    check("nor the inspector", !(await page.locator("#shotview").isVisible()));
+  } else {
+    check("a shot tile sits clear of the panel, to probe with", false);
+  }
+
+  // The controls answered further down the same click handler, and so the ones
+  // that stop counting as outside if the dismissal is ever put back below them.
+  // A rail button is the visible version of that mistake: it would change the
+  // area under a panel left open over the new one.
+  await openPanel("the rail button");
+  await page.click('[data-view="learning"]');
+  await page.waitForTimeout(700);
+  check("a rail button counts as outside too", !(await page.locator("#settings").isVisible()));
+  check("and does not change the area on its way", await page.locator("#viewIssues").isVisible());
+
+  // The tool toggle, probed through a tool that is currently OFF: clicking one
+  // that is already on could not show a leak, because the toggle refuses to
+  // release the last tool and would answer "on" either way.
+  // Found by position, not by `[aria-pressed="false"]`: a locator that spells
+  // the state stops resolving the moment the state changes, so the very leak
+  // this is here to catch would time it out instead of failing it.
+  const tools = page.locator("#toolToggle button");
+  let offTool = null as ReturnType<typeof page.locator> | null;
+  for (let i = 0; i < (await tools.count()); i++) {
+    if ((await tools.nth(i).getAttribute("aria-pressed")) === "false") {
+      offTool = tools.nth(i);
+      break;
+    }
+  }
+  if (offTool) {
+    const key = await offTool.getAttribute("data-tool");
+    await openPanel("the tool toggle");
+    await offTool.click();
+    await page.waitForTimeout(700);
+    check("so does the tool toggle", !(await page.locator("#settings").isVisible()));
+    check(
+      "and the tool it landed on is still off",
+      (await offTool.getAttribute("aria-pressed")) === "false",
+      String(key),
+    );
+  } else {
+    check("a tool is off, to probe the toggle with", false, "every tool is selected");
+  }
+
+  // Last of the probes, because this is the one whose leak would change what is
+  // on the board and so what every probe after it could find. The filter bar is
+  // the tell: it appears only if the dismissing click was also spent on the
+  // tile it landed on.
+  await openPanel("the click on the board");
+  await page.click('button.stat[data-value="archived"]');
+  await page.waitForTimeout(700);
+  check("a click outside dismisses the panel", !(await page.locator("#settings").isVisible()));
+  check(
+    "and is spent on the dismissal rather than on what it landed on",
+    !(await page.locator("#filterbar").isVisible()),
+  );
+  check(
+    "and the cog offers to open it again",
+    (await page.locator("#cog").getAttribute("aria-label")) === "Settings",
+  );
+
+  // The prompt is the one thing that opens on top of the panel, so while it is
+  // up nothing behind it counts as outside anything: answering it must not find
+  // the panel gone from under it.
+  await openPanel("the prompt");
+  await page.click("#resetProject");
+  await page.waitForTimeout(600);
+  check("the destructive prompt opens over the panel", await page.locator("#confirm").isVisible());
+  await page.locator("#cfTitle").click();
+  await page.waitForTimeout(400);
+  check(
+    "a click on the prompt does not dismiss the panel behind it",
+    await page.locator("#settings").isVisible(),
+  );
+  await page.click("#cfNo");
+  await page.waitForTimeout(500);
+  check("cancelling leaves the panel where it was", await page.locator("#settings").isVisible());
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(500);
+
   // The fold. What it has to actually do is give the width back: a column that
   // narrows while the board keeps its old padding is a stripe of empty page,
   // and nothing but a measurement catches that.

@@ -123,6 +123,31 @@ async function stopRun(btn: HTMLButtonElement): Promise<void> {
 
 // Delegated, because the filter row is rebuilt whenever its numbers move.
 document.addEventListener("click", (e) => {
+  // Anything outside the settings panel puts it away, and does only that. The
+  // panel floats over the board instead of sitting in the header, so a click
+  // outside it is usually a click at something it is covering, and a click
+  // beside it is the gesture people reach for to uncover that, ahead of Escape
+  // and well ahead of a second trip to the cog. The click is spent on the
+  // dismissal: the board underneath carries the buttons that file an issue and
+  // reorder the fix queue, and one press should not both put the panel away and
+  // move one of those.
+  //
+  // First in the chain, so that every one of them counts as outside. Put after
+  // the handlers below, it read as the same rule but was not: a shot tile, a
+  // rail button and the tool toggle each answered earlier and left the panel
+  // open over whatever they had just changed. The prompt is the one exception,
+  // because it is the one thing that opens on top of this panel, so while it is
+  // up nothing behind it is outside anything; its own clicks are answered
+  // further down.
+  if (settingsOpen() && !confirmOpen() && !hit(e, "#settings,#cog")) {
+    // Spent here means spent: a link the click landed on must not follow as
+    // well. The board's shot tiles are anchors to the raw PNG with
+    // target="_blank", so without this the press that put the panel away also
+    // left a picture open in a new tab.
+    e.preventDefault();
+    closeSettings();
+    return;
+  }
   // The clear control is styled as a tile, so it must be taken out first: it
   // carries no kind or value, and falling into the branch below would set a
   // filter matching nothing at all.

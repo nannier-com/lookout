@@ -151,12 +151,13 @@ export async function saveProject(dir: string): Promise<void> {
 /**
  * Open the panel or shut it, and say which the cog will do next.
  *
- * The cog is the only control that opens this, so while the panel is open it is
- * also the only obvious way back out, and a button labelled "Settings" beside
- * an open settings panel does not read as that way. It says what pressing it
- * does instead, which costs two attributes and is the difference between a
- * panel with a way out and one somebody has to guess at. Escape is the other
- * way out, and it is the one people try first.
+ * The cog is the only control that opens this, so it is also a way back out,
+ * and a button labelled "Settings" beside an open settings panel does not read
+ * as one. It says what pressing it does instead, which costs two attributes and
+ * is the difference between a panel with a way out and one somebody has to
+ * guess at. There are three ways out in all, in the order people reach for
+ * them: a click beside the panel, Escape, and the cog. The first two are in
+ * main.ts, where the page's clicks and keys are dispatched.
  */
 function setSettingsOpen(open: boolean): void {
   el("settings").hidden = !open;
