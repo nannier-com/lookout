@@ -112,6 +112,12 @@ export function buildRefutePrompt(
   shotsById: Map<string, ShotRecord>,
   evidenceDir: string,
   pieces?: Pieces,
+  /**
+   * What the project declared (its never-file lines, its design direction),
+   * for the skill's own section. "" is a legitimate value: the heading stands
+   * and says nothing is declared.
+   */
+  declared = "",
 ): string {
   const groups = groupShots([...shotsById.values()]);
   // Where each shot's primary sits, so a sibling can point at it by index
@@ -180,7 +186,7 @@ export function buildRefutePrompt(
       ...(evidence.length > 1 ? ["   every shot of this view:", ...evidence] : []),
     ].join("\n");
   });
-  return renderSkill(skillText, { findings: lines.join("\n") });
+  return renderSkill(skillText, { findings: lines.join("\n"), declared });
 }
 
 export async function verifyFindings(
@@ -191,6 +197,8 @@ export async function verifyFindings(
   model: string,
   /** Whose incident log a refuter failure belongs in. */
   projectDir?: string,
+  /** What the project declared; see buildRefutePrompt. */
+  declared = "",
 ): Promise<VerifyResult> {
   const serious = findings.filter(needsRefuting);
   const rest: VerifiedFinding[] = findings
@@ -200,7 +208,7 @@ export async function verifyFindings(
     return { confirmed: rest, refuted: [], repaired: [], droppedCriteria: [] };
   }
 
-  const prompt = buildRefutePrompt(skillText, serious, shotsById, evidenceDir, await preparePieces(evidenceDir, [...shotsById.values()]));
+  const prompt = buildRefutePrompt(skillText, serious, shotsById, evidenceDir, await preparePieces(evidenceDir, [...shotsById.values()]), declared);
 
   // The same one-retry the judge gets: a model that wraps its JSON in prose
   // is still answering, and one that fails twice is recorded rather than

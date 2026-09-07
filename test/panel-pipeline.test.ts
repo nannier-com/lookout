@@ -411,6 +411,32 @@ describe("pooled refutation", () => {
   });
 });
 
+describe("what the plan declared", () => {
+  test("the never-file block reaches the one refuter call, not the judges", async () => {
+    const r = project();
+    const s = shot("web/app/home/rest/desktop/light");
+    const a = stubPanel("panel-a", ["contrast"]);
+    const plan = planOf([a], [[s]], { declared: "Never-file rules:\n- the marketing hero is deliberately loud" });
+    const argvFile = join(evidenceDir(r), "argv.jsonl");
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    process.env.MOCK_ARGV_FILE = argvFile;
+
+    await drive(r, plan, [s]);
+    const prompts = readFileSync(argvFile, "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => (JSON.parse(l) as string[])[1]!);
+    const verifyPrompts = prompts.filter((p) => p.includes("adversarial verifier"));
+    const judgePrompts = prompts.filter((p) => p.includes("## Category vocabulary"));
+    expect(verifyPrompts).toHaveLength(1);
+    expect(verifyPrompts[0]).toContain("## What the project declared");
+    expect(verifyPrompts[0]).toContain("- the marketing hero is deliberately loud");
+    // The judges see never-file lines through the rubric's own extensions slot,
+    // never through this block: a stub panel carries neither.
+    for (const p of judgePrompts) expect(p).not.toContain("What the project declared");
+  });
+});
+
 describe("the plan partition", () => {
   test("a group is clean only when every panel ruled; a missing panel is one work item", async () => {
     const r = project();
@@ -480,7 +506,7 @@ describe("the plan partition", () => {
 });
 
 describe("the shipped registry, end to end", () => {
-  test("a plain group owes five calls, a design-bearing one six", async () => {
+  test("a plain group owes six calls, a design-bearing one seven", async () => {
     const r = project();
     const plain = shot("web/app/home/rest/desktop/light");
     const plan = await planJudging(r, [plain], { positionals: [], flags: {} });
@@ -488,12 +514,13 @@ describe("the shipped registry, end to end", () => {
       "judge-craft",
       "judge-geometry",
       "judge-integrity",
+      "judge-taste",
       "judge-text",
       "judge-visibility",
     ]);
     const design = { ...shot("web/app/hero/rest/desktop/light"), design: "/m.png" };
     const plan2 = await planJudging(r, [design], { positionals: [], flags: {} });
-    expect(plan2.toJudge).toHaveLength(6);
+    expect(plan2.toJudge).toHaveLength(7);
     expect(plan2.toJudge.map((w) => w.panel.def.name)).toContain("judge-design-parity");
   });
 

@@ -22,6 +22,7 @@ import { batchShots, judgeBatch, type AiFinding } from "../judge/engine.js";
 import { PANELS } from "../judge/panels.js";
 import { loadJudges } from "../judge/rubric.js";
 import { verifyFindings } from "../judge/verify.js";
+import { declaredBlock } from "../judge/direction.js";
 import { loadSkill } from "./load.js";
 import { viewGroupId } from "../judge/grouping.js";
 import {
@@ -46,6 +47,7 @@ export const GATED_SKILLS = new Set([
   "judge-visibility",
   "judge-text",
   "judge-craft",
+  "judge-taste",
   "refute-finding",
 ]);
 
@@ -164,7 +166,10 @@ export async function replayRegression(
     // cannot run means the gate cannot grade, and amend.ts answers that by
     // rolling the candidate back rather than counting unrefuted findings as a
     // verdict.
-    const verified = await verifyFindings(refute.text, fresh, shotsById, dir, model, resolved.projectDir);
+    const verified = await verifyFindings(
+      refute.text, fresh, shotsById, dir, model, resolved.projectDir,
+      declaredBlock(resolved.config.neverFile, null),
+    );
     costUsd += verified.costUsd ?? 0;
     findings.push(...verified.confirmed);
   }

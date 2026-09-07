@@ -1,7 +1,7 @@
 ---
 name: judge-core
 description: The shared core every judge panel is composed from: judge screenshots of a running application against lookout's rubric and file one finding per distinct defect, with a strict JSON reply.
-version: 11
+version: 12
 output: judge-findings-v3
 ---
 

@@ -40,6 +40,7 @@ export const PANELS: readonly PanelDef[] = [
   { name: "judge-text", categories: ["typography", "content"], ariaEvidence: true },
   { name: "judge-craft", categories: ["hierarchy", "composition", "consistency"] },
   { name: "judge-design-parity", categories: ["design-parity"], designOnly: true },
+  { name: "judge-taste", categories: ["taste"] },
 ];
 
 /** The panel that owns a category. Total over CATEGORIES; a gap is a bug. */

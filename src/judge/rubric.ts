@@ -63,6 +63,10 @@ export const CATEGORIES = [
   "a11y",
   "content",
   "design-parity",
+  // The choices nobody made: the defaults a generic build falls into where the
+  // project declared nothing else. Its own token, never a rename, for the same
+  // reason as composition: a category is identity in every backlog.
+  "taste",
 ] as const;
 export type Category = (typeof CATEGORIES)[number];
 

@@ -38,6 +38,7 @@ Use the `design-parity` category for a divergence that is ONLY a divergence; whe
 it is also a defect on its own terms (content overlapping, text illegible), use
 the category that names the defect and cite the hand-off in `expected`.
 
-A hand-off is the one case where the project's design language is reviewable,
-because the project itself drew the reference. Even here, judge against what the
-hand-off shows, not against your own taste in colour or type.
+A hand-off is a declared design language: the project drew it, so the choices
+it shows are settled. Judge against what the hand-off shows, never against your
+own taste in colour or type; whether an undeclared choice reads as a default is
+the taste panel's question, not this one's.

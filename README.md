@@ -488,6 +488,8 @@ skills/
   judge-craft/          SKILL.md: hierarchy, composition, consistency
   judge-design-parity/  SKILL.md: divergence from a design hand-off; judges only
                         design-bearing views. handoff.md: how to compare
+  judge-taste/          SKILL.md: the defaults nobody chose: template shapes,
+                        generated palettes, ornament, copy voice, first screens
   refute-finding/       SKILL.md: the adversarial pass that kills false findings
   verify-acceptance/    SKILL.md: ruling on a ticket's criteria from evidence alone
   fact-check/           SKILL.md: answering one question from screenshots
@@ -501,7 +503,7 @@ A skill carries the whole prompt shape, placeholders and all. lookout supplies
 only data: the shot manifest, the paths, the question. Each declares
 `{{amendments}}`, the slot where a project's own layer lands.
 
-The visual judge is six specialists, each judging every view group in its own
+The visual judge is seven specialists, each judging every view group in its own
 call. The closed category vocabulary is partitioned across them (the registry
 in `src/judge/panels.ts` is the single source of that partition), and each
 judge's prompt is assembled from the `judge-core` skill (severity ladder, the
@@ -534,10 +536,18 @@ actually strongest in, because it is a judgment about the whole rather than a
 measurement, and the citation requirement is what keeps it falsifiable enough to
 verify and to write acceptance criteria for.
 
-**Product and brand decisions** are left alone: which blue, which typeface, how
-round the corners, how dense the information, the voice of the copy. lookout
-rules on what a decision does in context (a brand colour that leaves text
-unreadable is a contrast defect) and never on the decision.
+**Taste** is judged against the defaults a generic build falls into, never
+against the judge's own preference. A choice the project declared (a `neverFile`
+line, a `design:` hand-off, a declared `direction`) is settled and never filed:
+which blue, which typeface, how round the corners, how dense the information.
+An undeclared choice is weighed by the taste panel against a short list of tells
+every design practice agrees on: a violet-to-blue wash, a coloured glow, three
+equal feature cards, a headline wrapped into a wall, a label numbering nothing,
+"scroll to explore", copy made of clichés. A tell is filed only when it is
+visible in the pixels, opens at low, and reaches medium only when several
+compound until the whole view reads as a template. Consequences stay in their
+lanes: a brand colour that leaves text unreadable is still a contrast defect,
+and the refuter strikes any taste finding that re-litigates a declared choice.
 
 Two things follow from this that are worth knowing. The judge is told it cannot
 measure, because it is reading an image: it files a geometry finding only when

@@ -94,7 +94,7 @@ export async function reverifyCached(args: {
     const unverified = entry.findings!.filter((f) => !f.verified);
     try {
       const groupMap = new Map(shots.map((s) => [s.id, s]));
-      const v = await verifyFindings(plan.refute.text, unverified, groupMap, evDir, plan.model, resolved.projectDir);
+      const v = await verifyFindings(plan.refute.text, unverified, groupMap, evDir, plan.model, resolved.projectDir, plan.declared ?? "");
       result.costUsd += v.costUsd ?? 0;
       result.refuted.push(...v.refuted);
       const findings = [...kept, ...v.confirmed];

@@ -1,7 +1,7 @@
 ---
 name: judge-text
 description: The text panel of lookout's visual judge, ruling on typography doing its job and on broken copy visible in the evidence.
-version: 4
+version: 5
 output: judge-findings-v2
 ---
 
@@ -12,7 +12,11 @@ output: judge-findings-v2
   shrunk to fit a column that should have stacked, lines running the full
   width of a wide screen with no measure.
 - content: broken copy visible in evidence: lorem ipsum in production surfaces,
-  `undefined`/`NaN`/`[object Object]` leaking, empty labels, untranslated keys.
+  `undefined`/`NaN`/`[object Object]` leaking, empty labels, untranslated keys,
+  and copy that was never written: on a production surface (never a
+  documentation or demo specimen, which the never-file list excuses) a stock
+  person such as John Doe, a stock company such as Acme, a suspiciously round
+  figure such as 99.99%, or one face standing in for several different users.
 
 Where a shot in the manifest carries an `aria:` block, that is the page's
 accessibility tree at the moment of the screenshot: roles, accessible names and

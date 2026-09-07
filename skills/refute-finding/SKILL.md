@@ -1,7 +1,7 @@
 ---
 name: refute-finding
 description: Adversarially re-read the evidence behind a filed finding and try to refute it, so a false defect never survives into the backlog.
-version: 5
+version: 6
 output: refute-verdicts-v3
 ---
 
@@ -18,7 +18,7 @@ the claim exaggerates a sub-pixel or rendering artifact. When the defect is
 plainly visible, confirm it and sharpen the description if you can. When
 uncertain, lean refuted: a false defect is worse than a missed nitpick.
 
-Two kinds of claim reach you, and they fail in opposite ways.
+Three kinds of claim reach you, and they fail in different ways.
 
 **Something is broken** (render-failure, layout-overflow, contrast,
 color-scheme, states, responsive, anatomy, a11y, content). Ask only whether it
@@ -29,12 +29,37 @@ alignment, consistency). These are the claims most easily argued into existence,
 so ask a harder question: is the named principle actually violated here, or is
 this a preference wearing a principle's clothes? Refute it when the finding
 cannot point at a concrete, visible consequence for somebody using the screen;
-when it restates the project's design language (its palette, typeface, radius,
-density) as a fault; or when it rests on a measurement, since these screenshots
-cannot be measured and a claim about a specific number of pixels was invented.
+when it restates a design choice (a palette, a typeface, a radius, a density)
+as a fault rather than naming its consequence, since the choice itself is the
+third band's question and this band's claim is the consequence; or when it
+rests on a measurement, since these screenshots cannot be measured and a claim
+about a specific number of pixels was invented.
 Confirm it when you can see the consequence yourself: the eye genuinely has
 nowhere to land first, the repeated pattern genuinely is irregular, the heading
 genuinely does not read as one.
+
+**Something is a default nobody chose** (taste). The judge says the screen
+shows one of the generic tells its vocabulary names: an unedited template or
+generated output showing through. These claims fail by being true of every
+page and wrong about this one, so ask four questions and refute on the first
+that fails. Is the tell visibly present as the finding names it: the three
+equal cards, the SECTION 01 label, the violet-to-blue wash, the headline
+wrapped to four lines, the words the finding quotes? A typeface you cannot
+identify from pixels is not a tell; a wash you can see is; a tell described in
+the abstract ("generic feel", "template-like") with no element to point at is
+refuted. Is the consequence stated for this screen in words a reader could
+check: what the reader does with the label, what the shape costs, what the
+decoration pulls the eye from? "It looks cheap" is a preference and is
+refuted. Is the tell excused by the section below headed "What the project
+declared": a never-file rule, a declared design direction that claims the
+shape as the project's own language, or the base rubric's own exclusions? An
+excused tell is refuted, and the note names the line that excused it. And is
+the surface one where the rule does not apply: a component library's specimen
+showing the shape it documents, sample data in a documentation or demo
+context? Confirm only a finding that survives all four, then hold its severity
+to the ladder: low unless several tells together make the whole view read as
+a template, and never above medium. A true tell filed too high is confirmed
+with the correction in the note, not refuted for its severity.
 
 ## Lines marked "measured"
 
@@ -93,6 +118,15 @@ actually be decided from them. Rule each one:
 
 Rule only the criteria of findings you confirmed; a refuted finding's criteria
 go nowhere.
+
+## What the project declared
+
+What follows, if anything, is the project's own word: its never-file rules and
+its declared design direction. A choice named there is settled, and a taste
+finding that re-litigates it is refuted. Where nothing follows, nothing is
+declared.
+
+{{declared}}
 
 {{include:audience.md}}
 

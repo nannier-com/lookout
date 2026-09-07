@@ -292,7 +292,7 @@ export async function judgeInBatches(args: {
         jobFindings = fresh.map((f) => ({ ...f, verified: false }));
       } else {
         try {
-          const v = await verifyFindings(plan.refute.text, fresh, shotsById, evDir, plan.model, resolved.projectDir);
+          const v = await verifyFindings(plan.refute.text, fresh, shotsById, evDir, plan.model, resolved.projectDir, plan.declared ?? "");
           jobFindings = v.confirmed;
           repaired.push(...v.repaired);
           droppedCriteria.push(...v.droppedCriteria);

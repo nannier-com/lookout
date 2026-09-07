@@ -364,3 +364,29 @@ describe("the refuter's plain half", () => {
     expect(r.repaired).toEqual([]);
   });
 });
+
+describe("what the project declared", () => {
+  test("never-file lines reach the refuter under the skill's own heading", () => {
+    const s = shot("web/app/x/rest/desktop/dark");
+    const prompt = buildRefutePrompt(
+      refute.text,
+      [finding()],
+      new Map([[s.id, s]]),
+      "/ev",
+      undefined,
+      "Never-file rules:\n- the marketing hero is deliberately loud",
+    );
+    expect(prompt).toContain("## What the project declared");
+    expect(prompt).toContain("- the marketing hero is deliberately loud");
+    // The declaration sits with the instructions, before the evidence block.
+    expect(prompt.indexOf("- the marketing hero is deliberately loud")).toBeLessThan(prompt.indexOf("=== FINDINGS ==="));
+    expect(prompt).not.toContain("{{");
+  });
+
+  test("with nothing declared the heading stands and no slot is left unfilled", () => {
+    const s = shot("web/app/x/rest/desktop/dark");
+    const prompt = buildRefutePrompt(refute.text, [finding()], new Map([[s.id, s]]), "/ev");
+    expect(prompt).toContain("## What the project declared");
+    expect(prompt).not.toContain("{{");
+  });
+});

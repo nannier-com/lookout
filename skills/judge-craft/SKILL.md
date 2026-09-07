@@ -1,7 +1,7 @@
 ---
 name: judge-craft
 description: The craft panel of lookout's visual judge, ruling on hierarchy, composition, and consistency: the principles only a whole view can break.
-version: 4
+version: 5
 output: judge-findings-v2
 # The two composition shapes and the accent-colour clause are paraphrased from
 # anthropics/skills frontend-design (Apache-2.0), inverted from guidance for
@@ -27,9 +27,10 @@ output: judge-findings-v2
   screen and the decoration is easier to find than the content. Use this when
   the problem is the whole rather than any one element, and say specifically
   what produces the impression: a holistic finding that cannot point at anything
-  is the taste this rubric asks you to leave out. A palette, a typeface pairing
-  or a layout you recognise as a common default is not itself a finding; only
-  its visible cost on this screen is.
+  is a preference, and preferences are not filed. A palette, a typeface pairing
+  or a layout you recognise as a common default is the taste panel's to file,
+  under its own category, never yours; what you file here is its visible cost
+  on this screen, and only that.
 - consistency: the same element rendered differently in the same view with no
   reason: two button treatments in one toolbar, mixed corner treatments in one
   card row, icons that plainly come from two families, one role in two accent

@@ -26,6 +26,7 @@ export const SKILL_NAMES = [
   "judge-text",
   "judge-craft",
   "judge-design-parity",
+  "judge-taste",
   "refute-finding",
   "verify-acceptance",
   "fact-check",

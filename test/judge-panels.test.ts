@@ -3,7 +3,7 @@
 // two together: the registry covers CATEGORIES exactly, each skill file's
 // bullets are set-equal to its registry entry, the core carries the slot
 // rather than bullets of its own, and the composed rubric still contains
-// every category exactly once. The refuter names categories too, in its two
+// every category exactly once. The refuter names categories too, in its three
 // bands, so it is held to the same vocabulary.
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -105,10 +105,14 @@ describe("the skill files and the registry cannot drift", () => {
     expect(bulletsOf(section)).toEqual([]);
   });
 
-  test("the refuter's two bands name every category except design-parity", async () => {
+  test("the refuter's three bands name every category except design-parity", async () => {
     const refute = await loadSkill(null, "refute-finding");
-    const bands = [...refute.text.matchAll(/\*\*Something (?:is broken|breaks a principle)\*\*\s*\(([^)]+)\)/g)];
-    expect(bands.length).toBe(2);
+    const bands = [
+      ...refute.text.matchAll(
+        /\*\*Something (?:is broken|breaks a principle|is a default nobody chose)\*\*\s*\(([^)]+)\)/g,
+      ),
+    ];
+    expect(bands.length).toBe(3);
     const named = bands.flatMap((m) => m[1]!.split(",").map((s) => s.trim()));
     const expected = CATEGORIES.filter((c) => c !== "design-parity");
     expect([...named].sort()).toEqual([...expected].sort());
@@ -166,7 +170,7 @@ describe("the shared panel paragraph", () => {
 });
 
 describe("the accessibility tree reaches only the panels that can act on it", () => {
-  test("integrity and text are given it; the other four are not", () => {
+  test("integrity and text are given it; the others are not", () => {
     expect(PANELS.filter((p) => p.ariaEvidence).map((p) => p.name).sort()).toEqual([
       "judge-integrity",
       "judge-text",

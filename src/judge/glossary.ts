@@ -81,6 +81,10 @@ export const CATEGORY_GLOSS: Record<Category, CategoryWords> = {
     phrase: "design parity",
     gloss: "Differs from the design hand-off it was built from.",
   },
+  taste: {
+    phrase: "taste",
+    gloss: "A default nobody chose: the palette, type, layout or copy a generic build falls into, where the project declared nothing else.",
+  },
 };
 
 /** The noun a title uses for a category, falling back to the token itself. */

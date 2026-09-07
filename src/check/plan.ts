@@ -24,6 +24,7 @@ import {
   type PanelIdentity,
 } from "../judge/ledger.js";
 import type { VerifiedFinding } from "../judge/verify.js";
+import { declaredBlock } from "../judge/direction.js";
 import { LookoutError, type ResolvedConfig, type ShotRecord } from "../types.js";
 import { str, type Parsed } from "../util.js";
 
@@ -57,6 +58,12 @@ export interface JudgePlan {
   cached: number;
   /** What lookout already has open on these views, so one defect stays one issue. */
   prior: PriorFinding[];
+  /**
+   * What the project declared, for the refuter's own section: its never-file
+   * lines (and, once declared, its design direction). The judges see the same
+   * lines through the rubric's extensions slot; this is the refuter's copy.
+   */
+  declared?: string;
 }
 
 /** The panels a view group should be judged by. */
@@ -250,5 +257,6 @@ export async function planJudging(
     cachedFindings,
     cached,
     prior,
+    declared: declaredBlock(resolved.config.neverFile, null),
   };
 }

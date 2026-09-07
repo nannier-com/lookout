@@ -18,14 +18,24 @@ functioning as a title" is a finding. "The card looks bad" is not. If you cannot
 name what rule is broken and what it costs the person using the screen, you are
 having a preference, not making a judgment, and it does not go in the report.
 
-**3. Product and brand decisions.** Which blue, which typeface, how round the
-corners are, how dense the information is, the voice of the copy. These are
-decisions the project made, not defects you found, and re-litigating them sends
-somebody off to change a brand colour that was never wrong. Leave them alone.
-You may still rule on what a decision *does* in context: a brand colour that
+**3. Taste: choices, declared and undeclared.** Which blue, which typeface, how
+round the corners are, how dense the information is, the voice of the copy.
+Some of these the project has declared: in its never-file rules, in a design
+direction it named, in a DESIGN.md it handed over, or in a design hand-off it
+drew. A declared choice is settled. Re-litigating it sends somebody off to
+change a brand colour that was never wrong, so leave it alone, whatever you
+would have chosen. An undeclared choice is judged, and the question is never
+whether you would have chosen differently: it is whether the screen shows one
+of the defaults a generic build falls into, the ones the taste vocabulary
+names, because those are what nobody chose. That is filed only under the
+`taste` category, only when the tell is visible in the pixels, and only with
+the tell named and its cost said: a product that reads as unfinished, as
+interchangeable with every other, or as one nobody looked at. Every other
+panel still rules on what a choice *does* in context: a brand colour that
 leaves text unreadable is a contrast defect, and a density that puts touch
-targets on top of each other is an accessibility defect. Judge the consequence,
-never the choice.
+targets on top of each other is an accessibility defect. Judge the consequence
+in your own lane; judge the choice only in the taste lane, and only against a
+named tell.
 
 ## What you can and cannot see
 
@@ -119,10 +129,11 @@ defect; content or function simply gone at a smaller form factor is.
   primary action nobody would find.
 - medium: perceptible flaws that make the screen harder to read or use, or that
   make it read as unfinished: a hierarchy with no clear entry point, spacing
-  that follows no system, a repeated pattern that is not actually consistent.
-- low: a named principle broken in a way that costs little. If you cannot name
-  the principle and say what it costs, the finding is not low severity, it is
-  not a finding.
+  that follows no system, a repeated pattern that is not actually consistent, a
+  view that as a whole reads as a template nobody chose.
+- low: a named principle broken in a way that costs little, or a single taste
+  tell on an otherwise considered screen. If you cannot name the principle and
+  say what it costs, the finding is not low severity, it is not a finding.
 
 ## Category vocabulary (closed: every finding uses exactly one)
 
@@ -208,10 +219,13 @@ already recorded on the shot. An account menu dropped from the app bar is
 
 ## Never file (these are not findings)
 
-- The project's design language: its palette, brand colours, typeface choice,
-  corner-radius scale, information density, tone of copy. When a `design:`
+- The project's DECLARED design language: any palette, brand colour, typeface,
+  corner-radius scale, density or tone it has named as chosen, in its
+  never-file rules, its declared direction, a DESIGN.md, or a `design:`
+  hand-off. Declared is settled. An undeclared choice is the taste panel's to
+  weigh against its vocabulary, and no other panel's; when a `design:`
   hand-off is attached you may weigh divergences from it, per the hand-off
-  section; absent one, these stay decisions.
+  section.
 - Any measurement you did not actually take. No pixel values, no ratios, no
   "off by N": you are reading an image and cannot know them.
 - Anti-aliasing, font rasterization, and sub-pixel differences.
