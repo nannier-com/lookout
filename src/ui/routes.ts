@@ -21,9 +21,10 @@ import { json, readJson, sameOrigin, text } from "./http.js";
 import { serveClient } from "./assets.js";
 import { serveIssueDoc } from "./document.js";
 import { serveEvidence, serveThumb } from "./evidence.js";
-import { openLive } from "./live.js";
+import { openLive, pushNarration, pushNow } from "./live.js";
 import { readNarration } from "../report/narration.js";
 import { boardNow, learningNow, statusBody } from "./payload.js";
+import { clearNarration, resetProject } from "./reset.js";
 import { pumpQueue, queueableReason } from "./queue-pump.js";
 import { saveQueue } from "./queue.js";
 import { applyBaseUrl, pickFolder, settingsView, switchProject } from "./project.js";
@@ -138,6 +139,35 @@ export async function handle(req: Request, server: Server<undefined>): Promise<R
   // and a browser that never opens one still has to show a run working.
   if (url.pathname === "/api/narration") {
     return json(200, { reset: true, lines: readNarration(resolved) });
+  }
+
+  // Emptying the judge's rail. A POST because it truncates a file, and because
+  // the rail is not a DOM buffer: the transcript is a file with a server-side
+  // cursor over it, and the route above hands its tail to every page that
+  // connects. A button that only cleared the column would refill it on the
+  // next reload, which is the one outcome that would make the button a lie.
+  if (req.method === "POST" && url.pathname === "/api/narration/clear") {
+    await clearNarration(resolved);
+    // Every open tab, not only the one that pressed. The cursor is armed with a
+    // reset now, and this is what carries it.
+    pushNarration();
+    return json(200, { cleared: true });
+  }
+
+  // Throwing the project's record away: the heaviest thing the page can ask
+  // for. 409 when it is refused, matching stop above, so a page that pressed
+  // during a run is told why rather than shown a success that deleted nothing.
+  //
+  // It reports what it removed because the page cannot read the directory
+  // itself, and "it is gone" is worth more than "ok" for an act with no undo.
+  if (req.method === "POST" && url.pathname === "/api/reset") {
+    const outcome = await resetProject(resolved);
+    if (!outcome.ok) return json(409, outcome);
+    // Forced: the push's own change detection watches the disk, and half of
+    // what this reset moved was memory this process holds.
+    await pushNow(true);
+    pushNarration();
+    return json(200, outcome);
   }
 
   // Asking for an issue to be fixed. A POST, because it writes a file and puts
