@@ -8,11 +8,13 @@
 :root{color-scheme:light dark;--rail:56px;--stream:340px;
 --bg:#f6f7f9;--panel:#fff;--sunk:#f0f1f4;--ink:#15171c;--dim:#5f636d;--faint:#8b909b;--line:#e2e4e9;
 --crit:#b4232b;--high:#c2410c;--med:#a16207;--low:#4b5563;--ok:#15803d;--accent:#4338ca;
---ver:#7c3aed;--go:#177d43;--shadow:0 1px 2px rgba(16,18,22,.06),0 4px 12px rgba(16,18,22,.05)}
+--ver:#7c3aed;--go:#177d43;--shadow:0 1px 2px rgba(16,18,22,.06),0 4px 12px rgba(16,18,22,.05);
+--lift:0 10px 30px rgba(16,18,22,.15),0 2px 8px rgba(16,18,22,.08)}
 @media(prefers-color-scheme:dark){:root{
 --bg:#0e1014;--panel:#171a21;--sunk:#12151b;--ink:#e9eaee;--dim:#989ea9;--faint:#6d737e;--line:#252932;
 --crit:#f87171;--high:#fb923c;--med:#fbbf24;--low:#9ca3af;--ok:#4ade80;--accent:#a5b4fc;
---ver:#c4b5fd;--go:#22c55e;--shadow:0 1px 2px rgba(0,0,0,.4)}}
+--ver:#c4b5fd;--go:#22c55e;--shadow:0 1px 2px rgba(0,0,0,.4);
+--lift:0 12px 34px rgba(0,0,0,.6),0 2px 8px rgba(0,0,0,.45)}}
 *{box-sizing:border-box}
 /* Two fixed columns flank the page: the area rail on the left, the judge's
    transcript on the right. Both are position:fixed, so the padding here is what
@@ -42,7 +44,22 @@ display:flex;align-items:center;justify-content:center}
 background:var(--med)}
 .rdot.live{background:var(--ver);animation:pulse2 1.4s infinite}
 .rdot[hidden]{display:none}
-@media(max-width:520px){:root{--rail:46px}.railb{width:34px;height:34px}}
+/* The cog, pushed to the foot of the rail by the auto margin above it. Round
+   where the area buttons are rounded squares, and never wearing the accent that
+   marks the current area: it is not a place you can be, it is the control that
+   configures the two that are, and a rail where all three read the same would
+   be a rail with three areas. */
+.cog{margin-top:auto;width:34px;height:34px;padding:0;border-radius:50%;
+border:1px solid var(--line);background:var(--panel);color:var(--faint);cursor:pointer;
+display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+.cog svg{display:block}
+.cog:hover{color:var(--ink);border-color:var(--dim);background:var(--sunk)}
+.cog:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* Open: the button stays lit while its panel is up, so the thing covering the
+   board and the thing that will uncover it are visibly the same control. */
+.cog[aria-expanded="true"]{color:var(--accent);border-color:var(--accent);background:var(--sunk)}
+@media(max-width:520px){:root{--rail:46px}.railb{width:34px;height:34px}
+.cog{width:32px;height:32px}}
 
 /* --- navbar: identity, run state, and the filters ---------------------- */
 header{position:sticky;top:0;z-index:9;background:var(--panel);
@@ -148,23 +165,24 @@ flex:0 0 auto;transition:transform .12s ease,filter .12s ease;position:relative}
 .findfix.unset{background:var(--sunk);color:var(--faint);
 box-shadow:inset 0 0 0 1px var(--line)}
 .findfix.unset:hover{filter:none;transform:none}
-/* Play and the cog travel together. The header wraps, and as loose children the
-   wrap fell between them: the control that configures a run ended up on the line
-   above the one that starts it. Grouped, they wrap as one thing or not at all. */
-.acts{display:flex;align-items:center;gap:12px;flex:0 0 auto}
-/* The cog sits to the right of play: configuring is the rarer act, so it is the
-   quieter control, and it never moves once the run starts. */
-.cog{width:26px;height:26px;padding:0;margin-left:8px;border-radius:50%;
-border:1px solid var(--line);background:var(--panel);color:var(--dim);cursor:pointer;
-display:flex;align-items:center;justify-content:center;flex:0 0 auto}
-.cog svg{display:block}
-.cog:hover{color:var(--ink);border-color:var(--dim)}
-.cog[aria-expanded="true"]{color:var(--ink);border-color:var(--accent)}
-.settings{border-top:1px solid var(--line);padding:12px 16px;display:flex;
-flex-direction:column;gap:8px;background:var(--sunk)}
+/* The panel the cog opens, anchored to the cog. It used to drop out of the
+   header, which is where the cog used to be; both moved together, because a
+   press at the foot of the rail whose answer appears at the top of the page is
+   two events rather than one. Floating rather than laid out is the other half:
+   a settings row inside the header pushed the whole board down every time
+   somebody opened it, and the board is what they were looking at. */
+.settings{position:fixed;left:calc(var(--rail) + 10px);bottom:12px;z-index:11;
+width:min(500px,calc(100vw - var(--rail) - 20px));max-height:calc(100vh - 24px);
+overflow-y:auto;padding:14px 16px;border:1px solid var(--line);border-radius:12px;
+background:var(--panel);box-shadow:var(--lift);display:flex;
+flex-direction:column;gap:8px}
 /* An author display rule beats the UA stylesheet's [hidden]{display:none}, so
    the panel has to opt back out explicitly or it is never actually hidden. */
 .settings[hidden]{display:none}
+/* It carries its own name now. In the header the panel sat under the word it
+   opened from and needed none; beside the rail it is a surface of its own, and
+   an unnamed one is a stack of rows with no subject. */
+.settings h2{margin:0 0 2px}
 .srow{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--dim)}
 .srow>span:first-child{width:96px;flex:0 0 auto;color:var(--faint)}
 .srow .val{font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--ink);

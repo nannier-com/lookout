@@ -84,6 +84,10 @@ async function shots(label: string): Promise<void> {
   // the comparison the page exists to show is never captured.
   await view(browser, out, "board-done", "dark", 1440, 950, (p) => p.click('button.stat[data-value="done"]'), problems);
   await view(browser, out, "settings-open", "dark", 1440, 950, (p) => p.click("#cog"), problems);
+  // The same panel where it has the least room. It floats beside the rail
+  // rather than filling a header row, so how wide it is and whether it still
+  // fits above its own button are questions only a narrow capture answers.
+  await view(browser, out, "settings-narrow", "light", 430, 900, (p) => p.click("#cog"), problems);
   // The judge's column folded away. A state the page can be left in, so it is a
   // state the gate has to have a picture of: the strip at the edge and the
   // board's new width are both things only a capture shows.

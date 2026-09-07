@@ -24,7 +24,64 @@
       <path d="M11 3.2 12.9 8.1 17.8 10 12.9 11.9 11 16.8 9.1 11.9 4.2 10 9.1 8.1Z"/>
       <path d="M18 15.2 18.8 17.2 20.8 18 18.8 18.8 18 20.8 17.2 18.8 15.2 18 17.2 17.2Z"/></svg>
     <i class="rdot" id="railDot" hidden></i></button>
+  <!-- Not a third area. The cog opens a panel over whichever of the two you
+       are already in and leaves you there, so it carries aria-expanded where
+       they carry aria-current, and no data-view for the router to find. It
+       sits at the foot of the rail because that is where a settings control
+       is looked for, and because the top of the rail belongs to the two
+       things this page is actually about. -->
+  <button type="button" class="cog" id="cog" aria-label="Settings" aria-expanded="false"
+    aria-controls="settings" title="Settings">
+    <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"
+      fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"
+      stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg></button>
 </nav>
+<div class="settings" id="settings" hidden>
+  <h2>Settings</h2>
+  <label class="srow">
+    <span>Project</span>
+    <input type="text" id="setProject" placeholder="path to the project to check"
+      spellcheck="false" autocomplete="off">
+    <button type="button" class="mini" id="pickProject">Choose folder</button>
+  </label>
+  <p class="shint">Which repository lookout looks at. Remembered: a server
+    started in this directory comes back pointed here.</p>
+  <label class="srow">
+    <span>Base URL</span>
+    <input type="text" id="setUrl" placeholder="leave empty to use the config"
+      spellcheck="false" autocomplete="off">
+    <button type="button" class="mini" id="saveUrl">Save</button>
+  </label>
+  <p class="shint">Overrides where the targets live. The config still supplies
+    the routes, viewports, state recipes and sign-in hook.</p>
+  <div class="targets" id="setTargets"></div>
+  <!-- Not a <label>, unlike the rows above: a label forwards a click anywhere
+       in the row to its control, and this one is a consent to click the
+       application's own destructive controls. It should take a press on the
+       button and nothing else. -->
+  <div class="srow">
+    <span>Calls to action</span>
+    <span class="val" id="setNavState"></span>
+    <button type="button" class="mini" id="navToggle" aria-pressed="false">Turn on</button>
+  </div>
+  <p class="shint" id="setNavHint"></p>
+  <!-- The one destructive control on the page, kept off the always-visible
+       chrome on purpose: a wipe one click from the run button is a wipe
+       somebody eventually presses by accident. -->
+  <!-- One row per AI lookout can ask to rule on this project. Painted rather
+       than written out, because which AIs those are is lookout's answer and
+       not the page's, and it is the same answer that decides whether a row
+       should exist at all. -->
+  <div id="setJudges"></div>
+  <div class="srow danger">
+    <span>Danger</span>
+    <span class="val">Delete everything lookout found here</span>
+    <button type="button" class="mini warn" id="resetProject">Delete</button>
+  </div>
+  <p class="shint">The backlog, every issue folder with its before and after
+    screenshots, the capture workspace and the queue. None of it is in git.
+    Your settings are kept, so lookout stays pointed at this project.</p>
+</div>
 <header>
   <div class="navtop">
     <h1><span class="dot"></span><span id="ttl">lookout</span></h1>
@@ -37,58 +94,7 @@
     <div class="filters" id="stats"></div>
     <span class="spacer"></span>
     <span class="where" id="where"></span>
-    <div class="acts">
     <button type="button" class="findfix" id="findfix" aria-label="Find and fix"></button>
-    <button type="button" class="cog" id="cog" aria-label="Settings" aria-expanded="false"
-      title="Settings"><svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"
-      fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-      stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg></button>
-    </div>
-  </div>
-  <div class="settings" id="settings" hidden>
-    <label class="srow">
-      <span>Project</span>
-      <input type="text" id="setProject" placeholder="path to the project to check"
-        spellcheck="false" autocomplete="off">
-      <button type="button" class="mini" id="pickProject">Choose folder</button>
-    </label>
-    <p class="shint">Which repository lookout looks at. Remembered: a server
-      started in this directory comes back pointed here.</p>
-    <label class="srow">
-      <span>Base URL</span>
-      <input type="text" id="setUrl" placeholder="leave empty to use the config"
-        spellcheck="false" autocomplete="off">
-      <button type="button" class="mini" id="saveUrl">Save</button>
-    </label>
-    <p class="shint">Overrides where the targets live. The config still supplies
-      the routes, viewports, state recipes and sign-in hook.</p>
-    <div class="targets" id="setTargets"></div>
-    <!-- Not a <label>, unlike the rows above: a label forwards a click anywhere
-         in the row to its control, and this one is a consent to click the
-         application's own destructive controls. It should take a press on the
-         button and nothing else. -->
-    <div class="srow">
-      <span>Calls to action</span>
-      <span class="val" id="setNavState"></span>
-      <button type="button" class="mini" id="navToggle" aria-pressed="false">Turn on</button>
-    </div>
-    <p class="shint" id="setNavHint"></p>
-    <!-- The one destructive control on the page, kept off the always-visible
-         chrome on purpose: a wipe one click from the run button is a wipe
-         somebody eventually presses by accident. -->
-    <!-- One row per AI lookout can ask to rule on this project. Painted rather
-         than written out, because which AIs those are is lookout's answer and
-         not the page's, and it is the same answer that decides whether a row
-         should exist at all. -->
-    <div id="setJudges"></div>
-    <div class="srow danger">
-      <span>Danger</span>
-      <span class="val">Delete everything lookout found here</span>
-      <button type="button" class="mini warn" id="resetProject">Delete</button>
-    </div>
-    <p class="shint">The backlog, every issue folder with its before and after
-      screenshots, the capture workspace and the queue. None of it is in git.
-      Your settings are kept, so lookout stays pointed at this project.</p>
   </div>
 </header>
 <main>
