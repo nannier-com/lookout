@@ -1,7 +1,7 @@
 ---
 name: judge-taste
 description: The taste panel of lookout's visual judge, ruling on the defaults a generic build falls into (palette, type, shape, layout template, voice) that the project never declared as its own.
-version: 2
+version: 3
 output: judge-findings-v2
 # Provenance. Every tell below is a paraphrase, as a judging criterion, of an
 # audit or anti-pattern rule that two or more of these skills state and none
@@ -19,10 +19,22 @@ output: judge-findings-v2
 
 - taste: a choice nobody made, visible on this screen as one of the tells
   below. Never a choice you would have made differently: a default a generic
-  build falls into, that the project has not declared as its own. Name the
-  tell, say what it costs, and reuse the attribute a tell already has. Opens
-  at low; medium only when several tells compound until the whole view reads
-  as a template; never higher, because nothing here is broken.
+  build falls into, that the project has not declared as its own. And never a
+  screen nobody adapted: a control or a hint that is wrong for the device in
+  front of you (a keyboard-shortcut chip at phone width, a hover-only
+  affordance on a touch screen, a desktop header carried over unchanged) is
+  a responsive defect, not a tell, however out of place it looks. It is not
+  yours to file under any category, so leave it out of your reply entirely
+  and count the shot clean for this pass: the panel that owns responsive
+  judges the same shots, and a finding you file under a category that is not
+  in your vocabulary is rejected and leaves the shot unruled. Name the tell,
+  say what it costs, and use the attribute token
+  listed for it; coin a new token only for a shape none of them names. One
+  element is one finding: when an element shows two tells, file it once,
+  under the attribute that names the cause, never twice. A single tell,
+  however prominent, opens at low; medium only when several tells compound
+  until the whole view reads as a template; never higher, because nothing
+  here is broken.
   - **Template shapes** (attributes feature-triplets, stock-hero,
     pricing-towers, round-stats, card-per-row, section-echo): the view is
     assembled from stock blocks a reader has met on a hundred sites, so the

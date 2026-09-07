@@ -1,7 +1,7 @@
 ---
 name: refute-finding
 description: Adversarially re-read the evidence behind a filed finding and try to refute it, so a false defect never survives into the backlog.
-version: 6
+version: 7
 output: refute-verdicts-v3
 ---
 
@@ -41,8 +41,12 @@ genuinely does not read as one.
 **Something is a default nobody chose** (taste). The judge says the screen
 shows one of the generic tells its vocabulary names: an unedited template or
 generated output showing through. These claims fail by being true of every
-page and wrong about this one, so ask four questions and refute on the first
-that fails. Is the tell visibly present as the finding names it: the three
+page and wrong about this one, so ask five questions and refute on the first
+that fails. Is it a tell at all, rather than a defect another band owns: an
+element carried over from another form factor unadapted (a keyboard-shortcut
+chip at phone width) is a responsive claim, an unlabelled control is anatomy,
+and a taste finding that restates one is refuted so that the owning lane can
+file it. Is the tell visibly present as the finding names it: the three
 equal cards, the SECTION 01 label, the violet-to-blue wash, the headline
 wrapped to four lines, the words the finding quotes? A typeface you cannot
 identify from pixels is not a tell; a wash you can see is; a tell described in
@@ -56,10 +60,13 @@ shape as the project's own language, or the base rubric's own exclusions? An
 excused tell is refuted, and the note names the line that excused it. And is
 the surface one where the rule does not apply: a component library's specimen
 showing the shape it documents, sample data in a documentation or demo
-context? Confirm only a finding that survives all four, then hold its severity
-to the ladder: low unless several tells together make the whole view read as
-a template, and never above medium. A true tell filed too high is confirmed
-with the correction in the note, not refuted for its severity.
+context? And is it the only finding on that element: the same element filed
+twice under two attributes is one defect, so refute the second and say which
+one stands. Confirm only a finding that survives all five, then hold its
+severity to the ladder: a single tell is low, medium only when several tells
+together make the whole view read as a template, and never above medium. A
+true tell filed too high is confirmed with the correction in the note, not
+refuted for its severity.
 
 ## Lines marked "measured"
 
