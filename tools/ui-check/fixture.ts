@@ -13,7 +13,7 @@
  * comparison between two runs is meaningless.
  */
 import { execFileSync } from "node:child_process";
-import { mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import sharp from "sharp";
 import { evidenceDir } from "../../src/config.js";
@@ -157,11 +157,37 @@ async function freeze(
   writeFileSync(join(lk, "issues", id, "frames.json"), JSON.stringify(manifest, null, 2) + "\n");
 }
 
-export async function buildFixture(root: string): Promise<{ project: string; checkout: string }> {
+export async function buildFixture(root: string): Promise<{ project: string; checkout: string; claudeBin: string }> {
   rmSync(root, { recursive: true, force: true });
   const project = join(root, "project");
   const checkout = join(root, "checkout");
+  const claudeBin = join(root, "bin", "claude");
   const lk = join(project, ".lookout");
+  mkdirSync(join(root, "bin"), { recursive: true });
+  writeFileSync(
+    claudeBin,
+    `#!/bin/sh
+case "\${1-}" in
+  --version)
+    printf '%s\\n' '9.9.9 (Claude Code)'
+    ;;
+  --help)
+    cat <<'EOF'
+Options:
+  --model <model>                       Model for the current session. Provide
+                                        an alias such as 'sonnet', 'opus',
+                                        'haiku', or 'fable'.
+  -n, --name <name>                     Set a display name for this session
+EOF
+    ;;
+  *)
+    printf '%s\\n' 'the UI fixture Claude CLI only supports --version and --help' >&2
+    exit 64
+    ;;
+esac
+`,
+  );
+  chmodSync(claudeBin, 0o755);
   mkdirSync(project, { recursive: true });
   const resolved: ResolvedConfig = {
     config: { targets: [{ name: "app", url: "http://127.0.0.1:5999", routes: ["/", "/settings"] }] },
@@ -909,7 +935,7 @@ export async function buildFixture(root: string): Promise<{ project: string; che
   // the capture report, the plans, the sidecar, the state.
   await writeDocuments(resolved, backlog, lk, [INTENTIONAL_ISSUE]);
 
-  return { project, checkout };
+  return { project, checkout, claudeBin };
 }
 
 /**

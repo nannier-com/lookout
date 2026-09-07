@@ -27,6 +27,11 @@ bun run test:ui                                # fixture + server + shots + driv
 and always stops the server it started. Chromium must already be installed;
 the shared validation action installs it before this command.
 
+The fixture supplies its own executable Claude CLI probe with fixed version and
+model help output. The UI gate sets `LOOKOUT_CLAUDE_BIN` to that executable, so
+it never invokes a developer's installed CLI and behaves the same on CI hosts
+where Claude Code is absent.
+
 Everything lands under `.lookout-ui-check/` in the repo root, which is ignored.
 
 A refactor should come out of `diff` identical, or differing only in a clock:

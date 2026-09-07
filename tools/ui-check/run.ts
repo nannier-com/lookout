@@ -28,10 +28,11 @@ const WORK = join(ROOT, ".lookout-ui-check");
 let port = Number(process.env.UI_CHECK_PORT ?? 7399);
 let url = `http://127.0.0.1:${port}/`;
 
-function fixturePaths(): { project: string; checkout: string } {
+function fixturePaths(): { project: string; checkout: string; claudeBin: string } {
   return {
     project: join(WORK, "fixture", "project"),
     checkout: join(WORK, "fixture", "checkout"),
+    claudeBin: join(WORK, "fixture", "bin", "claude"),
   };
 }
 
@@ -174,11 +175,16 @@ async function waitUntilExit(child: ChildProcess): Promise<void> {
 
 /** Start the same source or installed CLI that a person runs. */
 function startServer(): ChildProcess {
-  const { project, checkout } = fixturePaths();
+  const { project, checkout, claudeBin } = fixturePaths();
   const cli = process.env.UI_CHECK_CLI ?? join(ROOT, "src", "cli.ts");
   return spawn(process.execPath, [cli, "ui", "--port", String(port)], {
     cwd: project,
-    env: { ...process.env, LOOKOUT_CHECKOUT: checkout, LOOKOUT_NO_HANDOFF: "1" },
+    env: {
+      ...process.env,
+      LOOKOUT_CHECKOUT: checkout,
+      LOOKOUT_NO_HANDOFF: "1",
+      LOOKOUT_CLAUDE_BIN: claudeBin,
+    },
     stdio: "inherit",
   });
 }
