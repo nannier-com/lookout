@@ -758,6 +758,21 @@ async function drivePage(page: Page): Promise<number> {
     (await page.locator("#where").getAttribute("data-notice")) === "false");
   check("and it still names that project", (await page.locator('[data-testid="set-project"]').inputValue()) === served);
 
+  // Pressing play, last, because the refusal it leaves stays on screen. The
+  // fixture's target is a port nothing serves, so the server answers 409 with
+  // the reason, and the only thing under test is whether the page repeats it.
+  // It used to discard the reply entirely: the button ran, was refused, and
+  // said nothing, which is indistinguishable from a button wired to nothing.
+  check("play is offered", await page.locator('[data-testid="find-fix"]').isEnabled());
+  await page.locator('[data-testid="find-fix"]').click();
+  await page.waitForTimeout(1500);
+  check("a refused run says why",
+    (await page.locator("#where").getAttribute("data-notice")) === "true");
+  const said = (await page.locator("#where").innerText()).trim();
+  check("and names the target it could not reach", said.includes("5999"), said.split("\n")[0] ?? "");
+  check("and no run was started",
+    ((await (await page.request.get(url + "api/status")).json()) as { status?: { checkRunning?: boolean } }).status?.checkRunning !== true);
+
   console.log(problems.length ? `\nPROBLEMS:\n${problems.join("\n")}` : "\nno page or console errors");
   return failed + problems.length;
 }

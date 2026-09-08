@@ -51,10 +51,24 @@ function AppFrame(): React.JSX.Element {
   const [notice, setNotice] = useState<string | null>(null);
   const shotOpener = useRef<HTMLElement | null>(null);
 
+  // Reconciling what the browser remembered against the tools actually here,
+  // but NOT against the empty list this starts on: that list is the fetch not
+  // having landed yet, and treating it as a machine with no tools on it threw
+  // the remembered selection away on every refresh, a moment before the real
+  // list arrived. So an empty list means "not yet", and the reconciliation
+  // waits for one with something in it.
   useEffect(() => {
+    const first = data.tools[0];
+    if (!first) return;
     setSelectedTools((current) => {
       const kept = current.filter((key) => data.tools.some((tool) => tool.key === key));
-      return kept.length ? kept : data.tools[0] ? [data.tools[0].key] : [];
+      // Nothing survived, including the empty selection a browser that has
+      // never been here starts with: fall back to the first tool, because a
+      // selection of none leaves the play button with nobody to hand an issue
+      // to. Everything survived: leave the array alone rather than replace it
+      // with an equal one, which is a render nothing asked for.
+      if (!kept.length) return [first.key];
+      return kept.length === current.length ? current : kept;
     });
   }, [data.tools]);
   useEffect(() => { if (area === "learning") void data.loadLearning(); }, [area, data.loadLearning, data.status?.status.learning]);
@@ -84,6 +98,24 @@ function AppFrame(): React.JSX.Element {
     }
     setNotice(null);
     await data.refreshSettings();
+    await data.refresh();
+  };
+  // Starting a run is a request the server is entitled to refuse, and it
+  // refuses for reasons a person can act on: a target that is down, a device
+  // that is not booted, an issue being fixed in that tree right now. It says
+  // which, in the 409 it answers with. Discarding that answer is what made
+  // this button look like it was not wired to anything.
+  const toggleRun = async (): Promise<void> => {
+    try {
+      const response = await post(data.status?.status.checkRunning ? "/api/stop" : "/api/check");
+      const payload = await response.json() as { reason?: string; error?: string };
+      const refusal = payload.reason ?? payload.error ?? `Request failed with status ${response.status}`;
+      setNotice(response.ok ? null : refusal);
+    } catch (error) {
+      // A server that has gone away is the one refusal with no reply to read,
+      // and it is the one where silence is least defensible.
+      setNotice(String(error));
+    }
     await data.refresh();
   };
   const toggleTool = (key: string): void => {
@@ -151,7 +183,7 @@ function AppFrame(): React.JSX.Element {
       <View style={{ padding: phone ? 12 : 16, borderBottomWidth: 1, borderBottomColor: tokens.border }} {...({ role: "banner" } as object)}><Column snug>
         <Row between alignCenter wrap snug><Column tight><Typography h1 tightLeading>{data.status?.project ? `lookout · ${data.status.project}` : "lookout"}</Typography><Row snug><Typography tiny muted>{status?.runId ? status.phase : "no run recorded yet"}</Typography>{status?.startedAt ? <RunClock startedAt={status.startedAt} endedAt={status.endedAt} running={status.running} lastEventAt={status.lastEventAt} /> : null}</Row></Column>
           <Row snug alignCenter wrap><View nativeID="toolToggle"><Row tight>{data.tools.map((tool) => { const selected = selectedTools.includes(tool.key); const hint = tool.installed ? `Work issues in ${tool.label}; select both and they take turns on the same issue` : `${tool.bin} is not on PATH; the command is shown so you can run it yourself`; return <View key={tool.key} testID="tool-choice" {...({ title: hint, dataSet: { tool: tool.key, selected: String(selected), missing: String(!tool.installed) } } as object)}><Button small secondary={selected} ghost={!selected} testID={`tool-${tool.key}`} accessibilityLabel={`${tool.label}, ${selected ? "selected" : "not selected"}`} onPress={() => toggleTool(tool.key)} iconLeft={<Image source={markSource(tool.mark, selected ? tokens["secondary-foreground"] : tokens.foreground)} width={16} height={16} contain alt="" />}>{tool.label}</Button></View>; })}</Row></View>
-            <View nativeID="findfix"><Button primary icon accessibilityLabel={runHint} testID="find-fix" disabled={status?.checkStopping || !data.status?.configured} onPress={() => void post(status?.checkRunning ? "/api/stop" : "/api/check").then(data.refresh)} iconLeft={<Icon primaryForeground decorative {...(status?.checkRunning ? { square: true } : { play: true })} />} /></View>
+            <View nativeID="findfix"><Button primary icon accessibilityLabel={runHint} testID="find-fix" disabled={status?.checkStopping || !data.status?.configured} onPress={() => void toggleRun()} iconLeft={<Icon primaryForeground decorative {...(status?.checkRunning ? { square: true } : { play: true })} />} /></View>
           </Row>
         </Row>
         <Row between alignCenter wrap snug><View nativeID="stats" style={{ minWidth: 0, ...(phone ? { width: "100%" } : {}) }}>{phone ? <ScrollView horizontal><Row snug>{statControls}{filter ? <Button small ghost testID="clear-filter" onPress={() => setFilter(null)}>Clear</Button> : null}</Row></ScrollView> : <Row snug wrap>{statControls}{filter ? <Button small ghost testID="clear-filter" onPress={() => setFilter(null)}>Clear</Button> : null}</Row>}</View><View nativeID="where" style={{ minWidth: 0, maxWidth: "100%", overflow: "hidden" }} {...({ title: notice ? `${notice}\n\n${data.status?.projectDir ?? ""}` : data.status?.projectDir ?? "", dataSet: { notice: String(!!notice) } } as object)}>{notice ? <Alert destructive description={notice} /> : <Typography tiny muted style={{ flexShrink: 1 }}>{data.status?.projectDir ?? ""}</Typography>}</View></Row>
