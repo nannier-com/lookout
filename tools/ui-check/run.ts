@@ -763,15 +763,58 @@ async function drivePage(page: Page): Promise<number> {
   // the reason, and the only thing under test is whether the page repeats it.
   // It used to discard the reply entirely: the button ran, was refused, and
   // said nothing, which is indistinguishable from a button wired to nothing.
+  // The settings panel is still open from the block above and covers the
+  // header, so it goes first: a click that lands on a drawer is not a test of
+  // the button underneath it.
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(900);
+  check("the header is reachable again", !(await page.locator("#settings").isVisible()));
   check("play is offered", await page.locator('[data-testid="find-fix"]').isEnabled());
+  // What the server says about this exact request, asked first, so the check
+  // below is about the page repeating the answer rather than about which of
+  // the refusals the fixture happens to earn.
+  const refusal = ((await (await page.request.post(url + "api/check")).json()) as { reason?: string }).reason ?? "";
+  check("the server refuses a run in this fixture", refusal.length > 0, refusal.split("\n")[0] ?? "");
+  // A refusal is answered 409, which the browser logs as a failed fetch. Same
+  // as the 400 above: the shape of a refusal working, so the entries this one
+  // press provokes are dropped rather than left to fail the watch that exists
+  // to catch the unexpected ones.
+  const runNoiseFrom = problems.length;
   await page.locator('[data-testid="find-fix"]').click();
   await page.waitForTimeout(1500);
+  problems.splice(
+    runNoiseFrom,
+    problems.length - runNoiseFrom,
+    ...problems.slice(runNoiseFrom).filter((entry) => !/status of 409/.test(entry)),
+  );
   check("a refused run says why",
     (await page.locator("#where").getAttribute("data-notice")) === "true");
   const said = (await page.locator("#where").innerText()).trim();
-  check("and names the target it could not reach", said.includes("5999"), said.split("\n")[0] ?? "");
+  check("and it is what the server said", said.includes(refusal.split("\n")[0] ?? "\u0000"), said.split("\n")[0] ?? "");
   check("and no run was started",
     ((await (await page.request.get(url + "api/status")).json()) as { status?: { checkRunning?: boolean } }).status?.checkRunning !== true);
+
+  // The tool picker across a reload, last because it reloads. The page writes
+  // the selection down, and used to reconcile what it read back against a tool
+  // list that had not arrived yet: every key looked unknown, so the selection
+  // collapsed to the first tool on every refresh while the browser went on
+  // remembering the right answer. Nothing but a reload catches that.
+  const picked = async (): Promise<string> =>
+    (await page.locator('[data-testid="tool-choice"]').evaluateAll((nodes) =>
+      nodes.filter((n) => n.getAttribute("data-selected") === "true")
+        .map((n) => n.getAttribute("data-tool")).join(","))) ;
+  const both = page.locator('#toolToggle [data-testid="tool-choice"]');
+  if ((await both.count()) > 1) {
+    if ((await both.nth(1).getAttribute("data-selected")) !== "true") {
+      await both.nth(1).locator("button").click();
+      await page.waitForTimeout(700);
+    }
+    const chosen = await picked();
+    check("two tools are selected to reload with", chosen.split(",").length === 2, chosen);
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForTimeout(1500);
+    check("the picker comes back as it was left", (await picked()) === chosen, `${chosen} -> ${await picked()}`);
+  }
 
   console.log(problems.length ? `\nPROBLEMS:\n${problems.join("\n")}` : "\nno page or console errors");
   return failed + problems.length;
