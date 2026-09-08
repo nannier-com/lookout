@@ -10,7 +10,13 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { newestSourceMtime, staleReason, staleTargets, STALE_SLACK_MS } from "../src/freshness.js";
+import {
+  newestSourceMtime,
+  staleReason,
+  staleStamp,
+  staleTargets,
+  STALE_SLACK_MS,
+} from "../src/freshness.js";
 import type { TargetStatus } from "../src/targets.js";
 
 /** Seconds since the epoch for a file written at a chosen moment. */
@@ -171,5 +177,36 @@ describe("staleReason", () => {
     expect(reason).toContain("rebuild and restart");
     // lookout never does it for them, and the wording must not imply it will.
     expect(reason).not.toContain("restarting");
+  });
+
+  test("reports every stale target, not just the worst", () => {
+    const reason = staleReason(
+      [
+        status({ name: "docs", servedAt: now - 10 * 60_000 }),
+        status({ name: "app", url: "http://localhost:4000", servedAt: now - 90 * 60_000 }),
+      ],
+      now,
+    );
+    expect(reason).toContain("docs:");
+    expect(reason).toContain("app:");
+  });
+});
+
+describe("staleStamp", () => {
+  test("is empty when nothing was stale, so a clean run's flags stay clean", () => {
+    expect(staleStamp([])).toEqual([]);
+  });
+
+  test("dates the evidence in a form a report reader can act on", () => {
+    const now = Date.now();
+    const served = now - 47 * 60_000;
+    const [stamp] = staleStamp(staleTargets([status({ servedAt: served })], now));
+    expect(stamp?.target).toBe("web");
+    expect(stamp?.url).toBe("http://localhost:3000");
+    expect(stamp?.behindMinutes).toBe(47);
+    // ISO rather than epoch milliseconds: this is printed into an issue
+    // document, where a number tells the reader nothing.
+    expect(stamp?.servedAt).toBe(new Date(served).toISOString());
+    expect(stamp?.newestSource).toBe(new Date(now).toISOString());
   });
 });

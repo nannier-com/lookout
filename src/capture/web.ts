@@ -28,6 +28,7 @@ import { attachConsoleCollector } from "./checks.js";
 import { markIndicatorReadback, markSchemeMismatches } from "./web-page.js";
 import { captureRoute } from "./web-route.js";
 import type { RouteHarvest, RoutePlan } from "../navigate/store.js";
+import type { StaleStamp } from "../freshness.js";
 import { nowIso } from "../util.js";
 
 export interface WebCaptureOptions {
@@ -57,6 +58,12 @@ export interface WebCaptureOptions {
    */
   edgeClip: boolean;
   runId: string;
+  /**
+   * Targets whose served build looked older than the source when the run
+   * started, so the run records its own doubt. Absent when there was no reason
+   * to doubt it, which keeps a clean run's flags clean.
+   */
+  staleBuild?: StaleStamp[];
   onProgress?: (line: string) => void;
   /**
    * Called as each shot lands, not at the end of the run. Anything watching a
@@ -169,6 +176,11 @@ export async function captureWeb(
         states: opts.states,
         settleMs: opts.settleMs,
         navigation: !!opts.navigation,
+        // Only when there was something to doubt: a flag that is always
+        // present stops being read.
+        ...(opts.staleBuild && opts.staleBuild.length > 0
+          ? { staleBuild: opts.staleBuild }
+          : {}),
       },
       failures,
       skips: [],

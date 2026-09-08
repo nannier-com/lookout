@@ -168,17 +168,12 @@ export function staleTargets(
 
 /**
  * Why this run's evidence may not show the current code, or null when there is
- * no reason to doubt it. The sibling of `downReason()`: a value rather than a
- * throw, so the caller decides whether it warns or blocks. Nothing calls this
- * and then refuses a run, because lookout never starts or rebuilds anything and
- * a warning the operator can act on beats a run they cannot make happen.
+ * no reason to doubt it. A value rather than a throw, so the caller decides
+ * whether it warns or blocks. Nothing calls this and then refuses a run:
+ * lookout never starts or rebuilds anything, and a warning the operator can act
+ * on beats a run they cannot make happen.
  */
-export function staleReason(
-  statuses: readonly TargetStatus[],
-  newestSource: number | null,
-  slackMs = STALE_SLACK_MS,
-): string | null {
-  const stale = staleTargets(statuses, newestSource, slackMs);
+export function staleMessage(stale: readonly StaleTarget[]): string | null {
   if (stale.length === 0) return null;
   const lines = stale.map(
     (s) =>
@@ -189,4 +184,38 @@ export function staleReason(
     "  lookout photographs what is served, not what is written; rebuild and restart\n" +
     "  the server before trusting this run"
   );
+}
+
+/** The sibling of `downReason()`, from statuses rather than a computed list. */
+export function staleReason(
+  statuses: readonly TargetStatus[],
+  newestSource: number | null,
+  slackMs = STALE_SLACK_MS,
+): string | null {
+  return staleMessage(staleTargets(statuses, newestSource, slackMs));
+}
+
+/**
+ * What a suspect run records about itself, in a shape a report can print.
+ *
+ * Timestamps become ISO strings here because this ends up in a run's flags and
+ * from there in an issue document, where epoch milliseconds tell a reader
+ * nothing about whether the evidence was worth trusting.
+ */
+export interface StaleStamp {
+  target: string;
+  url: string;
+  behindMinutes: number;
+  servedAt: string;
+  newestSource: string;
+}
+
+export function staleStamp(stale: readonly StaleTarget[]): StaleStamp[] {
+  return stale.map((s) => ({
+    target: s.name,
+    url: s.url,
+    behindMinutes: s.behindMinutes,
+    servedAt: new Date(s.servedAt).toISOString(),
+    newestSource: new Date(s.newestSource).toISOString(),
+  }));
 }

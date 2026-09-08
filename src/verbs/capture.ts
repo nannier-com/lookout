@@ -7,6 +7,7 @@
 import { join } from "node:path";
 import { assertTargetsAllowed, evidenceDir, loadConfig } from "../config.js";
 import { preflight, requireUp, resolveTargets } from "../targets.js";
+import { newestSourceMtime, staleMessage, staleStamp, staleTargets } from "../freshness.js";
 import { captureWeb, type WebCaptureOptions } from "../capture/web.js";
 import { mergeRun, loadReport } from "../capture/store.js";
 import {
@@ -82,10 +83,28 @@ export async function runCapture(parsed: Parsed): Promise<{
   // them. A native-only project has no server to answer, and asking one to
   // would stop every run before a device was ever looked at.
   const nativePlatforms = platforms.filter((p): p is "ios" | "android" => p !== "web");
+  const webStatuses = platforms.includes("web") ? await preflight(targets) : [];
   requireUp(
-    platforms.includes("web") ? await preflight(targets) : [],
+    webStatuses,
     deviceDownReason(await preflightDevices(resolved.config, nativePlatforms)),
   );
+
+  // Evidence that predates the code is worse than no evidence: the page renders
+  // clean, the verdict reads clean, and both describe a build nobody is running
+  // any more. Warn and stamp rather than refuse, because lookout never rebuilds
+  // or restarts anything and only the operator can make the run worth having.
+  // Only a server that dated what it served can be compared against the source,
+  // so a hot-reload project never pays for the walk.
+  const stale = webStatuses.some((s) => s.servedAt !== null)
+    ? staleTargets(webStatuses, newestSourceMtime(resolved.projectDir))
+    : [];
+  const staleWarning = staleMessage(stale);
+  if (staleWarning) {
+    console.error(`lookout: ${staleWarning}`);
+    emit("note", "capturing against a build older than the source", {
+      staleBuild: staleStamp(stale),
+    });
+  }
 
   const axeFlag = str(parsed.flags.axe) ?? "route";
   if (!["route", "all", "off"].includes(axeFlag)) {
@@ -105,6 +124,7 @@ export async function runCapture(parsed: Parsed): Promise<{
     aria: resolved.config.aria !== false && !parsed.flags["no-aria"],
     edgeClip: !parsed.flags["no-edge-clip"],
     runId: runId("web"),
+    staleBuild: stale.length > 0 ? staleStamp(stale) : undefined,
     onProgress: (line) => {
       if (!quiet) console.log(line);
       emit(line.startsWith("FAIL") ? "error" : "phase", line);
