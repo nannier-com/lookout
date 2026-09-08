@@ -1,31 +1,40 @@
 /**
- * The page's own files: its stylesheets, and its script modules.
+ * The page's self-contained Vite bundle.
  *
- * These used to be strings compiled into the server. Serving them as files is
- * what lets them be real source: `client/` is type-checked with the rest of the
- * codebase and linted like it, and the browser loads the emitted modules
- * directly, so there is no bundler and nothing to keep in step.
+ * Vite owns the browser dependency graph and emits React, React Native Web,
+ * Canvas, and the client into one installable asset set. The server never asks
+ * a package consumer to resolve those build inputs at runtime.
  *
- * The directory is resolved against this module's own URL, which is `src/ui/`
- * in a checkout and `dist/ui/` in an install. The build emits the modules there
- * and copies the stylesheets beside them, so one path answers for both and
- * neither has to know which it is.
+ * An installed copy serves the bundle beside this module. A source checkout
+ * serves `dist/ui/client`; before returning it, the checkout compares the
+ * client source and Vite config mtimes with the emitted shell and rebuilds when
+ * source is newer. This keeps edit and reload intact without making package
+ * installs carry Vite or Canvas.
  *
- * From a checkout there is no emitted `.js` to serve, only the `.ts` it is
- * built from, and a browser cannot read that. Rather than make `lookout ui`
- * refuse to run until somebody remembers to build, the source is transpiled on
- * the way out: types stripped, nothing else touched. lookout already runs under
- * bun, so this costs a millisecond and no dependency, and it means the edit,
- * reload loop on this page needs no build step at all. An install never takes
- * that path, because the emitted file is right there.
+ * The comparison is synchronous because page serving is synchronous and only
+ * a checkout can enter it. Once built, ordinary requests are just stat calls.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { extname, join } from "node:path";
 import { MIME, text } from "./http.js";
 
 export function clientDir(): string {
-  return fileURLToPath(new URL("./client/", import.meta.url));
+  const beside = fileURLToPath(new URL("./client/", import.meta.url));
+  if (!import.meta.url.endsWith("/src/ui/assets.ts")) return beside;
+  const root = join(beside, "..", "..", "..");
+  const built = join(root, "dist", "ui", "client");
+  const shell = join(built, "shell.html");
+  const emittedAt = existsSync(shell) ? statSync(shell).mtimeMs : 0;
+  const sourceAt = Math.max(
+    statSync(join(root, "vite.config.ts")).mtimeMs,
+    ...readdirSync(beside).map((name) => statSync(join(beside, name)).mtimeMs),
+  );
+  if (sourceAt > emittedAt) {
+    execFileSync(process.execPath, ["x", "vite", "build"], { cwd: root, stdio: "inherit" });
+  }
+  return built;
 }
 
 /**
@@ -46,13 +55,10 @@ const SAFE_NAME = /^[a-z0-9-]+\.(css|js|map)$/i;
  * links has to be one this can find, and a stylesheet renamed without its link
  * should fail the build rather than the browser.
  */
-export function clientAsset(name: string): { path: string; transpile: boolean } | null {
+export function clientAsset(name: string): { path: string } | null {
   if (!SAFE_NAME.test(name)) return null;
   const built = join(clientDir(), name);
-  if (existsSync(built)) return { path: built, transpile: false };
-  if (!name.endsWith(".js")) return null;
-  const source = join(clientDir(), name.slice(0, -3) + ".ts");
-  return existsSync(source) ? { path: source, transpile: true } : null;
+  return existsSync(built) ? { path: built } : null;
 }
 
 export function serveClient(name: string): Response {
@@ -69,14 +75,5 @@ export function serveClient(name: string): Response {
     // a reload, and these files are read off local disk anyway.
     "cache-control": "no-store",
   };
-  if (!asset.transpile) return new Response(Bun.file(asset.path), { headers });
-  try {
-    const ts = readFileSync(asset.path, "utf8");
-    return new Response(
-      new Bun.Transpiler({ loader: "ts", target: "browser" }).transformSync(ts),
-      { headers },
-    );
-  } catch (e) {
-    return text(500, `lookout could not read ${name}: ${(e as Error).message}`);
-  }
+  return new Response(Bun.file(asset.path), { headers });
 }

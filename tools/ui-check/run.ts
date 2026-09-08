@@ -16,6 +16,7 @@
  * file for the manual order.
  */
 import { chromium, type Page } from "playwright";
+import AxeBuilder from "@axe-core/playwright";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
 import { mkdirSync, readdirSync, existsSync } from "node:fs";
@@ -85,32 +86,34 @@ async function shots(label: string): Promise<number> {
     await view(browser, out, "board-dark", "dark", 1440, 950, nothing, problems);
     await view(browser, out, "board-light", "light", 1440, 950, nothing, problems);
     await view(browser, out, "board-narrow", "light", 430, 900, nothing, problems);
-    await view(browser, out, "board-filtered", "dark", 1440, 950, (p) => p.click('button.stat[data-value="archived"]'), problems);
+    await view(browser, out, "board-filtered", "dark", 1440, 950, (p) => p.click('[data-testid="stat-archived"]'), problems);
     // The settled issue, which is the only card carrying both halves of a pre and
     // post fix pair. It is filtered off the default board, so without this view
     // the comparison the page exists to show is never captured.
-    await view(browser, out, "board-done", "dark", 1440, 950, (p) => p.click('button.stat[data-value="done"]'), problems);
-    await view(browser, out, "settings-open", "dark", 1440, 950, (p) => p.click("#cog"), problems);
+    await view(browser, out, "board-done", "dark", 1440, 950, (p) => p.click('[data-testid="stat-done"]'), problems);
+    await view(browser, out, "settings-open", "dark", 1440, 950, (p) => p.click('[data-testid="settings-button"]'), problems);
     // The same panel where it has the least room. It floats beside the rail
     // rather than filling a header row, so how wide it is and whether it still
     // fits above its own button are questions only a narrow capture answers.
-    await view(browser, out, "settings-narrow", "light", 430, 900, (p) => p.click("#cog"), problems);
+    await view(browser, out, "settings-narrow", "light", 430, 900, (p) => p.click('[data-testid="settings-button"]'), problems);
     // The judge's column folded away. A state the page can be left in, so it is a
     // state the gate has to have a picture of: the strip at the edge and the
     // board's new width are both things only a capture shows.
-    await view(browser, out, "judge-shut", "dark", 1440, 950, (p) => p.click("#streamFold"), problems);
-    await view(browser, out, "learning-dark", "dark", 1440, 950, (p) => p.click('[data-view="learning"]'), problems);
-    await view(browser, out, "learning-light", "light", 1440, 950, (p) => p.click('[data-view="learning"]'), problems);
-    await view(browser, out, "learning-narrow", "dark", 430, 900, (p) => p.click('[data-view="learning"]'), problems);
+    await view(browser, out, "judge-shut", "dark", 1440, 950, (p) => p.click('[data-testid="judge-fold"]'), problems);
+    await view(browser, out, "learning-dark", "dark", 1440, 950, (p) => p.click('[data-testid="area-learning"]'), problems);
+    await view(browser, out, "learning-light", "light", 1440, 950, (p) => p.click('[data-testid="area-learning"]'), problems);
+    await view(browser, out, "learning-narrow", "dark", 430, 900, (p) => p.click('[data-testid="area-learning"]'), problems);
     // The shot inspector over the one fixture shot that carries a sidecar: the
     // archived card's live tile (cards with frozen frames show the frames,
     // which are copies and never advertise). Deterministic because the hint is
     // painted on open and a box is clicked rather than hovered.
     const openTile = async (p: Page): Promise<void> => {
-      await p.click('button.stat[data-value="archived"]');
-      await p.click("a.tile[data-prov]");
-      await p.waitForTimeout(400);
-      await p.click('.svbox[aria-label*="Heading.tsx"]');
+      await p.click('[data-testid="stat-archived"]');
+      await p.click('[data-testid="shot-prov"]');
+      const box = p.locator('[data-testid="shot-box"][aria-label*="Heading.tsx"]');
+      await box.waitFor({ state: "visible" });
+      await p.waitForTimeout(1_000);
+      await box.click();
     };
     await view(browser, out, "shot-overlay-dark", "dark", 1440, 950, openTile, problems);
     await view(browser, out, "shot-overlay-light", "light", 1440, 950, openTile, problems);
@@ -287,16 +290,25 @@ async function drivePage(page: Page): Promise<number> {
     if (!ok) failed++;
     console.log(`${ok ? "pass  " : "FAIL  "}${name}${detail ? `  ${detail}` : ""}`);
   };
-  const shown = (): Promise<string[]> => page.locator("article.card .issueid").allTextContents();
+  const checkAccessibility = async (name: string): Promise<void> => {
+    const result = await new AxeBuilder({ page }).analyze();
+    check(
+      `${name} has no automated accessibility violations`,
+      result.violations.length === 0,
+      result.violations.map((violation) => `${violation.id}: ${violation.nodes.length}`).join(", "),
+    );
+  };
+  const shown = (): Promise<string[]> => page.locator('[data-testid="issue-card"] [data-testid="issue-id"]').allTextContents();
 
   const before = await shown();
   check("board renders cards", before.length > 0, `ids=${before.join(",")}`);
+  await checkAccessibility("board");
 
   // The document link, on every card, followed rather than counted. A card
   // linking a 404 is indistinguishable from one linking a document until
   // somebody clicks it, and the URL is spelled in the client and matched in the
   // server, so the only check worth making is whether the file comes back.
-  const docs = page.locator("article.card a.doc");
+  const docs = page.locator('[data-testid="issue-card"] [data-testid="issue-doc"]');
   const links = await docs.count();
   check("every card links its document", links === before.length, `${links} links for ${before.length} cards`);
   const href = links > 0 ? await docs.first().getAttribute("href") : null;
@@ -308,7 +320,7 @@ async function drivePage(page: Page): Promise<number> {
   // The fixture has one issue in each of open, adjudicated and settled, and the
   // board shows one status at a time, so what a filter changes is which card is
   // on the board, not how many.
-  await page.click('button.stat[data-value="archived"]');
+  await page.click('[data-testid="stat-archived"]');
   await page.waitForTimeout(1200);
   const during = await shown();
   check("filter changes which issues show", during.join() !== before.join(), `${before.join(",")} -> ${during.join(",")}`);
@@ -325,72 +337,79 @@ async function drivePage(page: Page): Promise<number> {
   // it to the first rather than replacing it, because two selected means they
   // take turns on one issue. The last one on cannot be turned off, since a
   // selection of nothing leaves the play button with nobody to hand an issue to.
-  const buttons = page.locator("#toolToggle button");
+  const buttons = page.locator('#toolToggle [data-testid="tool-choice"]');
   if ((await buttons.count()) > 1) {
     const first = buttons.nth(0);
     const second = buttons.nth(1);
     const key = await second.getAttribute("data-tool");
-    await second.click();
+    await second.locator("button").click();
     await page.waitForTimeout(1200);
-    check("a second tool can be selected", (await second.getAttribute("aria-pressed")) === "true", String(key));
-    check("selecting one does not deselect the other", (await first.getAttribute("aria-pressed")) === "true");
+    check("a second tool can be selected", (await second.getAttribute("data-selected")) === "true", String(key));
+    check("selecting one does not deselect the other", (await first.getAttribute("data-selected")) === "true");
     const stored = await page.evaluate(() => localStorage.getItem("lookout.tools"));
     check("both are remembered", (stored ?? "").includes(String(key)), String(stored));
-    await second.click();
+    await second.locator("button").click();
     await page.waitForTimeout(900);
-    check("and one can be taken back off", (await second.getAttribute("aria-pressed")) === "false");
-    await first.click();
+    check("and one can be taken back off", (await second.getAttribute("data-selected")) === "false");
+    await first.locator("button").click();
     await page.waitForTimeout(900);
-    check("but never the last one", (await first.getAttribute("aria-pressed")) === "true");
+    check("but never the last one", (await first.getAttribute("data-selected")) === "true");
   } else {
     check("tool toggle has choices", false, `only ${await buttons.count()}`);
   }
 
-  await page.click("#cog");
+  await page.click('[data-testid="settings-button"]');
   await page.waitForTimeout(900);
   check("settings panel opens", await page.locator("#settings").isVisible());
-  check("settings names the project", (await page.locator("#setProject").inputValue()).includes("project"));
-  check("settings probes targets", (await page.locator("#setTargets .tgt").count()) > 0);
+  check("settings names the project", (await page.locator('[data-testid="set-project"]').inputValue()).includes("project"));
+  check("settings probes targets", (await page.locator('[data-testid="settings-targets"] [data-testid="settings-target"]').count()) > 0);
+  await checkAccessibility("settings");
 
   // Pointing the page at another project, which is the one control here that
   // changes what every other area is about. The native chooser beside it is
   // deliberately never clicked: it is a modal the SERVER opens, and a driver
   // that pressed it would block this run until somebody came and dismissed it.
-  check("the folder chooser is offered", await page.locator("#pickProject").isVisible());
+  check("the folder chooser is offered", await page.locator('[data-testid="pick-project"]').isVisible());
 
   // The calls-to-action consent, which lives in this panel. What it has to do
   // is agree with the server: it is consent to click the application's own
   // controls, so a page showing it on while the server has it off would
   // authorize a run nobody asked for, and one showing it off while the server
   // has it on would hide one.
-  const nav = page.locator("#navToggle");
+  const nav = page.locator('[data-testid="nav-toggle"]');
   const navState = page.locator("#setNavState");
   check("the CTA consent is in the settings panel", await nav.isVisible());
-  check("the CTA consent starts off", (await nav.getAttribute("aria-pressed")) === "false");
+  check("the CTA consent starts off", (await nav.getAttribute("aria-checked")) === "false");
   check("and says so in words", ((await navState.textContent()) ?? "").toLowerCase().includes("off"));
   await nav.click();
   await page.waitForTimeout(900);
-  check("clicking it turns it on", (await nav.getAttribute("aria-pressed")) === "true");
+  check("clicking it turns it on", (await nav.getAttribute("aria-checked")) === "true");
   check("the row says it is on", ((await navState.textContent()) ?? "").toLowerCase().includes("on"));
   // What play is about to spend is readable from play itself, which is the one
   // control still on screen once this panel is shut.
   check(
     "play says the run will click things",
-    ((await page.locator("#findfix").getAttribute("title")) ?? "").includes("Calls to action are ON"),
+    ((await page.locator('[data-testid="find-fix"]').getAttribute("aria-label")) ?? "").includes("Calls to action are ON"),
   );
   // The judge's model, which is the other thing in this panel that a run
   // actually spends. The failure worth catching is the panel and the server
   // disagreeing: a box showing a model the next run will not use files its
   // verdicts in the ledger under a name nobody chose.
-  const modelMenu = page.locator('[data-model-menu="claude-code"]');
-  const modelBox = page.locator('[data-model="claude-code"]');
+  const modelMenu = page.locator('[data-testid="model-menu-claude-code"]');
+  const modelBox = page.locator('[data-testid="model-input-claude-code"]');
+  const openModelMenu = async (): Promise<void> => {
+    await modelMenu.evaluate((element) => element.scrollIntoView({ block: "center" }));
+    await page.waitForTimeout(300);
+    await modelMenu.click();
+    await page.getByRole("option").first().waitFor({ state: "visible" });
+  };
   const judgeModel = async (): Promise<string | null | undefined> => {
     const res = await page.request.get(url + "api/settings");
     const judges = ((await res.json()) as { judges?: { key: string; model: string | null }[] }).judges ?? [];
     return judges.find((j) => j.key === "claude-code")?.model;
   };
   const save = async (): Promise<void> => {
-    await page.locator('[data-save-model="claude-code"]').click();
+    await page.locator('[data-testid="save-model-claude-code"]').click();
     await page.waitForTimeout(900);
   };
   check("a model row is offered for the judge", await modelMenu.isVisible());
@@ -398,18 +417,23 @@ async function drivePage(page: Page): Promise<number> {
   // specific one would bake in the very list this menu exists to avoid, so what
   // is checked is that the CLI answered with some names and that the menu
   // starts on lookout's default rather than on one of them.
-  const names = await modelMenu.locator("option").allTextContents();
+  await openModelMenu();
+  const names = await page.getByRole("option").allTextContents();
   check("the menu carries names the installed CLI offered", names.length > 2, names.join(","));
-  check("and it starts on lookout's own default", (await modelMenu.inputValue()) === "", names.join(","));
+  await page.getByRole("option").first().click();
+  await page.waitForTimeout(400);
+  check("and it starts on lookout's own default", ((await modelMenu.textContent()) ?? "").includes("lookout's default"), names.join(","));
   check(
     "the version of the CLI those names came from is under the menu",
-    await page.locator(".sver").filter({ hasText: "Claude Code" }).isVisible(),
+    await page.locator('[data-testid="judge-version"]').filter({ hasText: "Claude Code" }).isVisible(),
   );
   // A name from the menu: the failure worth catching is the panel and the
   // server disagreeing, because a menu showing a model the next run will not
   // use files its verdicts in the ledger under a name nobody chose.
-  const offered = (await modelMenu.locator("option").nth(1).getAttribute("value")) ?? "";
-  await modelMenu.selectOption(offered);
+  const offered = (names[1] ?? "").trim();
+  await openModelMenu();
+  await page.getByRole("option", { name: offered, exact: true }).click();
+  await page.waitForTimeout(400);
   await save();
   check("the server took the model the menu was saved with", (await judgeModel()) === offered, offered);
   // A name the menu does not offer, which is what Custom is for: judging that
@@ -418,7 +442,9 @@ async function drivePage(page: Page): Promise<number> {
   // Picked by the label a person reads rather than by the value behind it: the
   // sentinel is the page's private business, and driving it by label is both
   // what somebody actually does and one less thing for the two to disagree on.
-  await modelMenu.selectOption({ label: "Custom..." });
+  await openModelMenu();
+  await page.getByRole("option", { name: "Custom...", exact: true }).click();
+  await page.waitForTimeout(400);
   check("picking Custom reveals a box to type a name into", await modelBox.isVisible());
   await modelBox.fill("claude-pinned-9-9");
   await save();
@@ -426,11 +452,13 @@ async function drivePage(page: Page): Promise<number> {
   // And that name comes back as Custom rather than being silently dropped: it
   // is not in the menu, so the row has to remember which control it belongs in.
   await page.reload({ waitUntil: "networkidle" });
-  await page.click("#cog");
+  await page.click('[data-testid="settings-button"]');
   await page.waitForTimeout(900);
   check("a pinned name comes back in the box, not lost to the menu", await modelBox.isVisible());
   check("with the box holding it", (await modelBox.inputValue()) === "claude-pinned-9-9");
-  await modelMenu.selectOption("");
+  await openModelMenu();
+  await page.getByRole("option", { name: /lookout's default/, exact: false }).click();
+  await page.waitForTimeout(400);
   await save();
   check("and choosing lookout's default puts it back", (await judgeModel()) === null);
 
@@ -444,12 +472,12 @@ async function drivePage(page: Page): Promise<number> {
   // The panel is shut again after a reload, so the consent has to be found the
   // way a person finds it.
   check("the CTA consent is not on the page until the cog is opened", !(await nav.isVisible()));
-  await page.click("#cog");
+  await page.click('[data-testid="settings-button"]');
   await page.waitForTimeout(900);
-  check("consent outlives a reload", (await nav.getAttribute("aria-pressed")) === "true");
+  check("consent outlives a reload", (await nav.getAttribute("aria-checked")) === "true");
   await nav.click();
   await page.waitForTimeout(900);
-  check("clicking it again withdraws it", (await nav.getAttribute("aria-pressed")) === "false");
+  check("clicking it again withdraws it", (await nav.getAttribute("aria-checked")) === "false");
   check(
     "and the server agrees it is off",
     ((await (await page.request.get(url + "api/settings")).json()) as { navigation?: boolean })
@@ -462,41 +490,27 @@ async function drivePage(page: Page): Promise<number> {
   // this panel to the filter underneath.
   check(
     "the cog says what it will do while the panel is open",
-    (await page.locator("#cog").getAttribute("aria-label")) === "Close settings",
-    (await page.locator("#cog").getAttribute("aria-label")) ?? "",
+    (await page.locator('[data-testid="settings-button"]').getAttribute("aria-label")) === "Close settings",
+    (await page.locator('[data-testid="settings-button"]').getAttribute("aria-label")) ?? "",
   );
   await page.keyboard.press("Escape");
   await page.waitForTimeout(600);
   check("escape dismisses the settings panel", !(await page.locator("#settings").isVisible()));
   check(
     "and the cog offers to open it again",
-    (await page.locator("#cog").getAttribute("aria-label")) === "Settings",
+    (await page.locator('[data-testid="settings-button"]').getAttribute("aria-label")) === "Settings",
   );
 
-  // The way out people reach for before either of those: a click beside the
-  // panel. What has to be true is not only that the panel goes away but that
-  // nothing else moved, because the panel floats over a board whose buttons
-  // file an issue and reorder the queue. The tile is the probe for that: it is
-  // a control that visibly changes the page, so a filter bar appearing here
-  // would mean the dismissing click was also spent on whatever it landed on.
-  // Each probe starts from the panel open whatever the one before it left
-  // behind, and says so. A probe that ran against a shut panel would report a
-  // pass for the wrong reason, which is worse than not running: that is exactly
-  // how the first draft of the tool-toggle check below reported green while the
-  // behaviour it was meant to catch was broken. Anything a failing probe left
-  // over the page is cleared through the page's own controls first, so one
-  // broken assertion reports as one failure rather than timing out every probe
-  // after it.
+  // Canvas owns the drawer's scrim and event capture. Exercise its two useful
+  // boundaries: presses inside stay inside, while a scrim press closes the
+  // drawer without activating the board underneath it.
   const openPanel = async (label: string): Promise<void> => {
-    if (await page.locator("#shotview").isVisible()) await page.click("#svClose");
-    if (await page.locator("#confirm").isVisible()) await page.click("#cfNo");
-    // The board back under the panel: a leaked rail click leaves the learning
-    // area up, where the headline tiles a later probe clicks do not exist.
+    if (await page.locator('[data-testid="confirm"]').isVisible()) await page.getByRole("button", { name: "Cancel" }).click();
     if (!(await page.locator("#viewIssues").isVisible())) {
-      await page.click('[data-view="issues"]');
+      await page.click('[data-testid="area-issues"]');
       await page.waitForTimeout(500);
     }
-    if (!(await page.locator("#settings").isVisible())) await page.click("#cog");
+    if (!(await page.locator("#settings").isVisible())) await page.click('[data-testid="settings-button"]');
     await page.waitForTimeout(700);
     check(`the panel is open for ${label}`, await page.locator("#settings").isVisible());
   };
@@ -506,107 +520,29 @@ async function drivePage(page: Page): Promise<number> {
   await page.waitForTimeout(500);
   check("a click inside the panel leaves it open", await page.locator("#settings").isVisible());
 
-  // A shot tile is an anchor to the raw PNG with target="_blank", so it is the
-  // one control on the board whose default action survives being handled: the
-  // dismissal has to cancel it, or the press that puts the panel away also
-  // leaves a picture open in a tab nobody asked for. Counted rather than
-  // asserted on the URL, because the tab it opened was never this one. The tile
-  // is found by position rather than by index: the panel covers the left of the
-  // board, and Playwright will not click through it.
-  const tiles = page.locator("a.tile");
-  let clearTile = null as ReturnType<typeof page.locator> | null;
-  for (let i = 0; i < (await tiles.count()); i++) {
-    const box = await tiles.nth(i).boundingBox();
-    if (box && box.x > 600) { clearTile = tiles.nth(i); break; }
-  }
-  if (clearTile) {
-    await openPanel("the shot tile");
-    const tabsBefore = page.context().pages().length;
-    await clearTile.click();
-    await page.waitForTimeout(1000);
-    check("a shot tile counts as outside too", !(await page.locator("#settings").isVisible()));
-    check(
-      "and does not open its picture on the way",
-      page.context().pages().length === tabsBefore,
-      `${tabsBefore} tabs then ${page.context().pages().length}`,
-    );
-    check("nor the inspector", !(await page.locator("#shotview").isVisible()));
-  } else {
-    check("a shot tile sits clear of the panel, to probe with", false);
-  }
-
-  // The controls answered further down the same click handler, and so the ones
-  // that stop counting as outside if the dismissal is ever put back below them.
-  // A rail button is the visible version of that mistake: it would change the
-  // area under a panel left open over the new one.
-  await openPanel("the rail button");
-  await page.click('[data-view="learning"]');
+  const tabsBefore = page.context().pages().length;
+  const drawer = page.locator('[data-testid="settings-drawer"]');
+  const drawerBox = await drawer.boundingBox();
+  await drawer.click({ position: { x: Math.max(1, (drawerBox?.width ?? 1440) - 8), y: 300 } });
   await page.waitForTimeout(700);
-  check("a rail button counts as outside too", !(await page.locator("#settings").isVisible()));
-  check("and does not change the area on its way", await page.locator("#viewIssues").isVisible());
+  check("a scrim click dismisses the panel", !(await page.locator("#settings").isVisible()));
+  check("the scrim does not activate the board", !(await page.locator("#filterbar").isVisible()));
+  check("the scrim opens no new tab", page.context().pages().length === tabsBefore);
 
-  // The tool toggle, probed through a tool that is currently OFF: clicking one
-  // that is already on could not show a leak, because the toggle refuses to
-  // release the last tool and would answer "on" either way.
-  // Found by position, not by `[aria-pressed="false"]`: a locator that spells
-  // the state stops resolving the moment the state changes, so the very leak
-  // this is here to catch would time it out instead of failing it.
-  const tools = page.locator("#toolToggle button");
-  let offTool = null as ReturnType<typeof page.locator> | null;
-  for (let i = 0; i < (await tools.count()); i++) {
-    if ((await tools.nth(i).getAttribute("aria-pressed")) === "false") {
-      offTool = tools.nth(i);
-      break;
-    }
-  }
-  if (offTool) {
-    const key = await offTool.getAttribute("data-tool");
-    await openPanel("the tool toggle");
-    await offTool.click();
-    await page.waitForTimeout(700);
-    check("so does the tool toggle", !(await page.locator("#settings").isVisible()));
-    check(
-      "and the tool it landed on is still off",
-      (await offTool.getAttribute("aria-pressed")) === "false",
-      String(key),
-    );
-  } else {
-    check("a tool is off, to probe the toggle with", false, "every tool is selected");
-  }
-
-  // Last of the probes, because this is the one whose leak would change what is
-  // on the board and so what every probe after it could find. The filter bar is
-  // the tell: it appears only if the dismissing click was also spent on the
-  // tile it landed on.
-  await openPanel("the click on the board");
-  await page.click('button.stat[data-value="archived"]');
-  await page.waitForTimeout(700);
-  check("a click outside dismisses the panel", !(await page.locator("#settings").isVisible()));
-  check(
-    "and is spent on the dismissal rather than on what it landed on",
-    !(await page.locator("#filterbar").isVisible()),
-  );
-  check(
-    "and the cog offers to open it again",
-    (await page.locator("#cog").getAttribute("aria-label")) === "Settings",
-  );
-
-  // The prompt is the one thing that opens on top of the panel, so while it is
-  // up nothing behind it counts as outside anything: answering it must not find
-  // the panel gone from under it.
   await openPanel("the prompt");
-  await page.click("#resetProject");
+  await page.click('[data-testid="reset-project"]');
   await page.waitForTimeout(600);
-  check("the destructive prompt opens over the panel", await page.locator("#confirm").isVisible());
-  await page.locator("#cfTitle").click();
+  check("the destructive prompt opens", await page.getByText("Delete everything lookout found?", { exact: true }).isVisible());
+  check("the drawer yields focus to the prompt", !(await page.locator("#settings").isVisible()));
+  await page.getByText("Delete everything lookout found?", { exact: true }).click();
   await page.waitForTimeout(400);
   check(
-    "a click on the prompt does not dismiss the panel behind it",
-    await page.locator("#settings").isVisible(),
+    "a click on the prompt leaves the prompt open",
+    await page.getByText("Delete everything lookout found?", { exact: true }).isVisible(),
   );
-  await page.click("#cfNo");
+  await page.getByRole("button", { name: "Cancel" }).click();
   await page.waitForTimeout(500);
-  check("cancelling leaves the panel where it was", await page.locator("#settings").isVisible());
+  check("cancelling returns to settings", await page.locator("#settings").isVisible());
   await page.keyboard.press("Escape");
   await page.waitForTimeout(500);
 
@@ -615,41 +551,41 @@ async function drivePage(page: Page): Promise<number> {
   // and nothing but a measurement catches that.
   const widthOf = async (sel: string): Promise<number> =>
     (await page.locator(sel).boundingBox())?.width ?? -1;
-  const railWide = await widthOf(".rail");
-  const openWide = await widthOf(".stream");
+  const railWide = await widthOf('nav[aria-label="Areas"]');
+  const openWide = await widthOf("#stream");
+  const workspaceWide = await widthOf("#workspace");
   check("the judge's column starts open", openWide > railWide * 2, `${openWide}px`);
-  await page.click("#streamFold");
+  await page.click('[data-testid="judge-fold"]');
   await page.waitForTimeout(400);
-  check("folding narrows it to the rail's width", (await widthOf(".stream")) === railWide,
-    `${await widthOf(".stream")}px vs rail ${railWide}px`);
-  check("the transcript goes with it", !(await page.locator("#streamLog").isVisible()));
+  check("folding narrows it to the rail's width", (await widthOf("#stream")) === railWide,
+    `${await widthOf("#stream")}px vs rail ${railWide}px`);
+  check("the transcript goes with it", !(await page.locator('[data-testid="stream-log"]').isVisible()));
   // The queue is the second half of this column now, and a section that failed
   // to fold would paint its rows on top of the fold button in a 56px strip.
-  check("the queue goes with it", !(await page.locator("#queueList").isVisible()));
-  check("the board takes the width back",
-    (await page.evaluate(() => getComputedStyle(document.body).paddingRight)) === `${railWide}px`);
-  check("the way back out is still there", await page.locator("#streamFold").isVisible());
+  check("the queue goes with it", !(await page.locator('[data-testid="queue-list"]').isVisible()));
+  check("the board takes the width back", (await widthOf("#workspace")) === workspaceWide + openWide - railWide);
+  check("the way back out is still there", await page.locator('[data-testid="judge-fold"]').isVisible());
   await page.reload({ waitUntil: "networkidle" });
   await page.waitForTimeout(900);
-  check("the fold is remembered", (await widthOf(".stream")) === railWide);
-  await page.click("#streamFold");
+  check("the fold is remembered", (await widthOf("#stream")) === railWide);
+  await page.click('[data-testid="judge-fold"]');
   await page.waitForTimeout(400);
-  check("unfolding puts the transcript back", await page.locator("#streamLog").isVisible());
-  check("and the queue with it", await page.locator("#queueList").isVisible());
-  check("and the column with it", (await widthOf(".stream")) === openWide);
+  check("unfolding puts the transcript back", await page.locator('[data-testid="stream-log"]').isVisible());
+  check("and the queue with it", await page.locator('[data-testid="queue-list"]').isVisible());
+  check("and the column with it", (await widthOf("#stream")) === openWide);
 
   // The queue. What it has to do is come back with fewer rows when the X is
   // pressed, and let a card's play button put one in without opening anything.
-  const qrows = async (): Promise<number> => page.locator("#queueList .qrow").count();
+  const qrows = async (): Promise<number> => page.locator('[data-testid="queue-list"] [data-testid="queue-row"]').count();
   const queued = await qrows();
   check("the queue has rows", queued > 0, `${queued}`);
   check("the head is marked as the one being worked on",
-    (await page.locator("#queueList .qrow.head").count()) === 1);
+    (await page.locator('[data-testid="queue-list"] [data-testid="queue-row"][data-head="true"]').count()) === 1);
   check("a handoff that failed says why",
-    (await page.locator("#queueList .qrow.failed .qstate").first().innerText()).length > 0);
+    (await page.locator('[data-testid="queue-list"] [data-testid="queue-row"][data-failed="true"] [data-testid="queue-state"]').first().innerText()).length > 0);
   check("the head offers to have lookout rule on it",
-    (await page.locator("#queueList .qrow.head .qrule").count()) === 1);
-  await page.locator("#queueList .qrow .qx").first().click();
+    (await page.locator('[data-testid="queue-list"] [data-testid="queue-row"][data-head="true"] [data-testid^="rule-"]').count()) === 1);
+  await page.locator('[data-testid="queue-list"] [data-testid="queue-row"] [data-testid^="remove-"]').first().click();
   await page.waitForTimeout(1800);
   check("the X takes a row out", (await qrows()) === queued - 1, `${await qrows()} vs ${queued}`);
   check("and the count follows",
@@ -657,26 +593,27 @@ async function drivePage(page: Page): Promise<number> {
 
   // Pressing play queues rather than launching: the row count goes up, and the
   // card's own button comes back pressed.
-  const card = page.locator('.card .launch[data-queue]').first();
+  const card = page.locator('[data-testid="issue-card"] [data-testid^="queue-"]').first();
   if (await card.count()) {
-    const id = await card.getAttribute("data-queue");
+    const id = (await card.getAttribute("data-testid"))?.replace("queue-", "") ?? null;
     const was = await qrows();
     await card.click();
     await page.waitForTimeout(1800);
     check("pressing play adds a row rather than opening anything", (await qrows()) === was + 1,
       `${await qrows()} vs ${was}`);
     check("and the card's button comes back pressed",
-      (await page.locator('.card .launch[data-unqueue="' + id + '"]').count()) === 1);
+      (await page.locator(`[data-testid="unqueue-${id}"]`).count()) === 1);
   }
 
-  await page.click('[data-view="learning"]');
+  await page.click('[data-testid="area-learning"]');
   await page.waitForTimeout(1200);
   check("learning area shows", await page.locator("#learning").isVisible());
   check("issues area hides", !(await page.locator("#viewIssues").isVisible()));
   check("headline numbers hide with the board", !(await page.locator("#stats").isVisible()));
-  check("learning history rendered", (await page.locator("#lhistory .lentry").count()) > 0);
-  check("skills rendered", (await page.locator("#lskills .skill").count()) > 0);
-  await page.click('[data-view="issues"]');
+  check("learning history rendered", (await page.locator('[data-testid="learning-history"] [data-testid="learning-entry"]').count()) > 0);
+  check("skills rendered", (await page.locator('[data-testid="learning-skills"] [data-testid="learning-skill"]').count()) > 0);
+  await checkAccessibility("learning");
+  await page.click('[data-testid="area-issues"]');
   await page.waitForTimeout(600);
   check("issues area comes back", await page.locator("#viewIssues").isVisible());
 
@@ -684,52 +621,50 @@ async function drivePage(page: Page): Promise<number> {
   // of navigating; a modified click keeps the anchor's own behavior. The
   // sidecar-carrying tile is the archived card's live strip (frames are
   // copies and never advertise), so the filter comes first.
-  check("tiles carry the inspector's data", (await page.locator("a.tile[data-shot]").count()) > 0);
-  await page.click('button.stat[data-value="archived"]');
+  check("tiles carry the inspector's data", (await page.locator('[data-testid="shot-prov"], [data-testid="shot-bare"]').count()) > 0);
+  await page.click('[data-testid="stat-archived"]');
   await page.waitForTimeout(1200);
-  const provTile = page.locator("a.tile[data-prov]").first();
-  check("the fixture advertises one sidecar", (await page.locator("a.tile[data-prov]").count()) > 0);
+  const provTile = page.locator('[data-testid="shot-prov"]').first();
+  check("the fixture advertises one sidecar", (await page.locator('[data-testid="shot-prov"]').count()) > 0);
   check("tiles keep their evidence href", ((await provTile.getAttribute("href")) ?? "").startsWith("/evidence/"));
   await provTile.click();
   await page.waitForTimeout(800);
   check("clicking a tile opens the inspector", await page.locator("#shotview").isVisible());
   check(
     "the inspector loads the full image",
-    await page.locator("#svImg").evaluate((n) => (n as HTMLImageElement).naturalWidth > 0),
+    await page.locator('[data-testid="shot-image"] img, img[data-testid="shot-image"]').evaluate((n) => (n as HTMLImageElement).naturalWidth > 0),
   );
-  check("every projectable element gets a box", (await page.locator(".svbox").count()) === 4);
-  await page.click('.svbox[aria-label*="Heading.tsx"]');
+  check("every projectable element gets a box", (await page.locator('[data-testid="shot-box"]').count()) === 4);
+  await page.click('[data-testid="shot-box"][aria-label*="Heading.tsx"]');
   check(
     "pinning a box names its component and source",
     ((await page.locator("#svHint").textContent()) ?? "").includes(
       "Heading < Page  src/components/Heading.tsx:12  h1#title",
     ),
   );
-  await page.click('.svbox[aria-label^="main > p:nth-of-type(2)"]');
+  await page.click('[data-testid="shot-box"][aria-label^="main > p:nth-of-type(2)"]');
   check(
     "a box with neither component nor source falls back to its cssPath",
     ((await page.locator("#svHint").textContent()) ?? "").includes("main > p:nth-of-type(2)"),
   );
-  // Four ways out, and all four are checked: the drive used to press Escape
-  // only, which is how an overlay nobody could dismiss by clicking shipped.
-  await page.click("#svClose");
+  // The explicit close controls and Escape all work. Canvas keeps a modal open
+  // on scrim clicks, which prevents an inspection from being lost accidentally.
+  await page.click('[data-testid="shot-close"]');
   await page.waitForTimeout(400);
   check("the close button closes the inspector", !(await page.locator("#shotview").isVisible()));
   await provTile.click();
   await page.waitForTimeout(600);
-  await page.click("#svX");
+  await page.click('[data-testid="shot-corner-close"]');
   await page.waitForTimeout(400);
   check("the picture's own corner button closes it", !(await page.locator("#shotview").isVisible()));
   await provTile.click();
   await page.waitForTimeout(600);
   // Inside the body's padding, so the click lands on the scrim rather than on
   // the picture or any of its boxes.
-  await page.locator("#svBody").click({ position: { x: 8, y: 8 } });
+  await page.getByRole("dialog", { name: "Screenshot provenance inspector" }).click({ position: { x: 8, y: 8 } });
   await page.waitForTimeout(400);
-  check("clicking the scrim closes the inspector", !(await page.locator("#shotview").isVisible()));
-  await provTile.click();
-  await page.waitForTimeout(600);
-  await page.locator("#svImg").click();
+  check("clicking the scrim leaves the inspector open", await page.locator("#shotview").isVisible());
+  await page.locator('[data-testid="shot-image"]').click();
   await page.waitForTimeout(300);
   check("clicking the picture itself does not close it", await page.locator("#shotview").isVisible());
   await page.keyboard.press("Escape");
@@ -743,7 +678,7 @@ async function drivePage(page: Page): Promise<number> {
   // The light shot deliberately has no sidecar: the inspector still opens as
   // a plain lightbox and says so, without ever fetching (a 404 would land in
   // this drive's own console-error net).
-  const bareTile = page.locator("a.tile[data-shot]:not([data-prov])").first();
+  const bareTile = page.locator('[data-testid="shot-bare"]').first();
   if ((await bareTile.count()) > 0) {
     await bareTile.click();
     await page.waitForTimeout(600);
@@ -751,7 +686,7 @@ async function drivePage(page: Page): Promise<number> {
       "a shot without provenance says so",
       ((await page.locator("#svHint").textContent()) ?? "").includes("no provenance recorded"),
     );
-    check("and renders no boxes", (await page.locator(".svbox").count()) === 0);
+    check("and renders no boxes", (await page.locator('[data-testid="shot-box"]').count()) === 0);
     await page.keyboard.press("Escape");
     await page.waitForTimeout(300);
   } else {
@@ -761,12 +696,12 @@ async function drivePage(page: Page): Promise<number> {
   // Last on purpose. Pointing the page at another project reloads the board,
   // the queue and the transcript, so any check that ran after this one would be
   // asserting against a page that had just been rebuilt underneath it.
-  await page.click("#cog");
+  await page.click('[data-testid="settings-button"]');
   await page.waitForTimeout(600);
-  const served = await page.locator("#setProject").inputValue();
+  const served = await page.locator('[data-testid="set-project"]').inputValue();
   const setProjectTo = async (dir: string) => {
-    await page.fill("#setProject", dir);
-    await page.press("#setProject", "Enter");
+    await page.fill('[data-testid="set-project"]', dir);
+    await page.press('[data-testid="set-project"]', "Enter");
     await page.waitForTimeout(900);
   };
 
@@ -782,17 +717,16 @@ async function drivePage(page: Page): Promise<number> {
     ...problems.slice(noiseFrom).filter((entry) => !/status of 400/.test(entry)),
   );
   check("a path that is no project is refused",
-    ((await page.locator("#where").getAttribute("class")) ?? "").includes("notice"));
+    (await page.locator("#where").getAttribute("data-notice")) === "true");
   // The box keeps the rejected text on purpose, so a typo can be corrected
-  // rather than retyped; what must not have moved is the SERVER, and the
-  // header's title is where the served directory is still spelled out.
+  // rather than retyped; what must not have moved is the server.
   check("and the page is still serving what it was",
-    ((await page.locator("#where").getAttribute("title")) ?? "").includes(served));
+    ((await (await page.request.get(url + "api/status")).json()) as { projectDir?: string }).projectDir === served);
 
   await setProjectTo(served);
   check("re-pointing at the project it already serves is accepted",
-    !((await page.locator("#where").getAttribute("class")) ?? "").includes("notice"));
-  check("and it still names that project", (await page.locator("#setProject").inputValue()) === served);
+    (await page.locator("#where").getAttribute("data-notice")) === "false");
+  check("and it still names that project", (await page.locator('[data-testid="set-project"]').inputValue()) === served);
 
   console.log(problems.length ? `\nPROBLEMS:\n${problems.join("\n")}` : "\nno page or console errors");
   return failed + problems.length;

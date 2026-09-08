@@ -1,0 +1,6 @@
+html, body, #root { min-height: 100%; margin: 0; }
+body { overflow: hidden; }
+#stream > div { height: 100%; }
+[data-testid="stream-log"] { max-height: 38vh; }
+[data-testid="queue-list"] { max-height: 46vh; overflow: auto; }
+#svX { position: absolute; right: 8px; top: 8px; }

@@ -116,11 +116,8 @@ try {
   if (!existsSync(tarball)) throw new Error(`npm pack did not create ${tarball}`);
 
   const files = new Set(result.files.map((file) => file.path));
-  for (const required of ["dist/cli.js", "dist/index.js", "dist/index.d.ts", "dist/ui/client/shell.html"]) {
+  for (const required of ["dist/cli.js", "dist/index.js", "dist/index.d.ts", "dist/ui/client/shell.html", "dist/ui/client/app.css", "dist/ui/client/main.js"]) {
     if (!files.has(required)) throw new Error(`packed package is missing ${required}`);
-  }
-  if (![...files].some((file) => file === "dist/ui/client/main.js")) {
-    throw new Error("packed package is missing the UI entry module");
   }
 
   const consumer = join(work, "consumer");
@@ -176,8 +173,8 @@ try {
       if (message.type() === "error") problems.push(message.text());
     });
     await page.goto(url, { waitUntil: "networkidle" });
-    await page.locator("article.card").first().waitFor({ state: "visible" });
-    if ((await page.locator("article.card").count()) < 1) throw new Error("installed UI rendered no issue cards");
+    await page.locator('[data-testid="issue-card"]').first().waitFor({ state: "visible" });
+    if ((await page.locator('[data-testid="issue-card"]').count()) < 1) throw new Error("installed UI rendered no issue cards");
     if (problems.length) throw new Error(`installed UI browser errors:\n${problems.join("\n")}`);
   } finally {
     await browser.close();

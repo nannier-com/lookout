@@ -11,7 +11,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { issueDocFile } from "../src/ui/document.js";
 import { ISSUE_ARCHIVE_DIR, ISSUE_DOC_FILE } from "../src/issues/paths.js";
-import { clientDir } from "../src/ui/assets.js";
+import { issueDocumentHref } from "../src/ui/client/dom.js";
 import { tmpProject } from "./tmp-project.js";
 
 /** A project with one issue's folder written, the way a backlog save leaves it. */
@@ -71,17 +71,7 @@ describe("serving an issue's document", () => {
   });
 
   test("the URL the card writes is one the server answers", () => {
-    // Read out of the client's source, because that is the copy the browser
-    // runs. A link built one way and matched another is a 404 nobody sees until
-    // they click it, and no other gate in this repo would notice.
-    const source = readFileSync(join(clientDir(), "board.ts"), "utf8");
-    const built = /href="(\/issue\/[^"]*)"/.exec(source);
-    expect(built, "the card no longer links an issue document").not.toBeNull();
-    const href = built![1]!
-      // The card interpolates the id; every id is six digits.
-      .replace(/'\s*\+\s*enc\(b\.id\)\s*\+\s*'/, "418203");
-    expect(href, "the card builds the href some other way now").not.toContain("+");
-
+    const href = issueDocumentHref("418203");
     const r = withIssue("418203");
     expect(issueDocFile(r, href), `the server does not answer ${href}`).not.toBeNull();
   });

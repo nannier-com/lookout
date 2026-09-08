@@ -19,7 +19,7 @@ describe("the release gates", () => {
     expect(validation.steps.map((s) => s.run)).toEqual([
       "bun run typecheck",
       "bun run lint",
-      "bun test",
+      "bun test --max-concurrency=1",
       "bun run build",
       "bunx playwright install --with-deps chromium",
       "bun run test:ui",

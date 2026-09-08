@@ -11,7 +11,7 @@ runs:
       run: bun run lint
     - name: Test
       shell: bash
-      run: bun test
+      run: bun test --max-concurrency=1
     - name: Build
       shell: bash
       run: bun run build
