@@ -14,7 +14,6 @@
  * opposite reasons.
  */
 import type { ShotRecord } from "../types.js";
-import type { FindingConsensus } from "../backlog/consensus.js";
 import { readingInstructionFor } from "./adapters.js";
 import { pieceLines, preparePieces, type Pieces } from "./manifest.js";
 import { renderSkill } from "../skills/load.js";
@@ -56,14 +55,6 @@ export function needsRefuting(_f: AiFinding): boolean {
 export interface VerifiedFinding extends AiFinding {
   verified: boolean;
   verifierNote?: string;
-  /**
-   * What the second judge said, when there was one.
-   *
-   * Carried on the judge's own shape rather than only in the backlog because
-   * the ledger stores these findings whole: without it a cached verdict would
-   * come back looking unanimous when it was contested.
-   */
-  consensus?: FindingConsensus;
 }
 
 /** A confirmed finding whose problem the refuter opened with a sentence a person can follow. */

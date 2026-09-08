@@ -28,6 +28,7 @@ export const SKILL_NAMES = [
   "judge-design-parity",
   "judge-taste",
   "refute-finding",
+  "judge-challenge",
   "verify-acceptance",
   "fact-check",
   "design-placement",

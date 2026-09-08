@@ -67,9 +67,22 @@ describe("the skills are agnostic about who is reading them", () => {
   });
 
   test("the skills that ask for a screenshot use the placeholder instead", () => {
-    const withSlot = skillFiles().filter((p) => readFileSync(p, "utf8").includes("{{howToOpen}}"));
-    // judge-core, refute-finding, verify-acceptance, fact-check, plan-navigation.
-    expect(withSlot.length).toBe(5);
+    // Named rather than counted. A count has to be bumped whenever a skill
+    // legitimately starts asking for a screenshot, which makes the edit look
+    // like arithmetic; a list makes it look like what it is, a new skill
+    // joining the set that needs a reader's own vocabulary.
+    const withSlot = skillFiles()
+      .filter((p) => readFileSync(p, "utf8").includes("{{howToOpen}}"))
+      .map((p) => p.slice(SKILLS.length).replace(/\/SKILL\.md$/, ""))
+      .sort();
+    expect(withSlot).toEqual([
+      "fact-check",
+      "judge-challenge",
+      "judge-core",
+      "plan-navigation",
+      "refute-finding",
+      "verify-acceptance",
+    ]);
   });
 
   test("and every registered AI can fill it", () => {

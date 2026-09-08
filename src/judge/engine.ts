@@ -10,7 +10,7 @@
  * reply, retrying once with a harder instruction when parsing fails.
  */
 import { LookoutError, type Severity, type ShotRecord } from "../types.js";
-import type { OracleId } from "../backlog/consensus.js";
+import type { FindingConsensus, OracleId } from "../backlog/consensus.js";
 import { adapterFor, PRIMARY_AI, readingInstructionFor } from "./adapters.js";
 import { renderSkill } from "../skills/load.js";
 import { recordIncident } from "../skills/incidents.js";
@@ -43,6 +43,14 @@ export interface AiFinding {
    * whichever AI happens to be configured now.
    */
   oracle?: OracleId;
+  /**
+   * What the second judge said about this finding, when two judged.
+   *
+   * On the judge's own shape rather than only in the backlog because the
+   * ledger stores these findings whole: without it, a cached verdict would
+   * come back looking unanimous when it had in fact been contested.
+   */
+  consensus?: FindingConsensus;
   attribute: string;
   /**
    * The shot this finding was copied from, when the judge listed this one in
