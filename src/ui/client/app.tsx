@@ -15,7 +15,16 @@ import { project, type SvSidecar } from "./shot-project.js";
 
 function AppFrame(): React.JSX.Element {
   const data = useLookoutData();
-  const { tokens } = useTheme();
+  const { tokens, scheme } = useTheme();
+  // Canvas resolves the scheme in React and paints its own components from it,
+  // but its CSS token layer keys off a `.dark` class on the root and the kit
+  // does not put it there: reaching into the DOM is a thing Canvas forbids
+  // itself, so applying it is the consuming app's job. Without this the page
+  // ran Canvas's LIGHT custom properties under its dark components, which is
+  // why the document behind them was painted white.
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", scheme === "dark");
+  }, [scheme]);
   const phone = useFormFactor() === "phone";
   const viewport = useWindowDimensions();
   const [selectedTools, setSelectedTools] = useState<string[]>(storedTools);
