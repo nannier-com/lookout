@@ -48,18 +48,59 @@ function pairKey(shot: BoardShot): string {
   return [shot.route, shot.platform ?? "web", shot.formFactor, shot.scheme, shot.state ?? ""].join("|");
 }
 
-function ShotTile({ shot, onOpen }: { shot: BoardShot; onOpen: (shot: BoardShot) => void }): React.JSX.Element {
+/** A thumbnail that opens the inspector. `name` is for a tile standing under a
+ *  column header that already names it: the tile is then the picture alone,
+ *  sized by its column rather than fixed, and `name` is what a screen reader
+ *  reads in place of the caption. */
+function ShotTile({ shot, name, onOpen }: { shot: BoardShot; name?: string; onOpen: (shot: BoardShot) => void }): React.JSX.Element {
   const caption = [shot.platform !== "web" ? shot.platform : "", shot.formFactor, shot.scheme].filter(Boolean).join(" · ");
+  // A named tile shares its row with the other half of the pair, so a fixed
+  // width would overflow the column on a phone and butt the two frames
+  // together. The box keeps the crop the captioned tile has.
+  const box = name ? { width: "100%" as const, style: { aspectRatio: 144 / 88 } } : { width: 144, height: 88 };
   return <View {...({ dataSet: { shot: shot.path, ...(shot.provenance ? { prov: shot.provenance } : {}) } } as object)}>
     <Button
       ghost small block
       testID={shot.provenance ? "shot-prov" : "shot-bare"}
+      {...(name ? { accessibilityLabel: name } : {})}
       href={`/evidence/${encodeURIComponent(shot.path)}`}
       hrefAttrs={{ target: "_blank", rel: "noopener" }}
       onPress={(event) => { event.preventDefault?.(); onOpen(shot); }}
-      iconLeft={<Image source={{ uri: `/thumb/${encodeURIComponent(shot.path)}?w=264` }} width={144} height={88} radius="md" cover alt="" />}
-    >{caption || shot.route}</Button>
+      iconLeft={<Image source={{ uri: `/thumb/${encodeURIComponent(shot.path)}?w=${name ? 380 : 264}` }} {...box} radius="md" cover alt="" />}
+    >{name ? undefined : caption || shot.route}</Button>
   </View>;
+}
+
+// A pair's two columns never render a frame wider than the thumbnail behind it,
+// so a card with the judge's column folded away shows bigger evidence rather
+// than upscaled evidence.
+const pairCell = { maxWidth: 380 };
+
+/** One line per view: the frame from before the fix on the left, the one from
+ *  after it on the right, and the views stacked down the card so the halves of
+ *  every pair stay in the same two columns. */
+function ShotPairs({ pairs, ruled, onOpenShot }: {
+  pairs: Array<[BoardShot | null, BoardShot | null]>;
+  ruled: boolean;
+  onOpenShot: (shot: BoardShot) => void;
+}): React.JSX.Element {
+  return <Column snug testID="shot-pairs">
+    <Row tight>
+      <Column fill style={pairCell}><Typography tiny muted>Pre-fix</Typography></Column>
+      <Column fill style={pairCell}><Typography tiny muted>Post-fix</Typography></Column>
+    </Row>
+    {pairs.map(([before, after], index) => {
+      const basis = before ?? after!;
+      const label = [basis.route, basis.platform !== "web" ? basis.platform : "", basis.formFactor, basis.scheme, basis.state].filter(Boolean).join(" · ");
+      return <Column key={`${pairKey(basis)}-${index}`} tight>
+        <Typography tiny muted>{label}</Typography>
+        <Row tight alignStart>
+          <Column fill style={pairCell}>{before ? <ShotTile shot={before} name={`Pre-fix screenshot of ${label}`} onOpen={onOpenShot} /> : <Alert info description="no pre-fix screenshot kept" />}</Column>
+          <Column fill style={pairCell}>{after ? <ShotTile shot={after} name={`Post-fix screenshot of ${label}`} onOpen={onOpenShot} /> : <Alert info description={ruled ? "no post-fix screenshot kept" : "no post-fix screenshot yet"} />}</Column>
+        </Row>
+      </Column>;
+    })}
+  </Column>;
 }
 
 function IssueCard({
@@ -126,7 +167,7 @@ function IssueCard({
         <Divider soft>What is wrong</Divider>
         {entry.defects.map((defect, index) => <Column key={`${defect.attribute}-${index}`} tight><Typography h3>{defect.title}</Typography><Typography tiny mono muted>rule {entry.category}/{defect.attribute}</Typography>{defect.problem && defect.problem !== defect.title ? defect.problem.trim().split(/\n{2,}/).map((part, partIndex) => <Typography key={partIndex} small muted>{part}</Typography>) : null}</Column>)}
         {entry.acceptance.length ? <><Divider soft>Acceptance · {entry.acceptance.filter((criterion) => criterion.verdict === "met").length} of {entry.acceptance.length} met</Divider>{entry.acceptance.map((criterion) => <Row key={criterion.id} snug alignStart><Badge status {...(criterion.verdict === "met" ? { success: true } : criterion.verdict === "unmet" ? { error: true } : { neutral: true })}>{criterion.verdict === "unmet" ? "not met" : criterion.verdict ?? "not ruled"}</Badge><Column tight shrink><Typography small>{criterion.text}</Typography>{criterion.note && criterion.verdict !== "met" ? <Typography tiny muted>{criterion.note}</Typography> : null}</Column></Row>)}</> : null}
-        {pairs.length ? <><Divider soft>Pre and post fix</Divider><ScrollView horizontal><Row snug>{pairs.map(([before, after], index) => { const basis = before ?? after!; const label = [basis.route, basis.platform !== "web" ? basis.platform : "", basis.formFactor, basis.scheme, basis.state].filter(Boolean).join(" · "); return <Column key={`${pairKey(basis)}-${index}`} tight><Row tight>{before ? <ShotTile shot={before} onOpen={onOpenShot} /> : <Alert info description="no pre-fix screenshot kept" />}{after ? <ShotTile shot={after} onOpen={onOpenShot} /> : <Alert info description={ruled ? "no post-fix screenshot kept" : "no post-fix screenshot yet"} />}</Row><Typography tiny muted>{label}</Typography></Column>; })}</Row></ScrollView></> : shots.length ? <><Divider soft>These views as they are now</Divider><ScrollView horizontal><Row snug>{shots.map((shot, index) => <ShotTile key={`${shot.path}-${index}`} shot={shot} onOpen={onOpenShot} />)}</Row></ScrollView></> : null}
+        {pairs.length ? <><Divider soft>Pre and post fix</Divider><ShotPairs pairs={pairs} ruled={ruled} onOpenShot={onOpenShot} /></> : shots.length ? <><Divider soft>These views as they are now</Divider><ScrollView horizontal><Row snug>{shots.map((shot, index) => <ShotTile key={`${shot.path}-${index}`} shot={shot} onOpen={onOpenShot} />)}</Row></ScrollView></> : null}
         {entry.judgeNote ? <Alert warning title="Judge" description={entry.judgeNote} /> : null}
         {result ? <Alert {...(result.includes("failed") || result.startsWith("Error") ? { destructive: true } : { success: true })} description={result} /> : null}
         {entry.timeline.length ? <Column tight data-feed={entry.id}><Divider soft>Record</Divider>{entry.timeline.map((step, index) => <Typography key={`${step.at}-${index}`} tiny muted>{step.at.slice(0, 19).replace("T", " ")} · {step.text}</Typography>)}</Column> : null}
