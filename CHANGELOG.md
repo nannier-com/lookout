@@ -1,5 +1,11 @@
 # @nannier-com/lookout
 
+## 0.54.6
+
+### Patch Changes
+
+- bccbc3b: Replace the browser interface with a bundled React Native Web application built entirely from Canvas components and primitives.
+
 ## 0.54.5
 
 ### Patch Changes
