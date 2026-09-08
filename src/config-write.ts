@@ -22,7 +22,13 @@ import {
   locateConfig,
   nearestProjectRoot,
 } from "./config-locate.js";
-import { DEFAULT_VIEWPORTS, FORM_FACTORS, LookoutError, type LookoutConfig } from "./types.js";
+import {
+  DEFAULT_VIEWPORTS,
+  DIRECTION_PRESETS,
+  FORM_FACTORS,
+  LookoutError,
+  type LookoutConfig,
+} from "./types.js";
 
 /** What a written config should point at, when lookout already knows. */
 export interface ConfigSeed {
@@ -128,9 +134,9 @@ ${startHint}      routes: ["/"],
 
   // The design direction this project chose. The taste panel judges against it
   // instead of against defaults, and what it declares is never filed: a shipped
-  // preset (minimalist-editorial | industrial-brutalist | premium-agency |
-  // utility-dense), your own DESIGN.md (the first 12 KB reach the judge, so
-  // keep the rules above the token tables), or both.
+  // preset, your own DESIGN.md (the first 12 KB reach the judge, so keep the
+  // rules above the token tables), or both. The presets that ship:
+  //   ${DIRECTION_PRESETS.join(", ")}
   // direction: { preset: "minimalist-editorial" },
   // direction: { file: "./DESIGN.md" },
 

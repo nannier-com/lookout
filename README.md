@@ -577,7 +577,8 @@ banned against gradients encouraged, one call to action against exactly two.
 None of that is judgeable until a project says which direction it chose, and
 `direction` in `lookout.config.ts` is where it says so: a shipped preset
 (`minimalist-editorial`, `industrial-brutalist`, `premium-agency`,
-`utility-dense`), the project's own DESIGN.md, or both. What a direction
+`utility-dense`, `terminal-native`, `cinematic-product`, `friendly-saas`), the
+project's own DESIGN.md, or both. What a direction
 declares is settled and never filed; the rules it adds are judged where a still
 can show them, and its rules about motion, hover or code are not, because a
 capture cannot see them. lookout reads the file when it composes the prompt

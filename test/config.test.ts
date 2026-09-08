@@ -4,6 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { validateConfig } from "../src/config.js";
 import { resolveRoutes, resolveTargets } from "../src/targets.js";
 import { isLocalUrl, parseFlags } from "../src/util.js";
+import { DIRECTION_PRESETS } from "../src/types.js";
 
 describe("validateConfig", () => {
   test("shellScoping is an optional boolean and nothing else", () => {
@@ -270,8 +271,10 @@ describe("direction", () => {
   });
 
   test("an unknown preset is refused, naming the ones that exist", () => {
+    // Built from the registry rather than pinned: the message must name every
+    // preset that exists, and a copy of the list here would only drift from it.
     expect(() => validateConfig({ targets: t, direction: "bauhaus" }, "t")).toThrow(
-      "minimalist-editorial | industrial-brutalist | premium-agency | utility-dense",
+      DIRECTION_PRESETS.join(" | "),
     );
     expect(() => validateConfig({ targets: t, direction: { preset: "bauhaus" } }, "t")).toThrow(/direction\.preset/);
   });

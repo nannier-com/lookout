@@ -144,6 +144,26 @@ describe("loading the direction", () => {
     );
   });
 
+  test("every shipped preset loads and is written in the shape the judge reads", async () => {
+    // The agreement test below proves the files exist. This one proves each is
+    // usable: a preset that loaded but had no waiver section would silently
+    // judge a declared direction against defaults, which is the failure the
+    // whole mechanism exists to prevent.
+    for (const preset of DIRECTION_PRESETS) {
+      const d = await loadDirection(withDirection(preset));
+      expect(d?.source).toBe(`preset "${preset}"`);
+      expect(d?.cut).toBe(0);
+      // What the direction settles, so the judge stops filing it.
+      expect(d?.text).toContain("Chosen on purpose");
+      // What it adds, in the vocabulary the taste panel files under.
+      expect(d?.text).toContain("What this direction adds");
+      expect(d?.text).toContain("Filed as taste, attribute off-direction-");
+      // And the reminder that the other panels still apply. Matched without
+      // the line break before it, which each file wraps differently.
+      expect(d?.text.replace(/\s+/g, " ")).toContain("is filed as usual");
+    }
+  });
+
   test("every shipped preset has a file, and every file is a preset", () => {
     const dir = join(shippedSkillDir("judge-taste"), "directions");
     const files = readdirSync(dir)

@@ -211,6 +211,9 @@ export const DIRECTION_PRESETS = [
   "industrial-brutalist",
   "premium-agency",
   "utility-dense",
+  "terminal-native",
+  "cinematic-product",
+  "friendly-saas",
 ] as const;
 export type DirectionPreset = (typeof DIRECTION_PRESETS)[number];
 
