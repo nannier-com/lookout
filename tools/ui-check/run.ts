@@ -377,12 +377,13 @@ async function drivePage(page: Page): Promise<number> {
     check("and leaves the other one alone", off[0] === on[0], String(off[0]));
 
     // Selected and unselected have to be the same box, or the row jumps by the
-    // border every time somebody presses one.
+    // border every time somebody presses one. Measured with one on and one off,
+    // since two of the same variant agree about their height however wrong it is.
+    await second.locator("button").click();
+    await page.waitForTimeout(900);
     const boxes = await page.locator("#toolToggle button").evaluateAll((nodes) =>
       nodes.map((n) => Math.round(n.getBoundingClientRect().height)));
-    check("both sit at the same height", new Set(boxes).size === 1, boxes.join(","));
-    await second.locator("button").click();
-    await page.waitForTimeout(600);
+    check("selected and unselected sit at the same height", new Set(boxes).size === 1, boxes.join(","));
   } else {
     check("tool toggle has choices", false, `only ${await buttons.count()}`);
   }
