@@ -148,6 +148,30 @@ export function panelIdentity(opts: {
    */
   handoffText: string;
   model: string;
+  /**
+   * The challenge instructions as composed for this run, or "" when one AI
+   * judges. Hashed on the refuter's own argument: what a ledger entry stores
+   * is partly this pass's output, so amending it has to invalidate the
+   * verdicts it produced.
+   */
+  challengeText?: string;
+  /**
+   * Every AI that judged, as `<ai>:<model>`.
+   *
+   * A verdict two judges reached is not a verdict one reached, and serving one
+   * for the other is exactly the stale-verdict failure this hash exists to
+   * prevent. It goes into the HASH rather than the key because the key's five
+   * "@"-separated segments are load-bearing: `pruneLedger` deletes anything
+   * with a different count, so a sixth segment would make every existing entry
+   * unreachable in the one way that also deletes it.
+   *
+   * SORTED, so the roster is a set rather than an order. Which AI proposed can
+   * alternate between runs, and encoding that here would make every alternating
+   * run a cache miss and hold cost at first-run prices forever. The order that
+   * actually ran is recorded on the entry instead, where it is readable when
+   * debugging without fragmenting the cache.
+   */
+  oracles?: readonly string[];
   /** Whether this panel is shown the accessibility tree. */
   aria?: boolean;
 }): PanelIdentity {
@@ -160,7 +184,10 @@ export function panelIdentity(opts: {
   // enforced at merge, never in the prompt, so keying on it would thrash the
   // whole cache on every adjudication for a benefit the cache already
   // provides more strongly than the prompt does.
-  const joined = `${opts.panelText}\u0000${opts.refuteText}\u0000${opts.handoffText}`;
+  const roster = [...(opts.oracles ?? [])].sort().join("\u001f");
+  const joined =
+    `${opts.panelText}\u0000${opts.refuteText}\u0000${opts.handoffText}` +
+    `\u0000${opts.challengeText ?? ""}\u0000${roster}`;
   return {
     panel: opts.panel,
     version: opts.version,

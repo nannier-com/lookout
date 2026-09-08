@@ -56,6 +56,8 @@ green:
 | what an AI capability is asked | `skills/<name>/SKILL.md`, never a string literal in code |
 | how lookout talks to the CLI at all | `src/judge/claude.ts` |
 | what the installed CLI is, and which models it offers | `src/judge/cli-probe.ts` (asked of the install, never a list in this repo) |
+| which AIs can judge, and how one is reached | `src/judge/adapters.ts` (the registry), `src/judge/<ai>.ts` (one adapter each) |
+| what a second judge is asked, and what its answer means | `src/judge/challenge.ts` (the contract), `src/judge/dialogue.ts` (the orchestration) |
 | the judge's prompt or its reply contract | `src/judge/engine.ts` |
 | what a view group or a batch is | `src/judge/grouping.ts` |
 | the rubric, the refuter, the ledger, criteria | `src/judge/` |

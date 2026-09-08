@@ -271,3 +271,47 @@ describe("an entry points at the panel's reply", () => {
     expect(Object.values(bare.entries)[0]!.reply).toBeUndefined();
   });
 });
+
+describe("a two-judge verdict is not a one-judge verdict", () => {
+  const base = {
+    panel: "judge-geometry",
+    version: 1,
+    panelText: "p",
+    refuteText: "r",
+    handoffText: "h",
+    model: "sonnet",
+  };
+
+  test("adding a second judge changes the identity, so no cached verdict is served for it", () => {
+    const alone = panelIdentity(base);
+    const pair = panelIdentity({ ...base, oracles: ["claude-code:sonnet", "codex:gpt-x"] });
+    expect(pair.promptHash).not.toBe(alone.promptHash);
+  });
+
+  test("but the key still has exactly five segments, which pruneLedger counts on", () => {
+    // A sixth segment would make every existing entry unreachable in the one
+    // way that also deletes it, so the roster goes into the hash instead.
+    const pair = panelIdentity({ ...base, oracles: ["claude-code:sonnet", "codex:gpt-x"] });
+    expect(ledgerKey("abc", pair).split("@")).toHaveLength(5);
+  });
+
+  test("and which of them proposed does not change it", () => {
+    // The roster is a set. Alternating who proposes must not turn every run
+    // into a cache miss and hold cost at first-run prices forever.
+    const one = panelIdentity({ ...base, oracles: ["claude-code:sonnet", "codex:gpt-x"] });
+    const other = panelIdentity({ ...base, oracles: ["codex:gpt-x", "claude-code:sonnet"] });
+    expect(other.promptHash).toBe(one.promptHash);
+  });
+
+  test("changing either judge's model is a different body of evidence", () => {
+    const a = panelIdentity({ ...base, oracles: ["claude-code:sonnet", "codex:gpt-x"] });
+    const b = panelIdentity({ ...base, oracles: ["claude-code:sonnet", "codex:gpt-y"] });
+    expect(b.promptHash).not.toBe(a.promptHash);
+  });
+
+  test("amending the challenge instructions invalidates what they produced", () => {
+    const a = panelIdentity({ ...base, oracles: ["a:1", "b:2"], challengeText: "rule on these" });
+    const b = panelIdentity({ ...base, oracles: ["a:1", "b:2"], challengeText: "rule on these, harder" });
+    expect(b.promptHash).not.toBe(a.promptHash);
+  });
+});

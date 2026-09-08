@@ -519,6 +519,17 @@ filing panel's own lane, is rejected at ingestion, so project extensions
 refine judgment; they cannot invent new taxonomies. Every finding states which
 judge filed it, and `--panels` narrows a run to named judges.
 
+Two AIs can judge together. `--challenger codex:gpt-6-astra` asks a second AI
+to rule on what the first one filed against the same screenshots: it agrees or
+disputes each finding and adds anything it missed, and the finding then carries
+both accounts. It answers by number and never restates a finding's category or
+attribute, because those are its identity and rewording them would turn one
+defect into two. A disputed finding is still filed and still open: a
+disagreement is recorded for a person to settle, never applied, because letting
+one AI close another's finding would hand a single vendor a veto. The AI must
+be one lookout has a judging adapter for, and it must be named with a model,
+since only some CLIs publish an alias that survives a release.
+
 The ledger keys one entry per view group PER PANEL, on the composed prompt
 itself, judging and refuting instructions together: amending one specialist, a
 project rubric or a `neverFile` line invalidates exactly the cached verdicts

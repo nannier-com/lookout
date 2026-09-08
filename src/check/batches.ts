@@ -18,7 +18,8 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { evidenceDir } from "../config.js";
-import { judgeBatch, type AiFinding, type ContractLapse, type PriorFinding } from "../judge/engine.js";
+import { judgeWithDialogue } from "../judge/dialogue.js";
+import { PRIMARY_AI, type AiFinding, type ContractLapse, type PriorFinding } from "../judge/engine.js";
 import { groupHash } from "../judge/ledger.js";
 import { verifyFindings, type DroppedCriterion, type RepairedFinding, type VerifiedFinding } from "../judge/verify.js";
 import { recordIncident } from "../skills/incidents.js";
@@ -155,6 +156,9 @@ export async function judgeInBatches(args: {
   const confirmed: VerifiedFinding[] = [];
   const refuted: (AiFinding & { verifierNote: string })[] = [];
   const uncacheable = new Set<string>();
+  // Who judges. A plan with no roster is the single-AI pipeline, which is
+  // what a project gets until it asks for a second judge.
+  const roster = plan.roster ?? { proposer: { ai: PRIMARY_AI, model: plan.model } };
   const unaccounted: JudgePass["unaccounted"] = [];
   /**
    * Names this run has already minted, so later groups reuse them.
@@ -223,9 +227,10 @@ export async function judgeInBatches(args: {
           index: panelIndex,
           total: job.items.length,
         });
-        let res: Awaited<ReturnType<typeof judgeBatch>>;
+        let res: Awaited<ReturnType<typeof judgeWithDialogue>>;
         try {
-          res = await judgeBatch(item.panel.text, resolved.project, job.shots, evDir, plan.model, {
+          res = await judgeWithDialogue(item.panel.text, resolved.project, job.shots, evDir, roster, {
+            ...(plan.challenge ? { challengeSkill: plan.challenge.text } : {}),
             projectDir: resolved.projectDir,
             handoff: item.panel.handoff,
             // Priors travel per lane: an out-of-lane prior instructs the judge
@@ -278,6 +283,27 @@ export async function judgeInBatches(args: {
         if (res.unaccounted.length > 0) {
           uncacheable.add(workKey(item));
           unaccounted.push({ panel: panelName, groupId: job.groupId, shotIds: res.unaccounted });
+        }
+        // A second judge was asked for and could not be had. The proposal is
+        // real and is kept, but the pair is left out of the cache, because its
+        // identity says two judges reached this verdict and only one did.
+        //
+        // The opposite of the refuter's rule two blocks down, and worth the
+        // contrast: a refuter can only annotate, so its absence is a missing
+        // annotation that refute-on-read repairs later. A challenger can ADD
+        // findings, so its absence is a missing verdict, and caching one would
+        // durably record a dialogue that never happened.
+        if (!res.dialogued) {
+          uncacheable.add(workKey(item));
+          log(`  batch ${i + 1}/${jobs.length}: ${panelName} judged alone (${res.undialoguedReason ?? "no second judge"})`);
+          recordIncident({
+            at: new Date().toISOString(),
+            kind: "crash",
+            verb: "check",
+            message: `second judge unavailable: ${res.undialoguedReason ?? "unknown"}`,
+            project: resolved.projectDir,
+            judge: panelName,
+          });
         }
         unreadHere += res.unread.length;
         fresh.push(...res.findings);

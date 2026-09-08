@@ -432,7 +432,7 @@ export async function judgeBatch(
 // them from.
 export { claudeBin, DEFAULT_JUDGE_MODEL, extractJson, invokeClaude, type JudgeInvocation } from "./claude.js";
 // Who may judge is the registry's answer now, not one adapter's.
-export { ADAPTERS, adapterFor, invokeAi, isJudge, JUDGES } from "./adapters.js";
+export { ADAPTERS, adapterFor, invokeAi, isJudge, JUDGES, PRIMARY_AI } from "./adapters.js";
 export { type JudgeSay } from "./stream.js";
 export { batchShots, groupShots, viewGroupId } from "./grouping.js";
 export { ingestJudgeReply, type ContractLapse, type PanelLane } from "./reply.js";
