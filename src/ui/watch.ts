@@ -43,6 +43,20 @@ const BACKSTOP_MS = 5000;
 const armed = new Map<string, FSWatcher>();
 let coalesce: ReturnType<typeof setTimeout> | null = null;
 let backstop: ReturnType<typeof setInterval> | null = null;
+/** How to stop following the current project, while one is being followed. */
+let follow: (() => void) | null = null;
+/**
+ * Which run of the watcher this is, so work already in the air can tell that it
+ * has been stopped.
+ *
+ * `react` is detached by construction -- a timer fires it and nothing holds its
+ * promise -- so `stopWatching` cannot await it. It can only make it stop
+ * mattering, which is what this is for: a reaction from a previous run finds
+ * the number has moved and returns before it dispatches anything. A counter
+ * rather than a flag because start, stop and start again would let a reaction
+ * from the first run mistake the second for its own.
+ */
+let epoch = 0;
 
 /** The directories a run writes into, for whatever project is current. */
 function watched(): string[] {
@@ -60,8 +74,13 @@ function watched(): string[] {
  * timer.
  */
 function react(): void {
+  const mine = epoch;
   void (async () => {
     await pushNow();
+    // Stopped while this was waiting. A push is only a read, but the pump
+    // dispatches: it opens a Terminal window and writes another process's
+    // queue, and a watcher that has been told to stop must do neither.
+    if (mine !== epoch) return;
     const project = currentProjectOrNull();
     if (project) await pumpQueue(project);
     // Only broadcasts if the pump actually changed the payload.
@@ -127,7 +146,10 @@ function arm(): void {
 /** Begin watching, and keep watching whatever project the page points at. */
 export function startWatching(): void {
   arm();
-  onProjectChange(() => {
+  // Idempotent, like the backstop below it: starting twice used to leave two
+  // subscribers where stopping once removed neither, and each of them re-armed
+  // and nudged on every project change for the life of the process.
+  follow ??= onProjectChange(() => {
     arm();
     nudge();
   });
@@ -147,6 +169,11 @@ export function startWatching(): void {
 
 /** Stop watching. For tests, and for a server that is shutting down. */
 export function stopWatching(): void {
+  // First, and before anything else is torn down: a project change arriving
+  // mid-teardown would otherwise arm a fresh watcher on the way out.
+  epoch++;
+  follow?.();
+  follow = null;
   for (const [, watcher] of armed) watcher.close();
   armed.clear();
   if (coalesce) {

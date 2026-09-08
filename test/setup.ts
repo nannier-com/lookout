@@ -19,6 +19,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { projectChangeListenerCount } from "../src/ui/session.js";
 
 /**
  * A checkout every test uses instead of the repository it is running from.
@@ -48,4 +49,34 @@ beforeEach(() => {
 
 afterAll(() => {
   rmSync(SUITE_CHECKOUT, { recursive: true, force: true });
+});
+
+/**
+ * Nothing may still be subscribed to the project change when the suite ends.
+ *
+ * The whole suite is one process, so a module-level subscriber registered by
+ * one file is still there for every file after it, and fires on THEIR
+ * `setCurrentProject` calls. That is not a stale value a later test can reset:
+ * it is live code from a finished file, running inside a stranger's test, on a
+ * timer nobody awaits. It cost a gate half its runs -- a watcher that
+ * `stopWatching` had closed came back on `test/ui-queue.test.ts`'s project
+ * changes and handed off an issue in the middle of its assertions, so the
+ * failure landed in a file that had done nothing wrong and moved every time.
+ *
+ * Checked once at the end rather than per file, which is the only hook a
+ * preload gets: bun runs this after the last file, not after each one. So it
+ * says a file leaked without saying which. To find it, run the suite's files
+ * one at a time, or start from whatever `onProjectChange` was called and never
+ * unsubscribed -- `startWatching` in `src/ui/watch.ts` is the only subscriber
+ * lookout has, and `stopWatching` is what takes it back off.
+ */
+afterAll(() => {
+  const left = projectChangeListenerCount();
+  if (left > 0) {
+    throw new Error(
+      `${left} project-change subscriber(s) outlived the suite. A file started something `
+      + "it never stopped, and it has been running inside every file since. See the note "
+      + "in test/setup.ts.",
+    );
+  }
 });

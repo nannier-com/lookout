@@ -51,16 +51,39 @@ export function currentProjectOrNull(): ResolvedConfig | null {
  * directories. The cache is invalidated at the call site because that reads as
  * part of switching; the watcher is not, because it is started once by the verb
  * and nothing in the switch should have to know it exists.
+ *
+ * Registering hands back the way to undo it, because a subscriber that cannot
+ * be removed is a subscriber that outlives whoever started it. The watcher is
+ * the only one, and a `stopWatching` that left its listener here was a stopped
+ * watcher that re-armed itself on the next project change and pumped a queue
+ * nobody had asked it to.
  */
-const listeners: (() => void)[] = [];
+const listeners = new Set<() => void>();
 
-export function onProjectChange(fn: () => void): void {
-  listeners.push(fn);
+export function onProjectChange(fn: () => void): () => void {
+  listeners.add(fn);
+  return () => {
+    listeners.delete(fn);
+  };
+}
+
+/**
+ * How many subscribers are registered right now.
+ *
+ * For the suite's leak guard: this list is process-wide and a test file that
+ * leaves an entry in it hands the next file a callback that fires on its own
+ * project changes. See `test/setup.ts`.
+ */
+export function projectChangeListenerCount(): number {
+  return listeners.size;
 }
 
 export function setCurrentProject(next: ResolvedConfig): void {
   project = next;
-  for (const fn of listeners) fn();
+  // A snapshot, because a subscriber is allowed to unsubscribe itself from
+  // inside the notification, and a set being edited while it is iterated is
+  // not a set every subscriber is called exactly once from.
+  for (const fn of [...listeners]) fn();
 }
 
 export const session: {
