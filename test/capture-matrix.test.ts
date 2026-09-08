@@ -46,6 +46,27 @@ describe("schemes", () => {
     expect(() => resolveSchemes("sepia")).toThrow(/unknown scheme "sepia" \(dark \| light\)/);
     expect([...SCHEMES]).toEqual(["dark", "light"]);
   });
+
+  test("a project that declares its schemes is walked in those alone", () => {
+    // The point of the field: an app with one scheme is photographed once per
+    // route, not twice in the same appearance.
+    expect(resolveSchemes(undefined, ["dark"])).toEqual(["dark"]);
+    expect(resolveSchemes(undefined, ["light"])).toEqual(["light"]);
+    // Declared order does not decide the walk; the constant does, because the
+    // judge's manifest is read in that order.
+    expect(resolveSchemes(undefined, ["light", "dark"])).toEqual(["dark", "light"]);
+  });
+
+  test("a flag still decides a single run, over what the project declared", () => {
+    expect(resolveSchemes("light", ["dark"])).toEqual(["light"]);
+  });
+
+  test("an absent or empty declaration falls back to both", () => {
+    // Both is the fallback rather than the truth: a project that never said
+    // cannot be assumed to have one scheme.
+    expect(resolveSchemes(undefined, undefined)).toEqual(["dark", "light"]);
+    expect(resolveSchemes(undefined, [])).toEqual(["dark", "light"]);
+  });
 });
 
 describe("platforms", () => {

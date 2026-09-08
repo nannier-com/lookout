@@ -38,6 +38,18 @@ describe("validateConfig", () => {
     expect(routes[1]!.provenance).toBeUndefined();
   });
 
+  test("schemes is the vocabulary, and only the schemes that exist", () => {
+    const t = [{ name: "app", url: "http://localhost:1" }];
+    expect(validateConfig({ targets: t, schemes: ["dark"] }, "t").schemes).toEqual(["dark"]);
+    // Absent is not the same as both: it means the project has not said, which
+    // is what lets the walk fall back rather than assume.
+    expect(validateConfig({ targets: t }, "t").schemes).toBeUndefined();
+    expect(validateConfig({ targets: t, schemes: ["dark", "dark"] }, "t").schemes).toEqual(["dark"]);
+    expect(() => validateConfig({ targets: t, schemes: [] }, "t")).toThrow(/schemes/);
+    expect(() => validateConfig({ targets: t, schemes: "dark" }, "t")).toThrow(/schemes/);
+    expect(() => validateConfig({ targets: t, schemes: ["sepia"] }, "t")).toThrow(/sepia/);
+  });
+
   test("accepts a minimal config and normalizes the url", () => {
     const c = validateConfig({ targets: [{ name: "app", url: "http://localhost:3000/" }] }, "t");
     expect(c.targets[0]!.url).toBe("http://localhost:3000");

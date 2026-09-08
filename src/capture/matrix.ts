@@ -38,9 +38,23 @@ export function resolveFormFactors(flag: string | boolean | undefined): FormFact
   return pick(flag, FORM_FACTORS, "viewport") ?? [...FORM_FACTORS];
 }
 
-/** The schemes a run walks: both by default, `--schemes` narrows. */
-export function resolveSchemes(flag: string | boolean | undefined): Scheme[] {
-  return pick(flag, SCHEMES, "scheme") ?? [...SCHEMES];
+/**
+ * The schemes a run walks: the flag decides, else the schemes the project says
+ * it ships, else both.
+ *
+ * Both is the fallback rather than the truth. A project that never declared
+ * cannot be assumed to have one scheme, so lookout photographs the pair and
+ * lets the byte-identical check speak; a project that declared one is taken at
+ * its word and photographed once, which is also half the shots.
+ */
+export function resolveSchemes(
+  flag: string | boolean | undefined,
+  declared?: readonly Scheme[],
+): Scheme[] {
+  const asked = pick(flag, SCHEMES, "scheme");
+  if (asked) return asked;
+  if (declared && declared.length > 0) return SCHEMES.filter((s) => declared.includes(s));
+  return [...SCHEMES];
 }
 
 /**

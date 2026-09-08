@@ -80,6 +80,12 @@ ${startHint}      routes: ["/"],
   // "recipe" and export setScheme(page, scheme) for click choreography.
   // scheme: { mode: "emulate" },
 
+  // Which schemes this app actually ships. Left out, both are photographed,
+  // because a project that has not said cannot be assumed to have one. Say so
+  // if it ships one: it halves the shots, and stops two identical captures
+  // reading as a broken scheme switch.
+  // schemes: ["dark"],
+
   // Named interaction recipes routes can opt into via states: ["name"].
   // states: {
   //   "menu-open": {

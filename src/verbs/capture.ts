@@ -73,7 +73,7 @@ export async function runCapture(parsed: Parsed): Promise<{
   // The matrix: every form factor and both schemes unless a flag narrows,
   // and the platforms the project's fold walks unless a flag decides.
   const formFactors = resolveFormFactors(parsed.flags.viewports);
-  const schemes = resolveSchemes(parsed.flags.schemes);
+  const schemes = resolveSchemes(parsed.flags.schemes, resolved.config.schemes);
   const platforms = resolvePlatforms(
     parsed.flags.platforms,
     await detectProjectKind(resolved.projectDir, resolved.config),

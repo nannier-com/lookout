@@ -350,6 +350,12 @@ const config: LookoutConfig = {
   //   recipe             this module also exports setScheme(page, scheme)
   scheme: { mode: "url-param", param: "scheme" },
 
+  // Which schemes the app actually ships. `scheme` above is how to switch;
+  // this is what there is to switch to. Left out, both are photographed. An
+  // app with one scheme should say so: it halves the shots, and stops two
+  // identical captures reading as a scheme mechanism that failed.
+  schemes: ["dark", "light"],
+
   // Named interaction recipes. A route opts in via states: ["name"]; each
   // state is captured at every requested form factor and scheme, right after
   // prepare() returns. restore() puts the page back; without it lookout

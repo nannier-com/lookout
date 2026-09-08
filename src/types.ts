@@ -240,6 +240,18 @@ export interface LookoutConfig {
    * setScheme(page, scheme). Held here after loading.
    */
   setScheme?: (page: Page, scheme: Scheme) => Promise<void>;
+  /**
+   * The colour schemes this project actually ships. `scheme` above says how to
+   * switch between them; this says which ones exist to switch to.
+   *
+   * Left out, a run walks both, because a project that has not said cannot be
+   * assumed to have only one. Set, it walks exactly these. A project that ships
+   * one scheme should say so: otherwise every route is photographed twice in
+   * the same appearance and the two captures come back byte-identical, which
+   * reads as a broken scheme mechanism rather than as a project that never had
+   * a second scheme. `--schemes` still narrows a single run.
+   */
+  schemes?: Scheme[];
   /** Named interaction recipes routes can reference via states: ["name"]. */
   states?: Record<string, StateRecipe>;
   /** Default CSS selector to element-screenshot instead of the full page. */
