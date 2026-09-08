@@ -8,6 +8,7 @@
  * the fingerprint means the same thing whichever channel produced it.
  */
 import { checkRecordOf, viewOf } from "./check-record.js";
+import type { FindingConsensus } from "./consensus.js";
 import { explainDeterministic } from "./explain.js";
 import { fingerprintOf, sourceFingerprintOf } from "./fingerprint.js";
 import { regionFromSelectors } from "./region.js";
@@ -172,7 +173,7 @@ export const DETERMINISTIC_TYPES = Object.keys(DETERMINISTIC_MAP) as Determinist
 
 /** AI findings (from a check run) joined with their shots. */
 export function aiToFindings(
-  findings: (AiFinding & { verified?: boolean; verifierNote?: string })[],
+  findings: (AiFinding & { verified?: boolean; verifierNote?: string; consensus?: FindingConsensus })[],
   shotsById: Map<string, ShotRecord>,
   opts: {
     /**
@@ -213,6 +214,7 @@ export function aiToFindings(
       confidence: f.confidence,
       verified: !!f.verified,
       ...(f.judge ? { judge: f.judge } : {}),
+      ...(f.consensus ? { consensus: f.consensus } : {}),
       // The verifier's own account of why this stood: a second description
       // of the defect, independent of the judge's, and the sentence a fixer
       // who doubts the first one reads.

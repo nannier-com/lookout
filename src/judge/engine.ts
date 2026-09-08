@@ -10,6 +10,7 @@
  * reply, retrying once with a harder instruction when parsing fails.
  */
 import { LookoutError, type Severity, type ShotRecord } from "../types.js";
+import type { OracleId } from "../backlog/consensus.js";
 import { adapterFor, PRIMARY_AI, readingInstructionFor } from "./adapters.js";
 import { renderSkill } from "../skills/load.js";
 import { recordIncident } from "../skills/incidents.js";
@@ -34,6 +35,14 @@ export interface AiFinding {
    * category.
    */
   judge?: string;
+  /**
+   * Which AI produced this finding, when lookout judges with more than one.
+   *
+   * Absent on verdicts from before two AIs judged, including ones read back
+   * from a ledger written then, and absence reads as unknown rather than as
+   * whichever AI happens to be configured now.
+   */
+  oracle?: OracleId;
   attribute: string;
   /**
    * The shot this finding was copied from, when the judge listed this one in

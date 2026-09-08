@@ -91,6 +91,20 @@ export function checkBacklog(
     if (f.judge !== undefined && (typeof f.judge !== "string" || f.judge.length === 0)) {
       problems.push({ kind: "schema", fingerprint: fp, message: "judge must be a non-empty string when present" });
     }
+    // Loose for the same reason `judge` is: these name AIs from a registry that
+    // can gain and lose entries, and a backlog written when one was configured
+    // must not start failing validation because it no longer is.
+    if (f.consensus !== undefined) {
+      const c = f.consensus;
+      if (typeof c?.reportedBy !== "string" || c.reportedBy.length === 0) {
+        problems.push({ kind: "schema", fingerprint: fp, message: "consensus.reportedBy must be a non-empty string" });
+      }
+      for (const [name, v] of [["agreedBy", c?.agreedBy], ["disputedBy", c?.disputedBy]] as const) {
+        if (v !== undefined && !Array.isArray(v)) {
+          problems.push({ kind: "schema", fingerprint: fp, message: `consensus.${name} must be an array when present` });
+        }
+      }
+    }
     if (f.check !== undefined && !(DETERMINISTIC_TYPES as string[]).includes(f.check.type)) {
       problems.push({ kind: "schema", fingerprint: fp, message: `unknown check type "${String(f.check.type)}"` });
     }

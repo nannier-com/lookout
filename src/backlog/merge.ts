@@ -93,6 +93,15 @@ export function mergeFindings(
     if (f.check) existing.check = f.check;
     if (f.view) existing.view = f.view;
     if (f.verifierNote) existing.verifierNote = f.verifierNote;
+    // Refreshed when the newest sighting carries a dialogue, and never cleared:
+    // a run whose challenge call failed carries none, and must not erase the
+    // dispute the last run recorded, for the same reason a run with the refuter
+    // switched off must not erase its note.
+    //
+    // Replaced whole rather than accumulated. Unioning every AI that ever
+    // agreed would let one that agreed in March go on vouching for a finding it
+    // disputed in April; what is stored is the last dialogue actually held.
+    if (f.consensus) existing.consensus = f.consensus;
     for (const ev of f.evidence) {
       if (!existing.evidence.some((e) => e.hash === ev.hash)) {
         existing.evidence.push(ev);

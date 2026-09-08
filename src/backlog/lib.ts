@@ -8,6 +8,7 @@
  * staleness instead of letting drift accumulate silently.
  */
 import type { Category } from "../judge/rubric.js";
+import type { FindingConsensus } from "./consensus.js";
 import type { Region } from "./region.js";
 import type { DeterministicFinding, FormFactor, PlatformKind, Scheme, Severity } from "../types.js";
 import type { AcceptanceCriterion } from "../issues/acceptance.js";
@@ -182,6 +183,16 @@ export interface BacklogFinding {
    * defect, and the sentence a fixer who doubts the first one reads.
    */
   verifierNote?: string;
+  /**
+   * AI channel only: what the judging AIs said to each other about this
+   * finding, when more than one judged.
+   *
+   * Never part of the fingerprint and never part of the cluster key: two AIs
+   * agreeing about one defect must produce one identity. Refreshed on
+   * re-sighting and never cleared, so a run whose challenge call failed does
+   * not erase the dispute the last run recorded. See backlog/consensus.ts.
+   */
+  consensus?: FindingConsensus;
   evidence: EvidenceRef[];
   firstSeen: string; // runId
   lastSeen: string; // runId
@@ -344,6 +355,7 @@ export function normalizeBacklog(backlog: Backlog): Backlog {
 // anything: each name is defined in exactly one place.
 export { fingerprintOf, sourceFingerprintOf } from "./fingerprint.js";
 export { REGIONS, isShellRegion, parseRegion, type Region } from "./region.js";
+export { corroboration, isDisputed, oraclesOf, type Dissent, type FindingConsensus, type OracleId } from "./consensus.js";
 export {
   aiToFindings,
   deterministicToFindings,
