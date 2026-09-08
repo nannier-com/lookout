@@ -354,6 +354,35 @@ async function drivePage(page: Page): Promise<number> {
     await first.locator("button").click();
     await page.waitForTimeout(900);
     check("but never the last one", (await first.getAttribute("data-selected")) === "true");
+
+    // A selection nobody can see is a control that does not work, and the
+    // attributes above are true of one. Two things have to hold in the pixels:
+    // the tool's mark actually loads, and the selected one is the one wearing
+    // a surface. The marks reach the page as data: URIs, so a mark a browser
+    // refuses paints nothing and reports nothing; react-native-web leaves the
+    // box behind with `background-image: none`, which is what this reads.
+    const marks = page.locator("#toolToggle button > div:first-child > div");
+    const painted = await marks.evaluateAll((nodes) =>
+      nodes.map((n) => getComputedStyle(n).backgroundImage !== "none"));
+    check("every tool's mark paints", painted.length > 0 && painted.every(Boolean), painted.join(","));
+
+    const surface = async (): Promise<string[]> =>
+      page.locator("#toolToggle button").evaluateAll((nodes) =>
+        nodes.map((n) => getComputedStyle(n).backgroundColor));
+    const off = await surface();
+    await second.locator("button").click();
+    await page.waitForTimeout(900);
+    const on = await surface();
+    check("selecting a tool changes how it looks", off[1] !== on[1], `${off[1]} -> ${on[1]}`);
+    check("and leaves the other one alone", off[0] === on[0], String(off[0]));
+
+    // Selected and unselected have to be the same box, or the row jumps by the
+    // border every time somebody presses one.
+    const boxes = await page.locator("#toolToggle button").evaluateAll((nodes) =>
+      nodes.map((n) => Math.round(n.getBoundingClientRect().height)));
+    check("both sit at the same height", new Set(boxes).size === 1, boxes.join(","));
+    await second.locator("button").click();
+    await page.waitForTimeout(600);
   } else {
     check("tool toggle has choices", false, `only ${await buttons.count()}`);
   }

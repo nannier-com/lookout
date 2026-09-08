@@ -271,6 +271,17 @@ describe("the tools a handoff can be opened in", () => {
     );
   });
 
+  // The page shows a mark through an <img>, which parses it as a document of
+  // its own rather than as markup inside the page. There is no HTML parser
+  // there to imply the SVG namespace, so a mark without `xmlns` fails to parse
+  // and the browser paints nothing and says nothing. That is what an empty tool
+  // toggle was: `startsWith("<svg")` above is true of a mark that never loads.
+  test("lookout's own marks are documents a browser can load on their own", async () => {
+    for (const t of await toolsAvailable()) {
+      expect(t.mark).toContain('xmlns="http://www.w3.org/2000/svg"');
+    }
+  });
+
   test("a supplied file that is not a lone svg is ignored, not injected", async () => {
     const r = project();
     mkdirSync(join(r.projectDir, ".lookout", "logos"), { recursive: true });

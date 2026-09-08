@@ -26,6 +26,19 @@ import { execFileAsync, have } from "../util.js";
 import { LookoutError, type ResolvedConfig } from "../types.js";
 
 /**
+ * The opening tag every mark carries.
+ *
+ * The namespace is not decoration. The page shows a mark through an `<img>`,
+ * which parses it as a standalone document rather than as markup inside the
+ * page: there is no HTML parser to imply the SVG namespace, so a mark without
+ * `xmlns` fails to parse and the browser paints nothing, silently. That is what
+ * an empty tool toggle was.
+ */
+const MARK_TAG =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"' +
+  ' width="15" height="15" aria-hidden="true">';
+
+/**
  * Marks for the tool toggle.
  *
  * These are lookout's own drawings, not the vendors' official logos, which are
@@ -33,11 +46,15 @@ import { LookoutError, type ResolvedConfig } from "../types.js";
  * Both are recognisable in the shape and the colour their product uses, which
  * is all a two-button picker needs. Drop a real one at
  * `.lookout/logos/<key>.svg` and lookout uses that instead.
+ *
+ * A mark that wants the page's own text colour asks for `currentColor`, which
+ * an `<img>` cannot resolve for the same reason: the page resolves it against
+ * the live theme before it encodes the document.
  */
 const MARKS: Record<string, string> = {
   // A radial burst of tapered spokes, in Claude's orange.
   "claude-code":
-    '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">' +
+    MARK_TAG +
     '<g fill="#D97757">' +
     Array.from({ length: 10 }, (_, i) => {
       const a = (i * 360) / 10;
@@ -51,7 +68,7 @@ const MARKS: Record<string, string> = {
   // A regular hexagon would not do: rotating one by 60 degrees maps it onto
   // itself, so all three land in exactly the same place and draw one hexagon.
   codex:
-    '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">' +
+    MARK_TAG +
     '<g fill="none" stroke="currentColor" stroke-width="1.5">' +
     [0, 60, 120]
       .map((a) => `<ellipse cx="12" cy="12" rx="4.1" ry="9.2" transform="rotate(${a} 12 12)"/>`)

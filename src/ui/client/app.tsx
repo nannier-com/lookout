@@ -13,6 +13,20 @@ import { post, storedJudgeFold, storedTools, useLookoutData, type Area, type Fil
 import { RunClock } from "./react-time.js";
 import { project, type SvSidecar } from "./shot-project.js";
 
+/**
+ * A tool's mark, as something an `<img>` can load.
+ *
+ * The mark is inline SVG, and an image element loads it as a standalone
+ * document rather than as markup in this page. Nothing there inherits from the
+ * page, so a mark drawn in `currentColor` would resolve to black and vanish on
+ * a dark background. The colour it asked to borrow is resolved here, where the
+ * live theme is known, and baked in before the document is encoded.
+ */
+function markSource(mark: string, color: string): { uri: string } {
+  const painted = mark.replaceAll("currentColor", color);
+  return { uri: `data:image/svg+xml,${encodeURIComponent(painted)}` };
+}
+
 function AppFrame(): React.JSX.Element {
   const data = useLookoutData();
   const { tokens, scheme } = useTheme();
@@ -136,7 +150,7 @@ function AppFrame(): React.JSX.Element {
     <View nativeID="workspace" style={{ minWidth: 0, height: "100%", flex: 1 }}>
       <View style={{ padding: phone ? 12 : 16, borderBottomWidth: 1, borderBottomColor: tokens.border }} {...({ role: "banner" } as object)}><Column snug>
         <Row between alignCenter wrap snug><Column tight><Typography h1 tightLeading>{data.status?.project ? `lookout · ${data.status.project}` : "lookout"}</Typography><Row snug><Typography tiny muted>{status?.runId ? status.phase : "no run recorded yet"}</Typography>{status?.startedAt ? <RunClock startedAt={status.startedAt} endedAt={status.endedAt} running={status.running} lastEventAt={status.lastEventAt} /> : null}</Row></Column>
-          <Row snug alignCenter wrap><View nativeID="toolToggle"><Row tight>{data.tools.map((tool) => { const selected = selectedTools.includes(tool.key); const hint = tool.installed ? `Work issues in ${tool.label}; select both and they take turns on the same issue` : `${tool.bin} is not on PATH; the command is shown so you can run it yourself`; return <View key={tool.key} testID="tool-choice" {...({ title: hint, dataSet: { tool: tool.key, selected: String(selected), missing: String(!tool.installed) } } as object)}><Button small ghost={selected} outline={!selected} testID={`tool-${tool.key}`} accessibilityLabel={`${tool.label}, ${selected ? "selected" : "not selected"}`} onPress={() => toggleTool(tool.key)} iconLeft={<Image source={{ uri: `data:image/svg+xml,${encodeURIComponent(tool.mark)}` }} width={16} height={16} contain alt="" />}>{tool.label}</Button></View>; })}</Row></View>
+          <Row snug alignCenter wrap><View nativeID="toolToggle"><Row tight>{data.tools.map((tool) => { const selected = selectedTools.includes(tool.key); const hint = tool.installed ? `Work issues in ${tool.label}; select both and they take turns on the same issue` : `${tool.bin} is not on PATH; the command is shown so you can run it yourself`; return <View key={tool.key} testID="tool-choice" {...({ title: hint, dataSet: { tool: tool.key, selected: String(selected), missing: String(!tool.installed) } } as object)}><Button small secondary={selected} ghost={!selected} testID={`tool-${tool.key}`} accessibilityLabel={`${tool.label}, ${selected ? "selected" : "not selected"}`} onPress={() => toggleTool(tool.key)} iconLeft={<Image source={markSource(tool.mark, selected ? tokens["secondary-foreground"] : tokens.foreground)} width={16} height={16} contain alt="" />}>{tool.label}</Button></View>; })}</Row></View>
             <View nativeID="findfix"><Button primary icon accessibilityLabel={runHint} testID="find-fix" disabled={status?.checkStopping || !data.status?.configured} onPress={() => void post(status?.checkRunning ? "/api/stop" : "/api/check").then(data.refresh)} iconLeft={<Icon primaryForeground decorative {...(status?.checkRunning ? { square: true } : { play: true })} />} /></View>
           </Row>
         </Row>
