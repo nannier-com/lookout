@@ -152,21 +152,37 @@ export function isLocalUrl(url: string): boolean {
 }
 
 /**
- * Fetch with a timeout; returns the status or null when unreachable. The
- * default is generous because dev servers compile routes on first hit (a
- * cold Next.js page can take several seconds before its first byte).
+ * Fetch with a timeout; the status, and what the server says about the age of
+ * what it served. Nulls when unreachable. The default timeout is generous
+ * because dev servers compile routes on first hit (a cold Next.js page can
+ * take several seconds before its first byte).
+ *
+ * `servedAt` is `Last-Modified` as epoch milliseconds. Hot-reload dev servers
+ * send no such header and report null; a static server in front of a built
+ * directory sends the built file's own timestamp, which is what lets
+ * freshness.ts notice a build older than the source.
  */
-export async function probe(url: string, timeoutMs = 15_000): Promise<number | null> {
+export async function probeMeta(
+  url: string,
+  timeoutMs = 15_000,
+): Promise<{ status: number | null; servedAt: number | null }> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const res = await fetch(url, { signal: ctrl.signal, redirect: "follow" });
-    return res.status;
+    const header = res.headers.get("last-modified");
+    const at = header ? Date.parse(header) : Number.NaN;
+    return { status: res.status, servedAt: Number.isNaN(at) ? null : at };
   } catch {
-    return null;
+    return { status: null, servedAt: null };
   } finally {
     clearTimeout(t);
   }
+}
+
+/** Fetch with a timeout; the status alone, or null when unreachable. */
+export async function probe(url: string, timeoutMs = 15_000): Promise<number | null> {
+  return (await probeMeta(url, timeoutMs)).status;
 }
 
 /** Is a binary actually on PATH? */

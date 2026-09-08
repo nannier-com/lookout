@@ -12,7 +12,7 @@ import {
   type TargetDef,
 } from "./types.js";
 import { dirname, resolve } from "node:path";
-import { probe } from "./util.js";
+import { probeMeta } from "./util.js";
 
 export interface ResolvedRoute {
   path: string;
@@ -39,6 +39,12 @@ export interface TargetStatus {
   routes: number;
   up: boolean;
   status: number | null;
+  /**
+   * What the server said it served, epoch milliseconds, or null when it said
+   * nothing. Null is the hot-reload case and means no opinion, never fresh.
+   * freshness.ts compares it against the source on disk.
+   */
+  servedAt: number | null;
   startHint?: string;
 }
 
@@ -127,13 +133,14 @@ export async function preflight(targets: ResolvedTarget[]): Promise<TargetStatus
   return Promise.all(
     targets.map(async ({ def, routes }) => {
       const ready = `${def.url}${def.readyPath ?? "/"}`;
-      const status = await probe(ready);
+      const { status, servedAt } = await probeMeta(ready);
       return {
         name: def.name,
         url: def.url,
         routes: routes.length,
         up: status !== null && status < 500,
         status,
+        servedAt,
         startHint: def.startHint,
       };
     }),
