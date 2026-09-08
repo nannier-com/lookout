@@ -21,7 +21,12 @@ export function SettingsPanel({ settings, onClose, onApply, onReset }: {
     setModels(Object.fromEntries(settings.judges.map((judge) => [judge.key, judge.model ?? ""])));
     setCustom(Object.fromEntries(settings.judges.map((judge) => [judge.key, !!judge.model && !judge.models.includes(judge.model)])));
   }, [settings]);
-  return <View nativeID="settings"><ScrollView><Column relaxed padLoose>
+  // Bounded to the drawer that holds it, because the ScrollView inside cannot
+  // scroll a box nothing has given a height: it grew to its content instead,
+  // the drawer clipped the overflow, and the settings below the fold were
+  // simply unreachable. The panel is taller than a short viewport by design --
+  // it carries a judge row per AI now -- so this is not a rare case.
+  return <View nativeID="settings" style={{ height: "100%" }}><ScrollView><Column relaxed padLoose>
         <Row between alignCenter><Typography h2>Settings</Typography><Button ghost icon accessibilityLabel="Close settings" testID="settings-close" onPress={onClose} iconLeft={<Icon x decorative />} /></Row>
         <Alert {...(settings.configured ? { success: true } : { warning: true })} title={settings.configured ? `Configured for ${settings.project ?? "this project"}` : "No lookout.config.ts here"} description={settings.configPath ?? "Choose a repository above, or type its path. lookout can create a config for a repository that does not have one."} />
         <Field label="Project" helper="Which repository lookout checks."><Row snug stacks><Input block accessibilityLabel="Project directory" value={projectDir} onChangeText={setProjectDir} onSubmitEditing={() => void onApply("/api/project", { dir: projectDir })} testID="set-project" /><Button outline small testID="pick-project" onPress={() => void onApply("/api/pick")}>Choose folder</Button></Row></Field>
