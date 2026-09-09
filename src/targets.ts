@@ -8,10 +8,12 @@
 import {
   LookoutError,
   type LookoutConfig,
+  type PlatformKind,
   type RouteDef,
   type TargetDef,
 } from "./types.js";
 import { dirname, resolve } from "node:path";
+import type { MappedIndex } from "./map/scope.js";
 import { probeMeta } from "./util.js";
 
 export interface ResolvedRoute {
@@ -26,6 +28,8 @@ export interface ResolvedRoute {
   navigation?: boolean;
   /** False when the route opted out of provenance sidecars. */
   provenance?: boolean;
+  /** The platforms this route renders on, when it named them; every one otherwise. */
+  platforms?: PlatformKind[];
 }
 
 export interface ResolvedTarget {
@@ -78,6 +82,7 @@ export function resolveRoutes(
         : undefined,
       navigation: def.navigation,
       provenance: def.provenance,
+      ...(def.platforms ? { platforms: def.platforms } : {}),
     };
   });
 }
@@ -200,15 +205,19 @@ export function shotInConfig(
   shot: { platform: string; target: string; route: string; state: string },
   targets: ResolvedTarget[],
   plannedStates?: ReadonlyMap<string, ReadonlySet<string>>,
+  /** What the screen map puts in scope beyond the config: its routes, and its states per route. */
+  mapped?: MappedIndex,
 ): boolean {
   if (shot.platform !== "web") return true;
   const t = targets.find((x) => x.def.name === shot.target);
   if (!t) return false;
   const r = t.routes.find((x) => x.path === shot.route);
-  if (!r) return false;
+  const mappedRoute = mapped?.routes.get(shot.target)?.has(shot.route) ?? false;
+  if (!r && !mappedRoute) return false;
   return (
     shot.state === "rest" ||
-    r.states.includes(shot.state) ||
-    (plannedStates?.get(`${shot.target}|${shot.route}`)?.has(shot.state) ?? false)
+    (r?.states.includes(shot.state) ?? false) ||
+    (plannedStates?.get(`${shot.target}|${shot.route}`)?.has(shot.state) ?? false) ||
+    (mapped?.states.get(`${shot.target}|${shot.route}`)?.has(shot.state) ?? false)
   );
 }

@@ -24,7 +24,7 @@ const INTERACTIVE = /<(button|input|select|textarea|a)[\s/>]|onClick|onPress|rol
 const RAW = /<(div|span|button|input|select|textarea|label|a|ul|li|p|h[1-6])[\s/>]/g;
 
 /** Files that exist to be read by a machine, or to demonstrate raw markup. */
-const NOT_APPLICATION_UI = /\.(test|spec|stories|d)\.[tj]sx?$|\.generated\.|__(tests|mocks|snapshots)__/;
+export const NOT_APPLICATION_UI = /\.(test|spec|stories|d)\.[tj]sx?$|\.generated\.|__(tests|mocks|snapshots)__/;
 
 /**
  * Which files are worth a model's attention, worst offenders first.

@@ -26,6 +26,7 @@ import { planRoute } from "../navigate/plan.js";
 import { loadSkill } from "../skills/load.js";
 import { loadHarvests, loadPlans, plannedStateIndex, savePlans } from "../navigate/store.js";
 import { navigationOn } from "../navigate/consent.js";
+import { mappedIndex } from "../map/scope.js";
 import { list, str, type Parsed } from "../util.js";
 import type { CheckScope } from "./scope.js";
 
@@ -145,10 +146,11 @@ export async function maybeRefreshNavigation(args: {
   const report = await loadReport(scope.resolved);
   if (report) {
     const planned = await plannedStateIndex(scope.resolved);
+    const mapped = await mappedIndex(scope.resolved);
     scope.shots = report.shots.filter(
       (s) =>
         s.platform === "web" &&
-        shotInConfig(s, targets, planned) &&
+        shotInConfig(s, targets, planned, mapped) &&
         (!onlyTargets || onlyTargets.includes(s.target)) &&
         (!onlyRoutes || onlyRoutes.some((r) => s.route === r || s.route === `/${r}` || s.routeName === r)),
     );

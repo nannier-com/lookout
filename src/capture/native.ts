@@ -178,6 +178,9 @@ export async function captureNative(
       for (const scheme of opts.schemes) {
         await prepareScheme(device, app, scheme, progress);
         for (const route of target.routes) {
+          // A route that named its platforms and left this one out is not
+          // deep-linked here: the app has no such screen to open.
+          if (route.platforms && !route.platforms.includes(platform)) continue;
           const axes: ShotAxes = {
             target: target.def.name,
             route: route.path,

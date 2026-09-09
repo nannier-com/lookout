@@ -29,6 +29,33 @@ describe("validateConfig", () => {
     expect(() => validateConfig({ targets: bad }, "t")).toThrow(/provenance/);
   });
 
+  test("map block: booleans, non-negative caps, string lists", () => {
+    const t = [{ name: "app", url: "http://localhost:1" }];
+    const c = validateConfig({ targets: t, map: { enabled: true, maxScreens: 12, exclude: ["Sign out"] } }, "t");
+    expect(c.map?.enabled).toBe(true);
+    expect(c.map?.maxScreens).toBe(12);
+    expect(validateConfig({ targets: t }, "t").map).toBeUndefined();
+    expect(() => validateConfig({ targets: t, map: "yes" }, "t")).toThrow(/map must be an object/);
+    expect(() => validateConfig({ targets: t, map: { enabled: "yes" } }, "t")).toThrow(/map\.enabled/);
+    for (const key of ["maxScreens", "maxDepth", "maxChildren", "fileBudget"]) {
+      expect(() => validateConfig({ targets: t, map: { [key]: -1 } }, "t")).toThrow(new RegExp(`map\\.${key}`));
+    }
+    expect(() => validateConfig({ targets: t, map: { include: [1] } }, "t")).toThrow(/map\.include/);
+  });
+
+  test("a route's platforms are a non-empty subset of the platforms lookout knows, deduplicated", () => {
+    const route = (r: Record<string, unknown>) =>
+      validateConfig({ targets: [{ name: "app", url: "http://localhost:1", routes: [r] }] }, "t").targets[0]!.routes![0];
+    expect(route({ path: "/", platforms: ["web", "ios", "web"] })).toMatchObject({ platforms: ["web", "ios"] });
+    expect(route({ path: "/" })).not.toHaveProperty("platforms");
+    expect(() => route({ path: "/", platforms: [] })).toThrow(/platforms/);
+    expect(() => route({ path: "/", platforms: ["desktop"] })).toThrow(/platforms: unknown .*platform "desktop" \(web \| ios \| android\)/);
+    expect(resolveRoutes({ name: "app", url: "http://localhost:1", routes: [{ path: "/a", platforms: ["ios"] }, "/b"] }).map((r) => r.platforms)).toEqual([
+      ["ios"],
+      undefined,
+    ]);
+  });
+
   test("a route's provenance opt-out survives resolution", () => {
     const routes = resolveRoutes({
       name: "app",

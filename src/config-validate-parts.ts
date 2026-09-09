@@ -8,7 +8,7 @@
  * of their own: three helpers do not earn a module, and every caller of them is
  * either here or one import away.
  */
-import { LookoutError, type RouteDef, type TargetDef } from "./types.js";
+import { LookoutError, PLATFORMS, type RouteDef, type TargetDef } from "./types.js";
 import { duplicateNormalizedRoute } from "./capture/route-identity.js";
 
 export function fail(path: string, msg: string): never {
@@ -94,7 +94,8 @@ export function validateTargets(raw: Record<string, unknown>, path: string): Tar
         if (r.provenance !== undefined && typeof r.provenance !== "boolean") {
           fail(path, `targets[${i}].routes[${j}].provenance must be a boolean`);
         }
-        return r as unknown as RouteDef;
+        const platforms = enumArray(r.platforms, PLATFORMS, `targets[${i}].routes[${j}].platforms`, path);
+        return { ...r, ...(platforms ? { platforms } : {}) } as unknown as RouteDef;
       });
       const duplicate = duplicateNormalizedRoute(validRoutes);
       if (duplicate) {

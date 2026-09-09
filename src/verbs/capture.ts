@@ -17,6 +17,7 @@ import {
   type RouteHarvest,
 } from "../navigate/store.js";
 import { navigationOn } from "../navigate/consent.js";
+import { mappedIndex } from "../map/scope.js";
 import { buildContactSheet, sheetNote } from "../capture/sheet.js";
 import { emit, EventLog, setCurrentLog } from "../report/events.js";
 import type { ShotRecord } from "../types.js";
@@ -119,6 +120,9 @@ export async function runCapture(parsed: Parsed): Promise<{
         ? {
             pruneNotIn: resolveTargets(resolved.config, undefined, undefined, resolved.configPath),
             plannedStates: navEnabled ? await plannedStateIndex(resolved) : undefined,
+            // The screen map's routes and states are intent while the map
+            // names them, whatever this run's flags said about walking it.
+            mapped: await mappedIndex(resolved),
           }
         : {},
     );

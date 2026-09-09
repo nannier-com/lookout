@@ -11,12 +11,13 @@
  * it.
  *
  * `shotInConfig` in ../targets.ts is the decision itself. This is the half that
- * has to read disk (navigation discovery's planned states are a file), and it
- * lives in one place so the two callers cannot drift into two different ideas
- * of what "configured" means.
+ * has to read disk (navigation discovery's planned states are a file, and so
+ * is the screen map), and it lives in one place so the callers cannot drift
+ * into two different ideas of what "configured" means.
  */
 import { resolveTargets, shotInConfig } from "./targets.js";
 import { plannedStateIndex } from "./navigate/store.js";
+import { mappedIndex } from "./map/scope.js";
 import type { ResolvedConfig } from "./types.js";
 
 /** The axes the scope decision is made on; a shot and a finding both carry them. */
@@ -39,5 +40,6 @@ export async function configuredScope(resolved: ResolvedConfig): Promise<ScopeCh
   const planned = resolved.config.navigation?.enabled
     ? await plannedStateIndex(resolved)
     : undefined;
-  return (axes) => shotInConfig(axes, targets, planned);
+  const mapped = await mappedIndex(resolved);
+  return (axes) => shotInConfig(axes, targets, planned, mapped);
 }

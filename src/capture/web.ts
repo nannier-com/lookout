@@ -130,6 +130,9 @@ export async function captureWeb(
         }
       }
       for (const route of target.routes) {
+        // A route that named its platforms and left the web out is a device
+        // screen; photographing it here would file a 404 against the app.
+        if (route.platforms && !route.platforms.includes("web")) continue;
         try {
           await captureRoute(resolved, target, route, page, {
             ...opts,

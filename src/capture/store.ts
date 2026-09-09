@@ -197,6 +197,8 @@ export async function mergeRun(
     pruneNotIn?: import("../targets.js").ResolvedTarget[];
     /** Synthesized states navigation.json still names, per target|route key. */
     plannedStates?: ReadonlyMap<string, ReadonlySet<string>>;
+    /** The screen map's routes and states, which are intent while the map names them. */
+    mapped?: import("../map/scope.js").MappedIndex;
   } = {},
 ): Promise<{ report: CaptureReport; pruned: number }> {
   return withProjectLock(resolved, "capture report update", async () =>
@@ -227,7 +229,7 @@ async function mergeRunLocked(
   if (opts.pruneNotIn) {
     const { shotInConfig } = await import("../targets.js");
     const before = kept.length;
-    kept = kept.filter((s) => shotInConfig(s, opts.pruneNotIn!, opts.plannedStates));
+    kept = kept.filter((s) => shotInConfig(s, opts.pruneNotIn!, opts.plannedStates, opts.mapped));
     pruned = before - kept.length;
   }
   const report: CaptureReport = {

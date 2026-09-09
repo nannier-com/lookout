@@ -128,6 +128,27 @@ export function validateConfig(raw: unknown, path: string): LookoutConfig {
     navigation = n as LookoutConfig["navigation"];
   }
 
+  let map: LookoutConfig["map"];
+  if (raw.map !== undefined) {
+    if (!isRecord(raw.map)) fail(path, "map must be an object");
+    const m = raw.map;
+    if (m.enabled !== undefined && typeof m.enabled !== "boolean") {
+      fail(path, "map.enabled must be a boolean");
+    }
+    for (const key of ["maxScreens", "maxDepth", "maxChildren", "fileBudget"] as const) {
+      if (m[key] !== undefined && (typeof m[key] !== "number" || m[key] < 0)) {
+        fail(path, `map.${key} must be a non-negative number`);
+      }
+    }
+    for (const key of ["exclude", "include"] as const) {
+      const v = m[key];
+      if (v !== undefined && (!Array.isArray(v) || v.some((x) => typeof x !== "string"))) {
+        fail(path, `map.${key} must be an array of strings`);
+      }
+    }
+    map = m as LookoutConfig["map"];
+  }
+
   let checks: LookoutConfig["checks"];
   if (raw.checks !== undefined) {
     if (!isRecord(raw.checks)) fail(path, "checks must be an object");
@@ -228,6 +249,7 @@ export function validateConfig(raw: unknown, path: string): LookoutConfig {
     native: raw.native as LookoutConfig["native"],
     learn,
     navigation,
+    map,
     checks,
     provenance: raw.provenance as boolean | undefined,
   };

@@ -70,6 +70,40 @@ export interface RouteDef {
   navigation?: boolean;
   /** Per-route opt-out of rendering-provenance sidecars (config.provenance). */
   provenance?: boolean;
+  /**
+   * The platforms this route renders on, when not every one the project
+   * walks. A web-only route in a project with a device fold is not deep-linked
+   * on the phone. Left out, the route is walked wherever the run goes.
+   */
+  platforms?: PlatformKind[];
+}
+
+/**
+ * The screen map: `lookout map` reads the source for the application's screens
+ * and how each is reached, and `check` walks them one at a time. Screens the
+ * map finds beyond the configured routes are walked too; lookout never edits
+ * the config to add them.
+ */
+export interface MapConfig {
+  /**
+   * Left out: `check` walks a map when one exists and warns when it is stale.
+   * true: `check` also refreshes a missing or stale map itself, which spends a
+   * source scan on every run that needs one. false: never walk a map.
+   * `--map` consents to a refresh for one run; `--no-map` opts one run out.
+   */
+  enabled?: boolean;
+  /** Screens per target. Default 40. */
+  maxScreens?: number;
+  /** Levels below a configured route. Default 4. */
+  maxDepth?: number;
+  /** Children per screen. Default 8. */
+  maxChildren?: number;
+  /** Source files offered to the reader. Default 60. */
+  fileBudget?: number;
+  /** Accessible-name substrings or paths never mapped ("Sign out", "/logout"). */
+  exclude?: string[];
+  /** Paths always offered to the reader as seeds, linked from nowhere or not. */
+  include?: string[];
 }
 
 /**
@@ -321,6 +355,8 @@ export interface LookoutConfig {
   };
   /** Navigation discovery; see NavigationConfig for the click-everything warning. */
   navigation?: NavigationConfig;
+  /** The screen map `lookout map` writes and `check` walks; see MapConfig. */
+  map?: MapConfig;
   /**
    * Knobs for the deterministic checks that need one.
    *

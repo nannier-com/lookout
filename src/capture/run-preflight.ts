@@ -6,7 +6,9 @@
  * default to fewer form factors than a sweep does or skip the probe.
  */
 import { assertTargetsAllowed } from "../config.js";
-import { preflight, requireUp, resolveTargets, type ResolvedTarget } from "../targets.js";
+import { preflight, requireUp, type ResolvedTarget } from "../targets.js";
+import { mapOn } from "../map/consent.js";
+import { resolveMappedTargets } from "../map/scope.js";
 import { newestSourceMtime, staleMessage, staleStamp, staleTargets, type StaleStamp } from "../freshness.js";
 import { emit } from "../report/events.js";
 import { resolveFormFactors, resolvePlatforms, resolveSchemes } from "./matrix.js";
@@ -32,11 +34,14 @@ export interface RunPreflight {
 export async function preflightRun(parsed: Parsed, resolved: ResolvedConfig): Promise<RunPreflight> {
   assertTargetsAllowed(resolved.config, !!parsed.flags["allow-remote"]);
 
-  const targets = resolveTargets(
-    resolved.config,
+  // The config's targets, extended in memory with the routes the screen map
+  // discovered, so a scoped re-capture can name a mapped route and an
+  // unscoped one photographs it at rest. `--no-map` is the config alone.
+  const targets = await resolveMappedTargets(
+    resolved,
     list(parsed.flags.targets),
     list(parsed.flags.routes),
-    resolved.configPath,
+    { useMap: mapOn(resolved.config, parsed.flags) },
   );
   // The matrix: every form factor and both schemes unless a flag narrows,
   // and the platforms the project's fold walks unless a flag decides.

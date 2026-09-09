@@ -15,6 +15,7 @@ export type {
   StateRecipe,
   NativeAppConfig,
   NavigationConfig,
+  MapConfig,
   LookoutConfig,
   ResolvedConfig,
   DeterministicFinding,

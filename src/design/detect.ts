@@ -74,7 +74,7 @@ async function siblingApps(repoRoot: string): Promise<string[]> {
 }
 
 /** Directories holding the application's own screens, as opposed to a kit's. */
-async function appSourceRoots(projectDir: string): Promise<string[]> {
+export async function appSourceRoots(projectDir: string): Promise<string[]> {
   const found: string[] = [];
   for (const rel of APP_DIR_NAMES) {
     const p = join(projectDir, rel);
