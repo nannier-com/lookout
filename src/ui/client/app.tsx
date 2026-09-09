@@ -154,7 +154,9 @@ function AppFrame(): React.JSX.Element {
 
   const status = data.status?.status;
   const walked = data.status?.events.filter((event) => event.kind === "note" && typeof event.data?.checked === "number").at(-1);
-  const runNote = walked?.data?.found ? `Stopped at ${String(walked.data.route)} after looking at ${String(walked.data.checked)} of ${String(walked.data.of)} routes. Fix these, then run again for the next route.` : null;
+  // A route walk counts routes; a map walk counts screens, and says which one.
+  const unit = walked?.data?.unit === "screen" ? "screen" : "route";
+  const runNote = walked?.data?.found ? `Stopped at ${String(unit === "screen" ? walked.data.screen ?? walked.data.route : walked.data.route)} after looking at ${String(walked.data.checked)} of ${String(walked.data.of)} ${unit}s. Fix these, then run again for the next ${unit}.` : null;
   const queued = useMemo(() => new Set(status?.queue.map((item) => item.issue) ?? []), [status?.queue]);
   const stats = status ? [
     { kind: "state" as const, value: "open", label: "open", count: status.issues.open + status.issues.verifying },

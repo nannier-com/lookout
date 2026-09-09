@@ -96,11 +96,13 @@ describe("the unscoped capture retires ghosts", () => {
 
   // A screen walk merges each screen as it lands, all under one run id; the
   // history keeps that run once, holding every screen's shots.
-  test("a run merged in pieces is one run in the history", async () => {
+  test("a run merged in pieces is one run in the history, its failures gathered and its start kept", async () => {
     const r = tmpProject("lookout-scope-pieces-");
-    await mergeRun(r, run, [shot({ route: "/", id: "web/app/root/rest" })]);
-    const { report } = await mergeRun(r, run, [shot({ route: "/settings", id: "web/app/settings/rest" })]);
+    const failure = { target: "app", route: "/x", step: "route", message: "boom" };
+    await mergeRun(r, { ...run, startedAt: "first", failures: [failure] }, [shot({ route: "/", id: "web/app/root/rest" })]);
+    const { report } = await mergeRun(r, { ...run, startedAt: "later", failures: [{ ...failure, route: "/y" }] }, [shot({ route: "/settings", id: "web/app/settings/rest" })]);
     expect(report.runs.map((x) => x.id)).toEqual(["r2"]);
+    expect(report.runs[0]).toMatchObject({ startedAt: "first", failures: [failure, { ...failure, route: "/y" }] });
     expect(report.shots.map((s) => s.id).sort()).toEqual(["web/app/root/rest", "web/app/settings/rest"]);
   });
 

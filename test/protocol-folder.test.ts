@@ -14,6 +14,13 @@ describe("the protocol names what is on disk", () => {
     }
   });
 
+  test("the screen map and the walk, so an agent reads the source before it captures", () => {
+    expect(text).toContain("lookout map");
+    expect(text).toContain("map.json");
+    expect(text).toContain("one screen at a time");
+    expect(text).toContain("--replay-only");
+  });
+
   test("what a capture photographs, in either fold, and what narrowing a ruling costs", () => {
     expect(text).toContain("desktop, tablet and phone");
     expect(text).toContain("booted iOS and Android devices");

@@ -26,6 +26,18 @@ import type { SheetResult } from "../capture/sheet.js";
 import { aiToFindings, deterministicToFindings, type Backlog, type BacklogFinding } from "../backlog/lib.js";
 import { inheritedByDesign } from "../backlog/adjudicate.js";
 import { clusterKeyOf, clusterScope, type FixCluster } from "../fix/cluster.js";
+import { loadMap, nodeByScreen, type MapFile } from "../map/store.js";
+
+/** The mapped states a cluster's members were filed on, as screen ids, once each. */
+export function mappedScreensOf(cluster: Pick<FixCluster, "members">, map: MapFile | null): string[] {
+  if (!map) return [];
+  const ids = new Set<string>();
+  for (const m of cluster.members) {
+    if (m.state === "rest" || m.state === "source") continue;
+    if (nodeByScreen(map, m.target, m.route, m.state)) ids.add(`${m.target}|${m.route}|${m.state}`);
+  }
+  return [...ids];
+}
 import { panelOf } from "../judge/panels.js";
 import type { CheckOutcome } from "../check/outcome.js";
 import type { ResolvedConfig, ShotRecord } from "../types.js";
@@ -66,6 +78,8 @@ export async function gatherFreshEvidence(args: {
   parsed: Parsed;
   issueId: string;
   cluster: FixCluster;
+  /** The project, for the screen map; without it, mapped states are not re-captured. */
+  resolved?: ResolvedConfig;
   priorHashes: Map<string, string>;
   /** Where the baseline's pixels are, so how much moved can be measured. */
   priorPixels?: ReadonlyMap<string, string>;
@@ -87,12 +101,17 @@ export async function gatherFreshEvidence(args: {
   // code clusters get no filter: their oracle is capture or source, not a
   // panel.
   const owning = cluster.channel === "ai" ? panelOf(cluster.category).name : undefined;
+  // A member filed on a mapped state is only reachable by replaying what
+  // reached it; naming those screens makes the scoped capture replay them
+  // into its run, so the ruling sees fresh pixels there too.
+  const screens = mappedScreensOf(cluster, args.resolved ? await loadMap(args.resolved) : null);
   const { outcome, resolved, shotsById } = await runCheck({
     positionals: [],
     flags: {
       ...parsed.flags,
       targets: scope.targets.join(","),
       routes: scope.routes.join(","),
+      ...(screens.length > 0 ? { screens: screens.join(",") } : {}),
       // The cluster's own platform: a web issue is ruled on the web fold and
       // an iOS issue on the iOS devices, whatever else the project walks.
       ...(parsed.flags.platforms === undefined ? { platforms: cluster.platform } : {}),

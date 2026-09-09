@@ -42,7 +42,8 @@ lookout targets               # resolve + probe the configured targets
 | verb      | what it does |
 | --------- | ------------ |
 | `capture` | screenshots + deterministic findings (console errors, overflow, clipped content, axe), no AI |
-| `check`   | capture + AI judge against the base rubric plus the project rubric; findings merge into `.lookout/backlog.json` |
+| `check`   | capture + AI judge against the base rubric plus the project rubric; findings merge into `.lookout/backlog.json`. With a screen map, one screen at a time (see "Walking the map") |
+| `map`     | read the source for the application's screens and how each is reached; writes `.lookout/map.json`, which `check` then walks |
 | `verify-fix` | rule on a claimed fix: re-capture and re-judge one issue's routes, then close it or leave it open with a note on what the judge still sees |
 | `verify`  | judge the app against acceptance criteria (`--criteria ticket.md` or inline text); per-criterion pass / fail / not-visually-verifiable with evidence |
 | `ask`     | answer a free-form question about the rendered app, grounded in fresh screenshots of every form factor (dark only by default; `--viewports` and `--schemes` change that) |
@@ -382,6 +383,16 @@ const config: LookoutConfig = {
     exclude: ["Sign out"],    // CSS selectors or accessible-name substrings
   },
 
+  // The screen map: `lookout map` reads the source for the screens and how
+  // each is reached, and `check` walks them one at a time. See "Screen map"
+  // and "Walking the map" below. Left out, a map is walked whenever one
+  // exists; enabled: true also refreshes a stale map from inside check.
+  map: {
+    maxScreens: 40,           // screens per target
+    maxDepth: 4,              // levels below a configured route
+    exclude: ["Sign out"],    // accessible-name substrings or paths never mapped
+  },
+
   // Project judging rules, layered into the judge-core skill in every judge
   // prompt. Editing this file re-judges whatever it could have changed: the
   // ledger is keyed on the composed prompt itself, so nothing has to be bumped
@@ -483,6 +494,79 @@ route: it files a `capture-error` finding on the rest shot and the capture
 moves on. Discovered same-origin pages that are not in the config are
 reported as coverage suggestions; lookout never edits the config itself.
 
+### Screen map
+
+Navigation discovery reads a running page. The screen map reads the source.
+`lookout map` hands an AI with read-only access to the repository the
+configured targets and routes, the fold, and a ranked list of the files that
+declare routes and link screens together (routers, `pages/` and `app/`
+directories, navigation components), and asks for a tree: every route and
+every state a route can show (a dialog, a drawer, a tab, a form's errors),
+what to open on its parent to reach each, its risk, and the source that
+declares it. The reply is held to that contract: a node that cites a file or
+a symbol that is not there is dropped and written down as an incident,
+duplicates and cycles are refused, siblings are stored safe before
+destructive, and every configured route is a root whether or not the reply
+placed it. The tree lands in `.lookout/map.json`.
+
+**The map extends the config.** A screen the scan finds beyond
+`lookout.config.ts` is walked and in scope: its shots are kept, its findings
+filed, and `--routes` can name it. lookout still never edits the config.
+
+A map is a fact about the source and goes stale when the source it was read
+from moves: the files the reader examined, the set of route-bearing files, the
+configured routes, or the `map-screens` skill. `lookout map` re-scans a stale
+target and spends nothing on a fresh one; `--refresh` forces a scan. `check`
+warns about a stale map and walks it anyway; only `--map` (one run) or
+`map: { enabled: true }` (the project) lets `check` spend a scan itself, and
+`map: { enabled: false }` never walks one. Caps: `maxScreens` (40),
+`maxDepth` (4), `maxChildren` (8), `fileBudget` (60); `exclude` keeps names
+and paths out of the map altogether.
+
+### Walking the map
+
+With a map, `lookout check` does not capture the whole matrix and judge it
+afterwards. It walks: reach a screen, capture it across the form-factor and
+scheme matrix, judge it as one view group with the ordinary panels, write
+the ledger and the report, file the findings, then the next screen. Routes
+walk in the order `check --first` already used (routes ruled fully fixed
+first as the regression net, then open work worst first, then the map's
+order), and a route's screens walk together, parent before child, safe
+before destructive. `--first` stops at the first screen with standing
+findings, which is what the ui's play button runs. `--no-map` captures the
+matrix instead.
+
+A screen is reached one of two ways. A route is opened by URL. A state is
+reached by **replaying** what reached it before, or, when nothing has yet, by
+a **navigator**: Claude Code or Codex handed lookout's own navigation tool
+server for one screen. The server drives a chromium the way a capture does,
+or a booted simulator through simctl and idb (iOS) or adb (Android), and
+offers `snapshot` (every control, with an id), `look` (a picture), `open`,
+`click`, `type`, `press`, `hover`, `scroll`, `back`, `tap`, `swipe`, `key`,
+`wait` and `arrive`. The model performs only the last hop (the steps to the
+parent screen are replayed before it acts), and `arrive` is where lookout
+takes the record: the route is re-captured at every form factor and scheme
+with the model's actions replayed each time. What the model did is written
+into the map, so the next run replays it for free; a replay that lands on a
+different screen than was recorded stops rather than photograph the wrong
+one under the right name, and the navigator is asked again. The server
+refuses to leave the target's origin, to touch anything in
+`navigation.exclude` or `map.exclude`, and to submit a form on a screen the
+map did not mark destructive; a refusal is an answer the model reads, not an
+error.
+
+A screen that could not be reached after two navigator calls is reported as
+unreachable, written down as an incident with the last picture the navigator
+asked for, and never judged, cached or counted clean. `--max-screens N`,
+`--budget-usd X` and `--max-navigator-calls N` (default 20) bound the run;
+`--replay-only` spends no navigator; `--no-replay` re-records every screen;
+`--screens a|/|rest,b|/|menu-open` narrows it; `--navigator-model [ai:]model`
+picks who navigates (the judge model by default). `verify-fix` on a finding
+filed on a mapped state replays its recording into the ruling's capture; a
+mapped route that is not in the config cannot be ruled on yet, because a
+ruling's capture resolves routes from the config alone. `lookout doctor`
+says what each device platform can do on this machine: iOS taps need idb.
+
 ### Skills: where lookout's AI behaviour lives
 
 Every AI capability is an instruction file, not a string in the binary. They
@@ -506,6 +590,10 @@ skills/
   fact-check/           SKILL.md: answering one question from screenshots
   design-placement/     SKILL.md: where a defect belongs, in a project with a kit
   kit-conformance/      SKILL.md: whether the application is built out of that kit
+  map-screens/          SKILL.md: the application's screens and how each is
+                        reached, read from the source
+  navigate-screen/      SKILL.md: reach one screen with the navigation tools and
+                        say when it is showing
   plan-navigation/      SKILL.md: which of a route's affordances to actuate, what
                         to name each state, and what only needs verifying
 ```
@@ -794,6 +882,9 @@ lookout.config.ts  the project's targets and recipes (at the root, in git)
   ledger.json      judge verdict cache
   design-system.json  what the project is built from, cached
   conformance.json    the source reading pass, cached
+  map.json         the screen map: routes, states, how each is reached, read
+                     from the source; the walk writes back what reached each
+  navigation.json  navigation discovery's cached plans
   issues/<id>/     one folder per issue, named by its six-digit id:
                      Issue.md, Issue.json, state.json, frames.json, img/pre/,
                      img/post/ (the frames either side of a fix, frozen when
@@ -819,7 +910,9 @@ lock.
 
 lookout never edits code. The loop it is built for:
 
-1. `lookout check` in the target repo: findings merge into the backlog.
+1. `lookout map` in the target repo, once (and again when it goes stale):
+   the screens and how each is reached. Then `lookout check`: with the map,
+   one screen at a time; findings merge into the backlog.
 2. Fix the code in that repo, per that repo's own conventions.
 3. Optionally, `lookout check --targets x --routes /y` to see what the judge
    says now; unchanged pixels stay ledger-cached. This does not move what the

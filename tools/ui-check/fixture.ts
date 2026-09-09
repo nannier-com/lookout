@@ -652,6 +652,15 @@ esac
     [
       { at: stamp(0), runId: "check-fixture", kind: "run-start", message: "lookout check", data: { project: "project" } },
       { at: stamp(1), runId: "check-fixture", kind: "shot", message: "app/ desktop dark", data: shotData },
+      // A map walk that stopped at its first screen with standing findings:
+      // the page's stop alert counts screens rather than routes for it.
+      {
+        at: stamp(1),
+        runId: "check-fixture",
+        kind: "note",
+        message: "2 finding(s) standing on app|/|rest (all already filed), after looking at 1 of 4 screen(s)",
+        data: { route: "/", screen: "app|/|rest", state: "rest", checked: 1, of: 4, found: 2, unit: "screen" },
+      },
       { at: stamp(2), runId: "check-fixture", kind: "run-end", message: "2 finding(s); ~$0.12", data: {} },
       { at: stamp(3), runId: "verify-fixture", kind: "run-start", message: `lookout verify-fix ${OPEN_ISSUE}`, data: { issue: OPEN_ISSUE, verb: "verify-fix" } },
       { at: stamp(4), runId: "verify-fixture", kind: "shot", message: "app/ desktop dark", data: shotData },

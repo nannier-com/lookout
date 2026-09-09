@@ -238,15 +238,26 @@ async function mergeRunLocked(
     project: resolved.project,
     updatedAt: nowIso(),
     // Keep the last 20 runs of history. A run merged in pieces (a screen walk
-    // merges each screen as it lands, all under one run id) replaces its own
-    // entry rather than appearing once per piece.
-    runs: [...existing.runs.filter((r) => r.id !== run.id).slice(-19), run],
+    // merges each screen as it lands, all under one run id) is one entry, its
+    // failures and skips gathered across the pieces.
+    runs: [...existing.runs.filter((r) => r.id !== run.id).slice(-19), joinRun(existing.runs.find((r) => r.id === run.id), run)],
     shots: kept,
   };
   const p = reportPath(resolved);
   await mkdir(dirname(p), { recursive: true });
   await atomicWriteJson(p, report);
   return { report, pruned };
+}
+
+/** The same run, merged again: what it failed at and skipped accumulates; when it started stands. */
+function joinRun(previous: RunRecord | undefined, run: RunRecord): RunRecord {
+  if (!previous) return run;
+  return {
+    ...run,
+    startedAt: previous.startedAt,
+    failures: [...previous.failures, ...run.failures],
+    skips: [...previous.skips, ...run.skips],
+  };
 }
 
 export async function writeShotFile(

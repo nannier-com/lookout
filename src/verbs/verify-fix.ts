@@ -228,6 +228,7 @@ export async function verifyFix(parsed: Parsed): Promise<number> {
     parsed,
     issueId,
     cluster,
+    resolved: preResolved,
     priorHashes,
     priorPixels: base.pixels,
     configuredRoutes,

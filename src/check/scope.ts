@@ -13,7 +13,7 @@ import { configuredScope } from "../config-scope.js";
 import { emit } from "../report/events.js";
 import { loadReport } from "../capture/store.js";
 import { runCapture } from "../verbs/capture.js";
-import { LookoutError, type ResolvedConfig, type ShotRecord } from "../types.js";
+import { LookoutError, type PlatformKind, type ResolvedConfig, type ShotRecord } from "../types.js";
 import { list, str, type Parsed } from "../util.js";
 
 export interface CheckScope {
@@ -30,7 +30,18 @@ export async function resolveScope(parsed: Parsed): Promise<CheckScope> {
     resolved = await loadConfig({ configPath: str(parsed.flags.config), url: str(parsed.flags.url),
     baseUrl: str(parsed.flags["base-url"]) });
   } else {
-    resolved = (await runCapture(parsed)).resolved;
+    const captured = await runCapture(parsed);
+    resolved = captured.resolved;
+    // Mapped states a scoped run names are reached by replaying what reached
+    // them before, into this capture's run, so their pixels are as fresh as
+    // the routes' when the judge looks.
+    const screens = list(parsed.flags.screens);
+    if (screens && screens.length > 0) {
+      const { replayScreensIntoRun } = await import("./scope-screens.js");
+      await replayScreensIntoRun(resolved, parsed, screens, captured.outcome.runId, captured.outcome.platforms as PlatformKind[], (line) => {
+        if (!parsed.flags.json && !parsed.flags.quiet) console.log(line);
+      });
+    }
   }
 
   const report = await loadReport(resolved);
