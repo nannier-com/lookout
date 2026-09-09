@@ -85,7 +85,7 @@ describe("the tool server over stdio", () => {
       result = (await readNavSession(path)).result;
     }
     expect(result?.arrived).toBe(false);
-    expect(["the conversation ended", "terminated"]).toContain(result?.note);
+    expect(["the conversation ended", "terminated"]).toContain(result?.note ?? "");
     expect(result?.calls.map((c) => c.tool)).toEqual([undefined, "arrive", "click"]);
     expect(transport.pid).toBeDefined();
   }, 30_000);

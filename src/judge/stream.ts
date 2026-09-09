@@ -159,7 +159,7 @@ function readsOf(message: unknown): string[] {
 /** The one part of a tool's input worth showing: what it was pointed at. */
 function subject(input: unknown): string {
   if (!isObject(input)) return "";
-  for (const key of ["file_path", "path", "pattern", "command", "url"]) {
+  for (const key of ["file_path", "path", "pattern", "command", "url", "ref", "name", "key"]) {
     const v = input[key];
     if (typeof v === "string") return v;
   }

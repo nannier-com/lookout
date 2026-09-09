@@ -22,9 +22,14 @@
 //              adds one finding of its own in the lane the prompt names.
 //   judge      file nothing and call every shot clean, so a Codex proposal can
 //              be driven without a second contract to maintain here.
-import { writeFileSync } from "node:fs";
+import { appendFileSync, writeFileSync } from "node:fs";
 
 const argv = process.argv.slice(2);
+// Tests that assert what reached the subprocess (a config override, a prompt
+// shape) set MOCK_ARGV_FILE; every invocation appends its argv as one line.
+if (process.env.MOCK_ARGV_FILE) {
+  appendFileSync(process.env.MOCK_ARGV_FILE, JSON.stringify(argv) + "\n");
+}
 const prompt = argv[argv.length - 1] ?? "";
 const outIndex = argv.indexOf("-o");
 const outPath = outIndex >= 0 ? argv[outIndex + 1] : undefined;

@@ -129,7 +129,7 @@ describe("the web driver through the protocol", () => {
     expect(result?.actions[1]?.args.affordance).toMatchObject({ role: "button", name: "Menu" });
     expect(result?.actions[1]?.outcome.navigated).toBe(false);
     expect(result?.arrival?.sampleNames).toContain("Close");
-    expect(["the conversation ended", "terminated"]).toContain(result?.note);
+    expect(["the conversation ended", "terminated"]).toContain(result?.note ?? "");
     // The shots' state carries the recipe's description.
     expect(result?.shots[0]?.stateDescription).toBe("the menu is open");
 

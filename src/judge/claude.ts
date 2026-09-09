@@ -18,6 +18,7 @@ import { join } from "node:path";
 import { ReplyStream, type ResultLine } from "./stream.js";
 import { probeCli, type CliFacts } from "./cli-probe.js";
 import type { AiAdapter, Capability, JudgeInvocation, JudgeReply } from "./ai-types.js";
+import { mcpServerSpec, mcpToolNames, SERVER_NAME } from "../mcp/spec.js";
 import { LookoutError } from "../types.js";
 
 export type { JudgeInvocation };
@@ -46,12 +47,33 @@ const TOOLS: Record<Capability, string[]> = {
   "read-files": ["Read"],
   "search-files": ["Grep", "Glob"],
   "edit-files": ["Edit", "Write"],
+  // Spelled by the tool server's registry, prefixed the way this CLI names a
+  // server's tools; see `navigationArgs`.
+  navigate: [],
 };
 
 /** The tool names for a set of capabilities, deduplicated and ordered. */
 export function claudeTools(caps: readonly Capability[]): string[] {
-  return [...new Set(caps.flatMap((c) => TOOLS[c]))];
+  const named = [...new Set(caps.flatMap((c) => TOOLS[c]))];
+  return caps.includes("navigate") ? [...named, ...mcpToolNames().map((n) => `mcp__${SERVER_NAME}__${n}`)] : named;
 }
+
+/**
+ * The flags that attach lookout's tool server to one invocation: the server
+ * spec as this CLI's own config shape, inline, and the instruction to load no
+ * other server (the operator's servers have no business in an oracle's
+ * conversation, and a first run with them loaded demonstrably tried).
+ */
+export function navigationArgs(inv: JudgeInvocation): string[] {
+  if (!inv.capabilities?.includes("navigate")) return [];
+  if (!inv.navigation) throw new LookoutError("a navigate capability needs a session file", "pass navigation: { sessionPath }");
+  const spec = mcpServerSpec(inv.navigation.sessionPath);
+  const config = { mcpServers: { [spec.name]: { type: "stdio", command: spec.command, args: spec.args } } };
+  return ["--mcp-config", JSON.stringify(config), "--strict-mcp-config"];
+}
+
+/** How long this CLI waits for the server to start and for a tool call to answer. */
+const MCP_ENV = { MCP_TIMEOUT: "60000", MCP_TOOL_TIMEOUT: "600000" };
 
 /**
  * The claude binary: overridable for nonstandard install paths and for test
@@ -113,9 +135,15 @@ export function invokeClaude(inv: JudgeInvocation): Promise<{ text: string; cost
     claudeTools(inv.capabilities ?? ["read-files"]).join(","),
     "--model",
     inv.model,
+    ...navigationArgs(inv),
   ];
+  const navigating = inv.capabilities?.includes("navigate") ?? false;
   return new Promise((resolve, reject) => {
-    const child = spawn(claudeBin(), args, { cwd: inv.cwd ?? judgeCwd(), stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(claudeBin(), args, {
+      cwd: inv.cwd ?? judgeCwd(),
+      stdio: ["ignore", "pipe", "pipe"],
+      ...(navigating ? { env: { ...process.env, ...MCP_ENV } } : {}),
+    });
     const reply = new ReplyStream(inv.onSay);
     let stderr = "";
     let settled = false;
@@ -244,6 +272,8 @@ export const claudeAdapter: AiAdapter = {
   defaultModel: DEFAULT_JUDGE_MODEL,
   reportsReads: true,
   readingInstruction: "with the Read tool",
+  navigates: true,
+  navigateInstruction: `the tools named mcp__${SERVER_NAME}__<tool> (snapshot, open, click, type, press, hover, scroll, back, wait, look, arrive)`,
   bin: async () => claudeBin(),
   probe: (): Promise<CliFacts> => probeCli(claudeBin()),
   invoke: async (inv: JudgeInvocation): Promise<JudgeReply> => {

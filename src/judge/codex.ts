@@ -37,8 +37,33 @@ import { judgeCwd } from "./claude.js";
 import { cliVersion } from "./cli-probe.js";
 import type { AiAdapter, JudgeInvocation, JudgeReply, Spend } from "./ai-types.js";
 import type { CliFacts } from "./cli-probe.js";
+import { mcpServerSpec, SERVER_NAME } from "../mcp/spec.js";
 import { have } from "../util.js";
 import { LookoutError } from "../types.js";
+
+/**
+ * The config overrides that attach lookout's tool server to one `exec`: the
+ * server spec as this CLI's own `mcp_servers.<name>.*` keys, each value in
+ * TOML (JSON's strings and arrays are valid TOML), with a startup and a
+ * tool timeout long enough for a browser to launch and a screen to be
+ * photographed across the matrix.
+ */
+export function navigationOverrides(inv: JudgeInvocation): string[] {
+  if (!inv.capabilities?.includes("navigate")) return [];
+  if (!inv.navigation) throw new LookoutError("a navigate capability needs a session file", "pass navigation: { sessionPath }");
+  const spec = mcpServerSpec(inv.navigation.sessionPath);
+  const key = `mcp_servers.${SERVER_NAME}`;
+  return [
+    "-c",
+    `${key}.command=${JSON.stringify(spec.command)}`,
+    "-c",
+    `${key}.args=${JSON.stringify(spec.args)}`,
+    "-c",
+    `${key}.startup_timeout_sec=60`,
+    "-c",
+    `${key}.tool_timeout_sec=600`,
+  ];
+}
 
 const TIMEOUT_MS = 10 * 60_000;
 const MAX_STDERR = 4000;
@@ -179,6 +204,7 @@ export function invokeCodex(inv: JudgeInvocation): Promise<JudgeReply> {
         "never",
         "-o",
         answerPath,
+        ...navigationOverrides(inv),
         inv.prompt,
       ];
       const child = spawn(bin, args, {
@@ -267,6 +293,8 @@ export const codexAdapter: AiAdapter = {
   // Verified against the installed CLI: "View a local image file from the
   // filesystem when visual inspection is needed."
   readingInstruction: "with the view_image tool",
+  navigates: true,
+  navigateInstruction: `the tools of the "${SERVER_NAME}" server (snapshot, open, click, type, press, hover, scroll, back, wait, look, arrive)`,
   bin: codexBin,
   probe,
   invoke: invokeCodex,

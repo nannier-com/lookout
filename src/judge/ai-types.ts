@@ -39,7 +39,7 @@ import type { CliFacts } from "./cli-probe.js";
  * is lookout repairing its own checkout, and even that one withholds a shell
  * because lookout runs the gates itself rather than trusting the reply.
  */
-export type Capability = "read-files" | "search-files" | "edit-files";
+export type Capability = "read-files" | "search-files" | "edit-files" | "navigate";
 
 /** One round trip, in terms no vendor owns. */
 export interface JudgeInvocation {
@@ -59,6 +59,12 @@ export interface JudgeInvocation {
    * judging path wants.
    */
   capabilities?: Capability[];
+  /**
+   * The navigation session the tool server serves, present exactly when
+   * `capabilities` includes "navigate". The adapter turns it into whatever its
+   * CLI needs to start the server; the session file carries everything else.
+   */
+  navigation?: { sessionPath: string };
   /**
    * Called as the model works, if the caller wants to watch.
    *
@@ -119,6 +125,18 @@ export interface AiAdapter {
    * judges anyway.
    */
   readingInstruction: string;
+  /**
+   * Whether this CLI can be handed lookout's navigation tool server. Verified
+   * by running each CLI with the server attached, never assumed from a flag
+   * existing in its help text.
+   */
+  navigates: boolean;
+  /**
+   * How this CLI names lookout's navigation tools, as the words the
+   * navigate-screen skill will use: the `readingInstruction` seam again, for
+   * a different vocabulary.
+   */
+  navigateInstruction: string;
   /** The binary to spawn, or null when this AI is not installed here. */
   bin(): Promise<string | null>;
   /** Its version, and the models this install offers. */
