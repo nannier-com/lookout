@@ -5,7 +5,7 @@
 // is trusted. It may read and edit inside lookout's own checkout and may not
 // run a command, so whether the change is good is never its own report;
 // lookout runs the gates and reverts everything if any of them fails.
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,6 +17,22 @@ import { tmpProject } from "./tmp-project.js";
 import { attemptsDir, healsPath, ownCheckout, selfHealLockPath } from "../src/checkout.js";
 
 const MOCK = join(import.meta.dir, "mock-claude.ts");
+
+// The verb reads the incident log of whatever project the working directory
+// sits in, climbing to find its config. Run from this repository, that is the
+// operator's own project the moment a `lookout.config.ts` is left at its root
+// (which serving this checkout in `lookout ui` does by design), and "nothing
+// has gone wrong" then finds the operator's real incidents and reaches for the
+// real judge. Every test here stands in a directory no config can be found
+// above, so what it heals is only what it recorded.
+let cwdBefore = "";
+beforeEach(() => {
+  cwdBefore = process.cwd();
+  process.chdir(mkdtempSync(join(tmpdir(), "lookout-heal-cwd-")));
+});
+afterEach(() => {
+  process.chdir(cwdBefore);
+});
 
 /** A throwaway git checkout that looks enough like lookout's own to heal. */
 function checkout(gatesPass = false): string {
