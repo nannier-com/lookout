@@ -139,6 +139,25 @@ export async function check(parsed: Parsed): Promise<number> {
   narration.start();
   setCurrentNarration(narration);
 
+  // A screen map on disk means the application is walked one screen at a
+  // time: reach it, capture it, judge it, file it, then the next. The matrix
+  // capture below is what a project gets until `lookout map` has run, and
+  // what `--no-map` asks for.
+  {
+    const { mapToWalk } = await import("../check/walk-gate.js");
+    const quiet = !!parsed.flags.json || !!parsed.flags.quiet;
+    const walk = await mapToWalk(parsed, pre, (line) => {
+      if (!quiet) console.log(line);
+    });
+    if (walk) {
+      const { walkMap } = await import("../check/walk.js");
+      const code = await walkMap(parsed, pre, walk, checkRun);
+      setCurrentLog(null);
+      setCurrentNarration(null);
+      return code;
+    }
+  }
+
   // Asked for one issue? Then walk the application one route at a time and
   // stop the moment something is found. Capturing all thirteen routes across
   // every form factor and scheme before judging anything is exactly what "find
