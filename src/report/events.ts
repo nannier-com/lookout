@@ -83,6 +83,22 @@ export class EventLog {
   }
 
   /**
+   * Narrate into a run another process is running, without starting one:
+   * no truncation, no `run-start`. What a tool server spawned by that run
+   * uses, so its lines land on the run's board rather than in a log of its
+   * own.
+   */
+  static attach(resolved: ResolvedConfig, runId: string): EventLog {
+    const log = new EventLog(resolved, runId);
+    try {
+      mkdirSync(dirname(log.path), { recursive: true });
+    } catch {
+      log.enabled = false;
+    }
+    return log;
+  }
+
+  /**
    * Begin a board: a run that decides what the clusters are, discarding the
    * previous board's narration. Only `check` and `capture` do this.
    */
@@ -272,7 +288,11 @@ export function summarise(events: LookoutEvent[]): RunStatus {
         break;
       case "judge-start":
         s.phase = "judging";
-        if (isBoardRun) s.batches.total = Number(e.data?.batches ?? 0);
+        // Accumulated, not assigned: a run that judges in rounds (one per
+        // route on a --first walk, one per screen on a map walk) announces
+        // each round's batches as it reaches them, and `done` counts across
+        // all of them.
+        if (isBoardRun) s.batches.total += Number(e.data?.batches ?? 0);
         break;
       case "batch":
         if (isBoardRun) s.batches.done++;

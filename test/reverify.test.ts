@@ -251,6 +251,49 @@ describe("refute-on-read", () => {
       delete process.env.MOCK_MODE;
     }
   });
+
+  // A screen walk spreads one run's cap over many calls, one per screen, so
+  // the caller says how much of the cap is left. Zero means "spend nothing":
+  // the debt is reported as deferred and no refuter is called.
+  test("a caller's limit is the cap for that call, and zero spends nothing", async () => {
+    const r = tmpProject("lookout-rev-limit-");
+    mkdirSync(evidenceDir(r), { recursive: true });
+    const groups = Array.from({ length: 3 }, (_, i) => {
+      const s = shot(`web/app/route${i}/rest/desktop/light`);
+      return { shots: [s], findings: [finding(s.id)] };
+    });
+    process.env.LOOKOUT_CLAUDE_BIN = MOCK;
+    process.env.MOCK_MODE = "verify";
+    try {
+      const two = planWith(groups);
+      const res = await reverifyCached({
+        resolved: r,
+        plan: two.plan,
+        shotsById: two.shotsById,
+        parsed: { positionals: [], flags: {} },
+        log: silent,
+        limit: 2,
+      });
+      expect(res.repaired).toBe(2);
+      expect(res.deferred).toBe(1);
+
+      const none = planWith(groups);
+      const spent = await reverifyCached({
+        resolved: r,
+        plan: none.plan,
+        shotsById: none.shotsById,
+        parsed: { positionals: [], flags: {} },
+        log: silent,
+        limit: 0,
+      });
+      expect(spent.repaired).toBe(0);
+      expect(spent.deferred).toBe(3);
+      expect(spent.costUsd).toBe(0);
+    } finally {
+      delete process.env.LOOKOUT_CLAUDE_BIN;
+      delete process.env.MOCK_MODE;
+    }
+  });
 });
 
 // The flip that feeds refute-on-read: a refuter subprocess failure no longer

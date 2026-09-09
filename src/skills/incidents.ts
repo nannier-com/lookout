@@ -33,7 +33,9 @@ export type IncidentKind =
   | "judge-rejected"
   | "skill-rollback"
   | "self-heal-rollback"
-  | "healer-unparseable";
+  | "healer-unparseable"
+  /** A mapped screen the walk could not reach, after replay and the navigator both tried. */
+  | "screen-unreachable";
 
 export interface Incident {
   at: string;

@@ -235,7 +235,10 @@ async function mergeRunLocked(
     routeIdentity: 2,
     project: resolved.project,
     updatedAt: nowIso(),
-    runs: [...existing.runs.slice(-19), run], // keep the last 20 runs of history
+    // Keep the last 20 runs of history. A run merged in pieces (a screen walk
+    // merges each screen as it lands, all under one run id) replaces its own
+    // entry rather than appearing once per piece.
+    runs: [...existing.runs.filter((r) => r.id !== run.id).slice(-19), run],
     shots: kept,
   };
   const p = reportPath(resolved);

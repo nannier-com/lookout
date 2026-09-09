@@ -50,6 +50,12 @@ export async function reverifyCached(args: {
   shotsById: Map<string, ShotRecord>;
   parsed: Parsed;
   log: (line: string) => void;
+  /**
+   * How many entries this call may repair; MAX_REVERIFY_GROUPS unless the
+   * caller is spreading one run's cap over several calls, as a screen walk
+   * does, so that sixty screens cannot buy sixty times the debt service.
+   */
+  limit?: number;
 }): Promise<ReverifyResult> {
   const { resolved, plan, shotsById, parsed, log } = args;
   const none: ReverifyResult = { repaired: 0, deferred: 0, refuted: [], costUsd: 0 };
@@ -75,7 +81,8 @@ export async function reverifyCached(args: {
   }
   if (candidates.length === 0) return none;
 
-  const todo = candidates.slice(0, MAX_REVERIFY_GROUPS);
+  const todo = candidates.slice(0, Math.max(0, args.limit ?? MAX_REVERIFY_GROUPS));
+  if (todo.length === 0) return { ...none, deferred: candidates.length };
   const result: ReverifyResult = {
     repaired: 0,
     deferred: candidates.length - todo.length,

@@ -14,7 +14,7 @@ export const LEGACY_LOCK_STALE_MS = 30 * 60_000;
 const LOCK_UPDATE_MS = 5_000;
 const LOCK_TIMEOUT_MS = 10_000;
 
-export type LockName = "project" | "improve" | "backlog" | "report" | "design" | "attempts" | "ledger" | "navigation" | "queue" | "settings";
+export type LockName = "project" | "improve" | "backlog" | "report" | "design" | "attempts" | "ledger" | "navigation" | "map" | "queue" | "settings";
 
 const ORDER: Record<LockName, number> = {
   project: 10,
@@ -24,6 +24,7 @@ const ORDER: Record<LockName, number> = {
   design: 35,
   ledger: 40,
   navigation: 50,
+  map: 55,
   attempts: 60,
   queue: 70,
   settings: 80,

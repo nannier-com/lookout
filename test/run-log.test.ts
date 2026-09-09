@@ -109,6 +109,23 @@ describe("a run that was killed is not reported as live", () => {
     expect(Date.parse(s.lastEventAt!)).toBeGreaterThan(Date.parse(s.startedAt!));
   });
 
+  // A run that judges in rounds (one per route on a --first walk, one per
+  // screen on a map walk) announces each round's batches as it reaches them.
+  // Assigning the last announcement made `status` print "7/1" once the
+  // second round started: seven batches done out of the one it was told about.
+  test("judge-start counts batches across rounds instead of keeping the last round's", () => {
+    const events = checkRun().filter((e) => e.kind !== "run-end");
+    events.push(
+      ev("check-1", "judge-start", "judging 4 shot(s)", { batches: 2 }),
+      ev("check-1", "batch", "batch 1/2"),
+      ev("check-1", "batch", "batch 2/2"),
+      ev("check-1", "judge-start", "judging 2 shot(s)", { batches: 1 }),
+      ev("check-1", "batch", "batch 1/1"),
+    );
+    const s = summarise(events);
+    expect(s.batches).toEqual({ done: 3, total: 3 });
+  });
+
   test("an empty log has nothing to report rather than a bogus timestamp", () => {
     const s = summarise([]);
     expect(s.lastEventAt).toBeNull();
@@ -142,6 +159,24 @@ describe("one log, several processes", () => {
     expect(events.filter((e) => e.kind === "finding")).toHaveLength(1);
     expect(events.filter((e) => e.kind === "verdict")).toHaveLength(1);
     expect(summarise(events).findings.high).toBe(1);
+  });
+
+  // A tool server spawned by a run narrates into that run's board: it neither
+  // starts a run of its own nor erases the one in flight.
+  test("an attached log appends to the run in flight without a run-start of its own", () => {
+    const resolved = tempProject();
+    const check = new EventLog(resolved, "check-1");
+    check.start("lookout check");
+    check.emit("finding", "a11y/contrast: too faint", { severity: "high" });
+
+    const server = EventLog.attach(resolved, "check-1");
+    server.emit("phase", "navigator: click \"Menu\"");
+
+    const events = readEvents(resolved);
+    expect(events.filter((e) => e.kind === "run-start")).toHaveLength(1);
+    expect(events.filter((e) => e.kind === "finding")).toHaveLength(1);
+    expect(events.at(-1)?.message).toBe("navigator: click \"Menu\"");
+    expect(summarise(events).running).toBe(true);
   });
 
   test("a fresh capture does discard the previous run", () => {

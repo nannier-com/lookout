@@ -5,10 +5,10 @@
  * surfaced, so callers can gate on it.
  */
 import { join } from "node:path";
-import { assertTargetsAllowed, evidenceDir, loadConfig } from "../config.js";
-import { preflight, requireUp, resolveTargets } from "../targets.js";
-import { newestSourceMtime, staleMessage, staleStamp, staleTargets } from "../freshness.js";
+import { evidenceDir, loadConfig } from "../config.js";
+import { resolveTargets } from "../targets.js";
 import { captureWeb, type WebCaptureOptions } from "../capture/web.js";
+import { preflightRun } from "../capture/run-preflight.js";
 import { mergeRun, loadReport } from "../capture/store.js";
 import {
   loadPlans,
@@ -21,13 +21,10 @@ import { buildContactSheet, sheetNote } from "../capture/sheet.js";
 import { emit, EventLog, setCurrentLog } from "../report/events.js";
 import type { ShotRecord } from "../types.js";
 import { LookoutError } from "../types.js";
-import { resolveFormFactors, resolvePlatforms, resolveSchemes } from "../capture/matrix.js";
-import { deviceDownReason, preflightDevices } from "../capture/native-preflight.js";
-import { detectProjectKind } from "../project-kind.js";
-import { list, num, printJson, runId, str, type Parsed } from "../util.js";
+import { num, printJson, runId, str, type Parsed } from "../util.js";
 
 /** Narrate one shot the moment it lands, so a live watcher sees it appear. */
-function emitShot(shot: ShotRecord): void {
+export function emitShot(shot: ShotRecord): void {
   emit("shot", `${shot.target}${shot.route} ${shot.formFactor} ${shot.scheme}`, {
     shotId: shot.id,
     path: shot.path,
@@ -62,49 +59,7 @@ export async function runCapture(parsed: Parsed): Promise<{
     url: str(parsed.flags.url),
     baseUrl: str(parsed.flags["base-url"]),
     });
-  assertTargetsAllowed(resolved.config, !!parsed.flags["allow-remote"]);
-
-  const targets = resolveTargets(
-    resolved.config,
-    list(parsed.flags.targets),
-    list(parsed.flags.routes),
-    resolved.configPath,
-  );
-  // The matrix: every form factor and both schemes unless a flag narrows,
-  // and the platforms the project's fold walks unless a flag decides.
-  const formFactors = resolveFormFactors(parsed.flags.viewports);
-  const schemes = resolveSchemes(parsed.flags.schemes, resolved.config.schemes);
-  const platforms = resolvePlatforms(
-    parsed.flags.platforms,
-    await detectProjectKind(resolved.projectDir, resolved.config),
-  );
-  // Each fold is probed for what it needs and nothing else: the web fold's
-  // URL over HTTP, the device fold's simulators and emulators with the app on
-  // them. A native-only project has no server to answer, and asking one to
-  // would stop every run before a device was ever looked at.
-  const nativePlatforms = platforms.filter((p): p is "ios" | "android" => p !== "web");
-  const webStatuses = platforms.includes("web") ? await preflight(targets) : [];
-  requireUp(
-    webStatuses,
-    deviceDownReason(await preflightDevices(resolved.config, nativePlatforms)),
-  );
-
-  // Evidence that predates the code is worse than no evidence: the page renders
-  // clean, the verdict reads clean, and both describe a build nobody is running
-  // any more. Warn and stamp rather than refuse, because lookout never rebuilds
-  // or restarts anything and only the operator can make the run worth having.
-  // Only a server that dated what it served can be compared against the source,
-  // so a hot-reload project never pays for the walk.
-  const stale = webStatuses.some((s) => s.servedAt !== null)
-    ? staleTargets(webStatuses, newestSourceMtime(resolved.projectDir))
-    : [];
-  const staleWarning = staleMessage(stale);
-  if (staleWarning) {
-    console.error(`lookout: ${staleWarning}`);
-    emit("note", "capturing against a build older than the source", {
-      staleBuild: staleStamp(stale),
-    });
-  }
+  const { targets, formFactors, schemes, platforms, nativePlatforms, staleBuild } = await preflightRun(parsed, resolved);
 
   const axeFlag = str(parsed.flags.axe) ?? "route";
   if (!["route", "all", "off"].includes(axeFlag)) {
@@ -124,7 +79,7 @@ export async function runCapture(parsed: Parsed): Promise<{
     aria: resolved.config.aria !== false && !parsed.flags["no-aria"],
     edgeClip: !parsed.flags["no-edge-clip"],
     runId: runId("web"),
-    staleBuild: stale.length > 0 ? staleStamp(stale) : undefined,
+    ...(staleBuild ? { staleBuild } : {}),
     onProgress: (line) => {
       if (!quiet) console.log(line);
       emit(line.startsWith("FAIL") ? "error" : "phase", line);

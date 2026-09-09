@@ -1,38 +1,36 @@
 /**
- * One route's capture: the form factor x scheme x state walk, the shot
- * records, and navigation discovery's hooks (harvest, synthesized states,
+ * One route's capture: the form factor x scheme x state walk, the recipes,
+ * and navigation discovery's hooks (harvest, synthesized states,
  * link-verification clicks). Split from web.ts, which owns the browser and
- * the target loop.
+ * the target loop, and from web-shot.ts, which owns one photograph.
  */
 import { existsSync, readFileSync } from "node:fs";
 import type { Page } from "playwright";
-import type {
-  DeterministicFinding,
-  FormFactor,
-  ResolvedConfig,
-  Scheme,
-  ShotRecord,
-  StateRecipe,
-} from "../types.js";
+import type { FormFactor, ResolvedConfig, Scheme, ShotRecord, StateRecipe } from "../types.js";
 import type { ResolvedRoute, ResolvedTarget } from "../targets.js";
 import type { WebCaptureOptions } from "./web.js";
-import {
-  blankShotGuard,
-  checkHorizontalOverflow,
-  checkOffOrigin,
-  detectAnimated,
-} from "./checks.js";
-import { axeForShot, runTargetSize, type AxeSeen } from "./axe.js";
-import { checkEdgeClipping, type ScrollerNote } from "./check-clip.js";
-import { checkCollisions } from "./checks-collide.js";
-import { shotId, writeShotFile, type ShotAxes } from "./store.js";
-import { writeSidecars } from "./web-sidecars.js";
-import { resolveElement, schemeUrl, setScheme, settle } from "./web-page.js";
+import type { DeterministicFinding } from "../types.js";
+import type { AxeSeen } from "./axe.js";
+import { shootCell } from "./web-shot.js";
+import { schemeUrl, setScheme, settle } from "./web-page.js";
 import { harvestRoute } from "../navigate/harvest.js";
 import { NavSkip, runNavChecks, synthStates, type SynthesizedStates } from "../navigate/execute.js";
 import { routeKey, type RouteHarvest } from "../navigate/store.js";
-import { nowIso, sha256 } from "../util.js";
-import { DEVICE_SCALE_FACTOR } from "../types.js";
+import { sha256 } from "../util.js";
+
+/**
+ * One state to capture instead of the route's own list: what a screen walk
+ * asks for. The rest state is `{ state: "rest", recipe: null }`; a screen
+ * reached by recorded clicks is its own name with the replay as the recipe.
+ * Config recipes and navigation plans are not consulted for such a call:
+ * the caller is naming exactly one view, and its siblings are other calls.
+ */
+export interface OnlyState {
+  state: string;
+  recipe: StateRecipe | null;
+  /** What was clicked to reach it, and what that was expected to do, for the shot record. */
+  affordance?: { selector: string; role: string; name: string; href: string | null; outcome: string };
+}
 
 export interface RouteCtx extends WebCaptureOptions {
   formFactors: FormFactor[];
@@ -40,6 +38,7 @@ export interface RouteCtx extends WebCaptureOptions {
   shots: ShotRecord[];
   collectorDrain: () => DeterministicFinding[];
   progress: (line: string) => void;
+  only?: OnlyState;
 }
 
 export async function captureRoute(
@@ -59,8 +58,10 @@ export async function captureRoute(
       : "missing"
     : undefined;
 
-  const states: [string, StateRecipe | null][] = [["rest", null]];
-  if (ctx.states === "all") {
+  const states: [string, StateRecipe | null][] = ctx.only
+    ? [[ctx.only.state, ctx.only.recipe]]
+    : [["rest", null]];
+  if (!ctx.only && ctx.states === "all") {
     for (const name of route.states) {
       const recipe = resolved.config.states?.[name];
       if (!recipe) {
@@ -74,28 +75,41 @@ export async function captureRoute(
   // the fresh harvest (which does not exist until the first rest shot, so
   // synthesized states are appended mid-iteration; rest is always first).
   const plan =
-    route.navigation !== false
+    route.navigation !== false && !ctx.only
       ? ctx.navigation?.plans.get(routeKey(target.def.name, route.path))
       : undefined;
   let synth: SynthesizedStates | null = null;
   let freshHarvest: RouteHarvest | null = null;
+  // A single named state carries what reached it the way a planned state does.
+  const onlySynth: SynthesizedStates | null = ctx.only?.affordance
+    ? {
+        states: [],
+        sessionDestructive: new Set(),
+        skipAt: new Map(),
+        interaction: new Map(),
+        suppressDesign: new Set(ctx.only.affordance.outcome === "navigation" ? [ctx.only.state] : []),
+        affordances: new Map([[ctx.only.state, ctx.only.affordance]]),
+      }
+    : null;
 
   // What the scan has filed on this route, per scheme, so a narrower form
   // factor adds only what is new.
   const axeSeen = new Map<Scheme, AxeSeen>();
+  const reload = async (scheme: Scheme): Promise<void> => {
+    await page.goto(schemeUrl(resolved, route.url, scheme), { waitUntil: "load", timeout: 45_000 });
+    await settle(page, ctx.settleMs);
+  };
   for (const scheme of ctx.schemes) {
     let navigated = false;
     for (const formFactor of ctx.formFactors) {
       await page.setViewportSize(ctx.viewports[formFactor]);
       if (!navigated) {
         await setScheme(resolved, page, scheme);
-        await page.goto(schemeUrl(resolved, route.url, scheme), {
-          waitUntil: "load",
-          timeout: 45_000,
-        });
+        await reload(scheme);
         navigated = true;
+      } else {
+        await settle(page, ctx.settleMs);
       }
-      await settle(page, ctx.settleMs);
 
       for (const [stateName, recipe] of states) {
         // State recipes run at every requested form factor: overlays and
@@ -131,165 +145,27 @@ export async function captureRoute(
                 });
               ctx.progress(`nav state ${stateName} failed: ${msg.slice(0, 120)}`);
             }
-            await page.goto(schemeUrl(resolved, route.url, scheme), { waitUntil: "load", timeout: 45_000 });
-            await settle(page, ctx.settleMs);
+            await reload(scheme);
             continue;
           }
         }
 
-        // A recipe's element wins even when null (null = full page: portaled
-        // overlays render outside the route's element).
-        const elementSel =
-          recipe && recipe.element !== undefined ? recipe.element : route.element;
-        const element = await resolveElement(page, elementSel ?? undefined);
-        const axes: ShotAxes = {
-          target: target.def.name,
-          route: route.path,
-          state: stateName,
-          platform: "web",
+        await shootCell(resolved, target, route, page, ctx, {
+          stateName,
+          recipe,
           formFactor,
           scheme,
-        };
-
-        const findings: DeterministicFinding[] = [];
-        // Sampled once per route x state at the first form factor and scheme:
-        // spinners and skeletons live inside state recipes, which the old
-        // rest-only sampling never saw. Not per form factor or scheme, because
-        // media-query-gated animation is rare and the flag no longer gates
-        // money, only a context line in the judge prompt.
-        let animated = false;
-        if (formFactor === ctx.formFactors[0] && scheme === ctx.schemes[0]) {
-          animated = await detectAnimated(page, element);
-        }
-
-        const png = element
-          ? await element.screenshot({ animations: "disabled" })
-          : await page.screenshot({ fullPage: true, animations: "disabled" });
-
-        const landed = page.url();
-        findings.push(...checkOffOrigin(landed, target.def.url));
-        findings.push(...(await blankShotGuard(png)));
-        findings.push(...(await checkHorizontalOverflow(page, element)));
-        // Content clipped where nothing scrolls, which the page-scroll check
-        // above measures and throws away. Runs after it on purpose: when the
-        // document DOES scroll sideways that check owns the defect, and this
-        // one stays silent rather than filing the same thing twice.
-        let scrollers: ScrollerNote[] = [];
-        if (ctx.edgeClip) {
-          try {
-            const clip = await checkEdgeClipping(page, element, {
-              ignore: resolved.config.checks?.edgeClip?.ignore ?? [],
-              elementSelector: elementSel ?? null,
-            });
-            findings.push(...clip.findings);
-            scrollers = clip.scrollers;
-            // Under the same switch: both answer "is content where a reader
-            // can read it", both are measurements, and a project turning one
-            // off is saying it does not want lookout comparing boxes.
-            findings.push(...(await checkCollisions(page, element, { elementSelector: elementSel ?? null })));
-          } catch (e) {
-            // A measurement that cannot be taken costs the measurement, never
-            // the shot: the same stance the provenance walk takes.
-            ctx.progress(`clip check failed on ${shotId(axes)}: ${(e as Error).message.slice(0, 120)}`);
-          }
-        }
-        // The accessibility scan at every form factor, at rest. "route" files
-        // a violation at the widest form factor that shows it and, at each
-        // narrower one, only the nodes the wider layouts did not (a hamburger
-        // button with no name, content a media query pushed off screen);
-        // "all" files every violation on every form factor.
-        if (ctx.axe !== "off" && stateName === "rest") {
-          const seen = ctx.axe === "route" ? axeSeen.get(scheme) ?? new Map<string, Set<string>>() : null;
-          if (seen) axeSeen.set(scheme, seen);
-          findings.push(...(await axeForShot(page, elementSel ?? null, { contrast: ctx.axeContrast, seen })));
-        }
-        // Control size, at the width where a finger is the pointer. axe ships
-        // this rule DISABLED, so the scan above never runs it however many form
-        // factors it reaches; selecting it by name here is the only thing that
-        // makes it run at all. Removing this hook stops target-size entirely.
-        if (ctx.axe !== "off" && formFactor === "phone" && stateName === "rest") {
-          findings.push(...(await runTargetSize(page, elementSel ?? null)));
-        }
-        findings.push(...ctx.collectorDrain());
-
-        const { rel } = await writeShotFile(resolved, axes, png);
-        const sharp = (await import("sharp")).default;
-        const meta = await sharp(png).metadata();
-        const pngHash = sha256(png);
-        const capturedAt = nowIso();
-
-        // What goes beside the shot: the accessibility tree and the rendering
-        // provenance, both taken while the page still shows what the PNG shows,
-        // and both costing only themselves when they fail.
-        const sidecars = await writeSidecars({
-          resolved,
-          page,
-          element,
-          elementSelector: elementSel ?? null,
-          axes,
-          runId: ctx.runId,
-          capturedAt,
-          pngHash,
-          image: { width: meta.width ?? 0, height: meta.height ?? 0 },
-          findings,
-          want: {
-            provenance: ctx.provenance && route.provenance !== false,
-            aria: ctx.aria,
-          },
-          progress: ctx.progress,
+          axeSeen,
+          synth: synth ?? onlySynth,
+          designHash,
         });
-
-        ctx.shots.push({
-          id: shotId(axes),
-          target: target.def.name,
-          route: route.path,
-          routeName: route.name,
-          state: stateName,
-          platform: "web",
-          formFactor,
-          scheme,
-          path: rel,
-          hash: pngHash,
-          bytes: png.byteLength,
-          width: meta.width ?? 0,
-          height: meta.height ?? 0,
-          animated,
-          ...(scrollers.length > 0 ? { scrollers } : {}),
-          ...(sidecars.provenance ? { provenance: sidecars.provenance } : {}),
-          ...(sidecars.aria ? { aria: sidecars.aria } : {}),
-          ...(sidecars.ariaHash ? { ariaHash: sidecars.ariaHash } : {}),
-          // A navigation state's pixels show another page; the route's design
-          // reference describes its rest render, so it must not ride along or
-          // design-parity would judge the wrong screen against it.
-          design: synth?.suppressDesign.has(stateName) ? undefined : route.design,
-          ...(designHash && !synth?.suppressDesign.has(stateName) ? { designHash } : {}),
-          // How this view was photographed, for whoever has to put the same
-          // screen in front of themselves: none of it was recorded before, and
-          // a document could only reconstruct it from a config that may have
-          // changed since.
-          url: schemeUrl(resolved, route.url, scheme),
-          ...(landed !== schemeUrl(resolved, route.url, scheme) ? { finalUrl: landed } : {}),
-          viewport: ctx.viewports[formFactor],
-          dpr: DEVICE_SCALE_FACTOR,
-          schemeMechanism: resolved.config.scheme?.mode ?? "emulate",
-          ...(elementSel ? { element: elementSel } : {}),
-          ...(recipe?.description ? { stateDescription: recipe.description } : {}),
-          ...(synth?.affordances.get(stateName) ? { stateAffordance: synth.affordances.get(stateName) } : {}),
-          ...(synth?.interaction.get(stateName) ? { interaction: synth.interaction.get(stateName) } : {}),
-          capturedAt,
-          runId: ctx.runId,
-          deterministicFindings: findings,
-        });
-        ctx.onShot?.(ctx.shots[ctx.shots.length - 1]!);
-        ctx.progress(
-          `shot ${shotId(axes)}${findings.length ? `  (${findings.length} finding${findings.length === 1 ? "" : "s"})` : ""}`,
-        );
 
         // Harvest once per route, at the first form factor and scheme, while
         // the page still sits at rest. A failed harvest costs discovery on
         // this route, never the route's shots.
         if (
           ctx.navigation &&
+          !ctx.only &&
           route.navigation !== false &&
           stateName === "rest" &&
           formFactor === ctx.formFactors[0] &&
@@ -310,9 +186,7 @@ export async function captureRoute(
               });
               states.push(...synth.states);
               if (synth.states.length > 0) {
-                ctx.progress(
-                  `navigation: ${synth.states.length} planned state(s) on ${route.path}`,
-                );
+                ctx.progress(`navigation: ${synth.states.length} planned state(s) on ${route.path}`);
               }
             }
           } catch (e) {
@@ -326,11 +200,7 @@ export async function captureRoute(
             await page.waitForTimeout(150);
           } else {
             // No restore recipe: reload to guarantee a clean rest state.
-            await page.goto(schemeUrl(resolved, route.url, scheme), {
-              waitUntil: "load",
-              timeout: 45_000,
-            });
-            await settle(page, ctx.settleMs);
+            await reload(scheme);
           }
           // A session-killing click (sign out) leaves every later shot
           // photographing a logged-out app under a signed-in label; recover
@@ -338,8 +208,7 @@ export async function captureRoute(
           if (synth?.sessionDestructive.has(stateName) && target.def.signIn) {
             ctx.progress(`re-signing in after ${stateName}`);
             await target.def.signIn(page);
-            await page.goto(schemeUrl(resolved, route.url, scheme), { waitUntil: "load", timeout: 45_000 });
-            await settle(page, ctx.settleMs);
+            await reload(scheme);
           }
         }
       }

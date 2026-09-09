@@ -7,21 +7,18 @@
  * most (a shot's identity has no room for two of a kind), addressed by its own
  * identifier, and a shot carries the device's kind as its form factor and the
  * device itself by name. The platform commands live in native-ios.ts and
- * native-android.ts; the device listing in native-device.ts.
+ * native-android.ts; the device listing in native-device.ts; one photograph,
+ * with its guards and its scheme read-back, in native-shot.ts.
  *
- * Recipes learned the hard way:
- * - Blank guard: a painted screen is hundreds of KB of PNG; a splash is tiny.
- * - Stale-frame guard: grayscale-downsample each grab and compare against the
- *   last accepted frame on that device; near-identical means the app is still
- *   showing the previous route.
- * - Scheme read-back: mean luminance decides whether a shot is actually dark
- *   or light; a shot contradicting its label is an error, never a silent lie.
+ * Schemes: an app that reads its scheme off the deep link declares
+ * `appearanceParam` and the link carries it. One that follows the system
+ * appearance gets the device switched before each scheme's routes, and the
+ * read-back on every shot says whether the app followed.
  */
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
   LookoutError,
-  type DeterministicFinding,
   type DeviceKind,
   type NativeAppConfig,
   type ResolvedConfig,
@@ -31,15 +28,14 @@ import {
 } from "../types.js";
 import type { ResolvedTarget } from "../targets.js";
 import { evidenceDir } from "../config.js";
-import { shotId, shotRelPath, type ShotAxes } from "./store.js";
-import { androidOpen, androidShot, androidWarmup } from "./native-android.js";
-import { iosOpen, iosShot, iosWarmup } from "./native-ios.js";
+import { shotId, type ShotAxes } from "./store.js";
+import { androidWarmup } from "./native-android.js";
+import { iosWarmup } from "./native-ios.js";
 import { bootedDevices, oneOfEachKind, type NativeDevice, type NativePlatform } from "./native-device.js";
+import { deepLink, fingerprint, photographDevice, setDeviceAppearance, shootDevice } from "./native-shot.js";
 import { nowIso, sha256, sleep } from "../util.js";
 
-const BLANK_BYTES = 60_000;
-const STALE_MAD = 4;
-const RETRIES = 4;
+export { schemeFromLuminance } from "./native-shot.js";
 
 export interface NativeCaptureOptions {
   platforms: NativePlatform[];
@@ -63,49 +59,83 @@ export function deviceHint(platform: NativePlatform, app: NativeAppConfig): stri
     : "start an emulator with the app installed (check `adb devices`)";
 }
 
-// ---------------------------------------------------------------------------
-// Frame guards
-// ---------------------------------------------------------------------------
-
-async function fingerprint(png: Buffer): Promise<Buffer> {
-  const sharp = (await import("sharp")).default;
-  return sharp(png).resize(64, 139, { fit: "fill" }).grayscale().raw().toBuffer();
+/**
+ * Warm the app up on a device and seed the stale-frame guard from whatever
+ * is on screen afterwards (usually the app's home). Without the seed, the
+ * FIRST route's shot is unchecked, and a deep link that raced the router
+ * banks the home screen as if it were the requested page.
+ */
+export async function warmDevice(
+  device: NativeDevice,
+  app: NativeAppConfig,
+  evDir: string,
+  progress: (line: string) => void,
+): Promise<Buffer | null> {
+  progress(`${device.platform}: ${device.name} (${device.formFactor}): warming up ${app.bundleId} (18s)`);
+  if (device.platform === "ios") await iosWarmup(device.id, app.bundleId);
+  else await androidWarmup(device.id, app.bundleId);
+  await sleep(18_000);
+  try {
+    const seedPath = join(evDir, `.seed-${device.platform}-${device.formFactor}.png`);
+    await mkdir(dirname(seedPath), { recursive: true });
+    await shootDevice(device, seedPath);
+    const seed = await fingerprint(await readFile(seedPath));
+    await rm(seedPath, { force: true });
+    return seed;
+  } catch {
+    // Seeding is best-effort; an unseeded first frame is the old behavior.
+    return null;
+  }
 }
 
-function meanAbsDiff(a: Buffer, b: Buffer): number {
-  const n = Math.min(a.length, b.length);
-  if (n === 0) return 255;
-  let sum = 0;
-  for (let i = 0; i < n; i++) sum += Math.abs(a[i]! - b[i]!);
-  return sum / n;
+/** The devices of one platform a run photographs, or the reason it cannot. */
+export async function devicesFor(
+  platform: NativePlatform,
+  app: NativeAppConfig,
+  progress: (line: string) => void,
+  skips: RunRecord["skips"],
+): Promise<NativeDevice[]> {
+  const booted = await bootedDevices(platform);
+  const devices = oneOfEachKind(booted);
+  if (devices.length === 0) {
+    throw new LookoutError(`${platform} capture requested but no device is booted`, deviceHint(platform, app));
+  }
+  // A kind the run wanted and could not have: said, so the tally can say it
+  // too, rather than silently a phone-only run.
+  for (const kind of ["phone", "tablet"] as const satisfies readonly DeviceKind[]) {
+    if (!devices.some((d) => d.formFactor === kind)) {
+      skips.push({ platform, reason: `no booted ${kind}${(app.devices ?? ["phone"]).includes(kind) ? " (required)" : ""}` });
+    }
+  }
+  if (booted.length > devices.length) {
+    progress(`${platform}: ${booted.length} devices booted, capturing ${devices.map((d) => `${d.name} (${d.formFactor})`).join(" and ")}`);
+  }
+  return devices;
 }
 
-async function meanLuminance(png: Buffer): Promise<number> {
-  const sharp = (await import("sharp")).default;
-  const stats = await sharp(png).grayscale().stats();
-  return stats.channels[0]?.mean ?? 128;
+/** Cold starts need room: the dev-client relaunch plus Metro's on-demand route bundling runs 5-8s on first hit. */
+export function deviceSettleMs(platform: NativePlatform, app: NativeAppConfig): number {
+  return app.settleMs ?? (platform === "ios" ? 7000 : 14_000);
 }
 
-/** dark <60, light >180, otherwise inconclusive (null). */
-export function schemeFromLuminance(mean: number): Scheme | null {
-  if (mean < 60) return "dark";
-  if (mean > 180) return "light";
-  return null;
+/**
+ * Put the device in the scheme about to be photographed, when the app has
+ * no deep-link parameter to carry it. A switch that fails is reported and
+ * the shot is still taken: the read-back files the mismatch.
+ */
+export async function prepareScheme(
+  device: NativeDevice,
+  app: NativeAppConfig,
+  scheme: Scheme,
+  progress: (line: string) => void,
+): Promise<void> {
+  if (app.appearanceParam) return;
+  try {
+    await setDeviceAppearance(device, scheme);
+  } catch (e) {
+    progress(`${device.platform}: could not switch ${device.name} to ${scheme}: ${(e as Error).message.slice(0, 120)}`);
+  }
 }
-
-async function open(device: NativeDevice, bundleId: string, url: string): Promise<void> {
-  if (device.platform === "ios") await iosOpen(device.id, bundleId, url);
-  else await androidOpen(device.id, bundleId, url);
-}
-
-async function shoot(device: NativeDevice, file: string): Promise<void> {
-  if (device.platform === "ios") await iosShot(device.id, file);
-  else await androidShot(device.id, file);
-}
-
-// ---------------------------------------------------------------------------
-// The capture loop
-// ---------------------------------------------------------------------------
 
 export async function captureNative(
   resolved: ResolvedConfig,
@@ -136,54 +166,17 @@ export async function captureNative(
       skips.push({ platform, reason: `no native.${platform} config` });
       continue;
     }
-    const booted = await bootedDevices(platform);
-    const devices = oneOfEachKind(booted);
-    if (devices.length === 0) {
-      throw new LookoutError(`${platform} capture requested but no device is booted`, deviceHint(platform, app));
-    }
-    // A kind the run wanted and could not have: said, so the tally can say it
-    // too, rather than silently a phone-only run.
-    for (const kind of ["phone", "tablet"] as const satisfies readonly DeviceKind[]) {
-      if (!devices.some((d) => d.formFactor === kind)) {
-        skips.push({ platform, reason: `no booted ${kind}${(app.devices ?? ["phone"]).includes(kind) ? " (required)" : ""}` });
-      }
-    }
-    if (booted.length > devices.length) {
-      progress(`${platform}: ${booted.length} devices booted, capturing ${devices.map((d) => `${d.name} (${d.formFactor})`).join(" and ")}`);
-    }
-
+    const devices = await devicesFor(platform, app, progress, skips);
     if (opts.schemes.length > 1 && !app.appearanceParam) {
-      throw new LookoutError(
-        `${platform}: capturing both schemes needs native.${platform}.appearanceParam`,
-        "the app must read a scheme from the deep link (e.g. ?scheme=light); otherwise capture one scheme",
-      );
+      progress(`${platform}: no native.${platform}.appearanceParam; switching the device appearance per scheme`);
     }
 
     for (const device of devices) {
-      progress(`${platform}: ${device.name} (${device.formFactor}): warming up ${app.bundleId} (18s)`);
-      if (platform === "ios") await iosWarmup(device.id, app.bundleId);
-      else await androidWarmup(device.id, app.bundleId);
-      await sleep(18_000);
-
-      // Seed the stale-frame guard from whatever is on screen after warmup
-      // (usually the app's home). Without the seed, the FIRST route's shot is
-      // unchecked, and a deep link that raced the router banks the home screen
-      // as if it were the requested page.
-      let lastFrame: Buffer | null = null;
-      try {
-        const seedPath = join(evDir, `.seed-${platform}-${device.formFactor}.png`);
-        await mkdir(dirname(seedPath), { recursive: true });
-        await shoot(device, seedPath);
-        lastFrame = await fingerprint(await readFile(seedPath));
-        await rm(seedPath, { force: true });
-      } catch {
-        // Seeding is best-effort; an unseeded first frame is the old behavior.
-      }
-      // Cold starts need room: the dev-client relaunch plus Metro's on-demand
-      // route bundling runs 5-8s on first hit. Retries absorb the tail.
-      const settleMs = app.settleMs ?? (platform === "ios" ? 7000 : 14_000);
+      let lastFrame = await warmDevice(device, app, evDir, progress);
+      const settleMs = deviceSettleMs(platform, app);
 
       for (const scheme of opts.schemes) {
+        await prepareScheme(device, app, scheme, progress);
         for (const route of target.routes) {
           const axes: ShotAxes = {
             target: target.def.name,
@@ -194,53 +187,18 @@ export async function captureNative(
             scheme,
           };
           try {
-            const path = route.path.replace(/^\//, "");
-            const url = new URL(`${app.deepLinkScheme}:///${path}`);
-            if (app.appearanceParam) url.searchParams.set(app.appearanceParam, scheme);
-
-            let png: Buffer | null = null;
-            const findings: DeterministicFinding[] = [];
-            for (let attempt = 1; attempt <= RETRIES; attempt++) {
-              await open(device, app.bundleId, url.toString());
-              await sleep(settleMs);
-
-              const abs = join(evDir, shotRelPath(axes));
-              await mkdir(dirname(abs), { recursive: true });
-              await shoot(device, abs);
-              const candidate = await readFile(abs);
-
-              if (candidate.byteLength < BLANK_BYTES) {
-                progress(`${platform} ${device.formFactor} ${route.path}: blank frame (${candidate.byteLength}b), retry ${attempt}/${RETRIES}`);
-                await sleep(4000);
-                continue;
-              }
-              const fp = await fingerprint(candidate);
-              if (lastFrame && meanAbsDiff(fp, lastFrame) < STALE_MAD) {
-                progress(`${platform} ${device.formFactor} ${route.path}: stale frame, retry ${attempt}/${RETRIES}`);
-                await sleep(4000);
-                continue;
-              }
-              lastFrame = fp;
-              png = candidate;
-              break;
-            }
-            if (!png) throw new Error(`no fresh painted frame after ${RETRIES} attempts`);
-
-            // Scheme read-back: an inconclusive read is informational; a
-            // contradicting read is an error (mislabeled evidence poisons
-            // every downstream judgment).
-            const lum = await meanLuminance(png);
-            const measured = schemeFromLuminance(lum);
-            if (measured && measured !== scheme) {
-              findings.push({
-                type: "scheme-mismatch",
-                severity: "error",
-                message: `requested ${scheme} but the screen reads ${measured} (mean luminance ${lum.toFixed(0)})`,
-              });
-            }
-
+            const url = deepLink(app, route.path, scheme);
+            const shot = await photographDevice(device, app, axes, {
+              scheme,
+              url,
+              settleMs,
+              evidenceDir: evDir,
+              lastFrame,
+              progress,
+            });
+            lastFrame = shot.lastFrame;
             const sharp = (await import("sharp")).default;
-            const meta = await sharp(png).metadata();
+            const meta = await sharp(shot.png).metadata();
             shots.push({
               id: shotId(axes),
               target: target.def.name,
@@ -250,20 +208,20 @@ export async function captureNative(
               platform,
               formFactor: device.formFactor,
               scheme,
-              path: shotRelPath(axes),
-              hash: sha256(png),
-              bytes: png.byteLength,
+              path: shot.rel,
+              hash: sha256(shot.png),
+              bytes: shot.png.byteLength,
               width: meta.width ?? 0,
               height: meta.height ?? 0,
               animated: false,
-              url: url.toString(),
+              url,
               device: { id: device.id, name: device.name },
               capturedAt: nowIso(),
               runId: opts.runId,
-              deterministicFindings: findings,
+              deterministicFindings: shot.findings,
             });
             opts.onShot?.(shots[shots.length - 1]!);
-            progress(`shot ${shotId(axes)}${findings.length ? ` (${findings.length} finding(s))` : ""}`);
+            progress(`shot ${shotId(axes)}${shot.findings.length ? ` (${shot.findings.length} finding(s))` : ""}`);
           } catch (e) {
             failures.push({
               target: target.def.name,
