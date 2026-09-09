@@ -15,7 +15,7 @@
  * `ci` owns that whole lifecycle for automation. See README.md beside this
  * file for the manual order.
  */
-import { chromium, type Page } from "playwright";
+import { chromium, type Locator, type Page } from "playwright";
 import AxeBuilder from "@axe-core/playwright";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
@@ -37,15 +37,21 @@ function fixturePaths(): { project: string; checkout: string; claudeBin: string 
   };
 }
 
-/** Capture one view, after letting the page settle. */
-async function view(
+/**
+ * Put the page in the state under test, let it settle, and hand it to a shot.
+ *
+ * The settling is shared rather than copied because it is the subtle part: two
+ * captures that waited differently would differ by timing rather than by
+ * revision, which is the one thing this gate must never report.
+ */
+async function capture(
   browser: Awaited<ReturnType<typeof chromium.launch>>,
-  out: string,
   name: string,
   scheme: "dark" | "light",
   width: number,
   height: number,
   act: (p: Page) => Promise<void>,
+  shoot: (p: Page) => Promise<void>,
   problems: string[],
 ): Promise<void> {
   const ctx = await browser.newContext({ colorScheme: scheme, viewport: { width, height } });
@@ -67,13 +73,108 @@ async function view(
       window.scrollTo(0, 0);
     });
     await page.waitForTimeout(400);
-    // A card mid-verify pulses its pill and blinks a cursor on its feed. Those
-    // are infinite animations, and two captures of one would differ by whatever
-    // frame each happened to land on. Playwright parks them at a fixed state.
-    await page.screenshot({ path: join(out, `${name}.png`), fullPage: true, animations: "disabled" });
+    await shoot(page);
   } finally {
     await ctx.close();
   }
+}
+
+/** Capture one view, after letting the page settle. */
+async function view(
+  browser: Awaited<ReturnType<typeof chromium.launch>>,
+  out: string,
+  name: string,
+  scheme: "dark" | "light",
+  width: number,
+  height: number,
+  act: (p: Page) => Promise<void>,
+  problems: string[],
+): Promise<void> {
+  // A card mid-verify pulses its pill and blinks a cursor on its feed. Those
+  // are infinite animations, and two captures of one would differ by whatever
+  // frame each happened to land on. Playwright parks them at a fixed state.
+  await capture(browser, name, scheme, width, height, act, async (page) => {
+    await page.screenshot({ path: join(out, `${name}.png`), fullPage: true, animations: "disabled" });
+  }, problems);
+}
+
+/** Which card to frame, which divider to start at, and how far down to go. */
+type Section = {
+  /**
+   * Picked by what the card holds rather than by where it sits. A locator that
+   * matches nothing fails the run; an index would quietly frame a different
+   * card if the fixture's order ever changed, and report itself green.
+   */
+  card: (page: Page) => Locator;
+  /** The divider the clip starts just above. */
+  heading: string;
+  /**
+   * How tall the clip is. Fixed rather than measured from the section, so that
+   * a layout change shows up as pixels inside a stable frame, with a crop,
+   * instead of collapsing to `diff`'s maximal size alarm. Each is chosen to
+   * frame its section and stop short of "On disk": those paths are absolute,
+   * so a view reaching them would differ between checkouts and machines rather
+   * than between revisions.
+   */
+  tall: number;
+};
+
+/**
+ * Capture one section of one card, which `view` structurally cannot reach.
+ *
+ * The page sets `body { overflow: hidden }` and scrolls the board inside its
+ * own container, so `fullPage` is the viewport and nothing below it, while a
+ * card is taller than the viewport. Every section past roughly a card's
+ * midpoint is therefore in no full-page shot at all: commit 1e95c04 rewrote the
+ * pre and post fix comparison into two columns and `board-done` reported itself
+ * identical. This scrolls the divider into the board's own scroll container and
+ * clips to the card instead.
+ */
+async function section(
+  browser: Awaited<ReturnType<typeof chromium.launch>>,
+  out: string,
+  name: string,
+  scheme: "dark" | "light",
+  width: number,
+  height: number,
+  act: (p: Page) => Promise<void>,
+  where: Section,
+  problems: string[],
+): Promise<void> {
+  await capture(browser, name, scheme, width, height, act, async (page) => {
+    const card = where.card(page);
+    const heading = card.getByText(where.heading, { exact: true }).first();
+    // Waited for explicitly, and briefly. A card picked by what it holds is a
+    // locator that matches nothing once the markup it names is gone, and the
+    // default is half a minute of silence per view before Playwright says so.
+    await heading.waitFor({ state: "visible", timeout: 5_000 })
+      .catch(() => { throw new Error(`${name}: no card here has a "${where.heading}" section to capture`); });
+    // After the settle, never before it: the settle ends by resetting the
+    // window's scroll, and centring in the container is what puts the section
+    // at a position that is the same on every run.
+    await heading.evaluate((element) => element.scrollIntoView({ block: "center" }));
+    await page.waitForTimeout(400);
+    const cardBox = await card.boundingBox();
+    const headBox = await heading.boundingBox();
+    if (!cardBox || !headBox) throw new Error(`${name}: the card has no "${where.heading}" section to capture`);
+    const x = Math.max(0, cardBox.x);
+    const y = Math.max(0, headBox.y - 24);
+    const tall = Math.min(where.tall, height - y);
+    // The one thing a clip must not reach. A card ends in the absolute paths of
+    // what it is about, which differ between checkouts and machines, so a view
+    // that framed them would report a difference every time it was compared
+    // anywhere but where it was taken. `tall` is chosen to stop above them, and
+    // this is what holds it to that once the layout around it moves.
+    const paths = await card.getByText("On disk", { exact: true }).first().boundingBox().catch(() => null);
+    if (paths && paths.y < y + tall) {
+      throw new Error(`${name}: a tall of ${where.tall} reaches the On disk paths, which are machine-specific; lower it below ${Math.round(paths.y - y)}`);
+    }
+    await page.screenshot({
+      path: join(out, `${name}.png`),
+      clip: { x, y, width: Math.min(cardBox.width, width - x), height: tall },
+      animations: "disabled",
+    });
+  }, problems);
 }
 
 async function shots(label: string): Promise<number> {
@@ -89,8 +190,26 @@ async function shots(label: string): Promise<number> {
     await view(browser, out, "board-filtered", "dark", 1440, 950, (p) => p.click('[data-testid="stat-archived"]'), problems);
     // The settled issue, which is the only card carrying both halves of a pre and
     // post fix pair. It is filtered off the default board, so without this view
-    // the comparison the page exists to show is never captured.
+    // the top of that card is never captured at all.
     await view(browser, out, "board-done", "dark", 1440, 950, (p) => p.click('[data-testid="stat-done"]'), problems);
+    // The comparison the page exists to show, which no view above reaches: it
+    // sits below the fold on every card that has one. The settled issue is the
+    // only card with both halves; the open one pairs a single frame with the
+    // alert standing in for the frame that does not exist yet. Both are captured
+    // narrow as well, because two columns is what a narrow viewport breaks.
+    const bothHalves = (p: Page): Locator => p.locator('[data-testid="issue-card"]')
+      .filter({ has: p.locator('[data-testid="shot-pairs"] [aria-label^="Post-fix"]') });
+    const oneHalf = (p: Page): Locator => p.locator('[data-testid="issue-card"]')
+      .filter({ hasText: "no post-fix screenshot yet" }).first();
+    const onlyDone = (p: Page): Promise<void> => p.click('[data-testid="stat-done"]');
+    const pair = "Pre and post fix";
+    await section(browser, out, "pairs-settled", "dark", 1440, 950, onlyDone, { card: bothHalves, heading: pair, tall: 380 }, problems);
+    await section(browser, out, "pairs-settled-narrow", "dark", 430, 900, onlyDone, { card: bothHalves, heading: pair, tall: 330 }, problems);
+    // The open card's clip runs past its shorter pair section on purpose: the
+    // Record timeline underneath it is the other part of a card that no
+    // full-page view has ever been tall enough to reach.
+    await section(browser, out, "pairs-open", "dark", 1440, 950, nothing, { card: oneHalf, heading: pair, tall: 340 }, problems);
+    await section(browser, out, "pairs-open-narrow", "dark", 430, 900, nothing, { card: oneHalf, heading: pair, tall: 330 }, problems);
     await view(browser, out, "settings-open", "dark", 1440, 950, (p) => p.click('[data-testid="settings-button"]'), problems);
     // The same panel where it has the least room. It floats beside the rail
     // rather than filling a header row, so how wide it is and whether it still

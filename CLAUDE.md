@@ -106,12 +106,19 @@ Green gates are not enough for two kinds of change:
 - **Anything the page renders.** `tools/ui-check` is that gate, and it is four
   commands rather than a description: `fixture` builds a throwaway project with
   something in every part of the page, `serve` points the ui at it, `shots
-  <label>` captures eight views across both colour schemes and a narrow
+  <label>` captures every view across both colour schemes and a narrow
   viewport, `diff <a> <b>` compares them pixel by pixel and crops whatever
   moved, and `drive` clicks through the page asserting what each control does.
   Capture before your change and after it: a refactor should come out
   ALL IDENTICAL, because the fixture's one clock is frozen. Three real bugs have
   been found this way that every other gate passed over.
+
+  A view is the viewport, not the document: the page sets
+  `body { overflow: hidden }` and scrolls the board inside its own container, so
+  a full-page shot stops at the fold and a card is taller than one. Everything
+  past roughly a card's midpoint is reached by the clipped `section` captures
+  instead, which scroll a divider into the container and frame the card around
+  it. If you add a card section, give it one, or nothing will be looking at it.
 - **A verb.** The suite covers the modules, not the composition: nothing calls
   `runCheck`, for instance. Run the verb for real against a served page, with
   `LOOKOUT_CLAUDE_BIN` pointed at `test/mock-claude.ts` so no model is called.

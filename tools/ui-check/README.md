@@ -38,3 +38,24 @@ A refactor should come out of `diff` identical, or differing only in a clock:
 the fixture carries a "seen 2d" style relative time that advances between runs.
 Anything else is a change you did not mean to make, and the crop the diff writes
 beside a differing view shows you what it was.
+
+## Why some views are clipped
+
+The page sets `body { overflow: hidden }` and scrolls the board inside its own
+container, so a full-page screenshot is the viewport and nothing below it. A
+card is taller than the viewport, which makes every section past roughly its
+midpoint invisible to a `view`: the commit that rewrote the pre and post fix
+comparison from a horizontal strip into two columns came out of `diff` as
+`board-done.png identical`, with 45% of the section's pixels changed.
+
+The `pairs-*` views are `section` captures instead. They scroll a card's divider
+into the board's own scroll container and clip to the card, so what they frame
+is the part of it no full-page view can reach. A section capture is anchored on
+what a card holds rather than on where it sits, so it fails loudly when that
+markup goes rather than quietly framing a different card, and its height is
+fixed rather than measured, so a layout change reports as pixels in a stable
+frame with a crop. Each height stops short of the "On disk" paths, which are
+absolute and would otherwise differ between checkouts rather than between
+revisions; the capture checks that rather than trusting it.
+
+Add a section to a card and it is covered by nothing until it gets one of these.
