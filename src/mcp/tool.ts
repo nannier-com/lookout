@@ -77,3 +77,19 @@ export function requireBudget(state: ToolState): void {
     throw new ToolRefusal(`budget spent (${state.session.limits.maxActions} actions): call arrive if the screen is showing, or reply that it is not`);
   }
 }
+
+/**
+ * Every mutating tool's shape: check the budget, narrate, act through the
+ * driver, record what happened, and answer with the screen the model now
+ * stands on, so it needs no second call to see it.
+ */
+export async function actAndSnapshot(state: ToolState, action: NavAction, subject: string): Promise<string> {
+  requireBudget(state);
+  state.log.emit("phase", `navigator: ${action.tool} ${subject}`.trim(), { tool: action.tool, screen: state.session.screen.id });
+  const outcome = await state.driver.act(action);
+  action.outcome = outcome;
+  state.actions.push(action);
+  const snap = await state.driver.snapshot();
+  state.snapshot = snap;
+  return `${action.tool} ${subject}: ${outcome.navigated ? `navigated to ${outcome.url}` : "done"}\n\n${snap.text}`;
+}

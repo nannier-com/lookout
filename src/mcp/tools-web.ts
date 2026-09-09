@@ -8,7 +8,7 @@ import { z } from "zod";
 import { nowIso } from "../util.js";
 import type { NavAction } from "./actions.js";
 import { ToolRefusal } from "./driver.js";
-import { affordanceOf, requireBudget, subjectOf, tool, type ToolState, type ToolDef } from "./tool.js";
+import { actAndSnapshot as act, affordanceOf, subjectOf, tool, type ToolDef } from "./tool.js";
 
 const control = {
   ref: z.string().optional().describe("a control's id from the last snapshot (a1, a2, ...)"),
@@ -16,17 +16,6 @@ const control = {
   name: z.string().optional().describe("the control's accessible name, when naming it instead of a ref"),
   selector: z.string().optional().describe("a CSS selector, only when the ref and the name both fail"),
 };
-
-async function act(state: ToolState, action: NavAction, subject: string): Promise<string> {
-  requireBudget(state);
-  state.log.emit("phase", `navigator: ${action.tool} ${subject}`, { tool: action.tool, screen: state.session.screen.id });
-  const outcome = await state.driver.act(action);
-  action.outcome = outcome;
-  state.actions.push(action);
-  const snap = await state.driver.snapshot();
-  state.snapshot = snap;
-  return `${action.tool} ${subject}: ${outcome.navigated ? `navigated to ${outcome.url}` : "done"}\n\n${snap.text}`;
-}
 
 export const snapshot = tool({
   name: "snapshot",

@@ -11,6 +11,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { LOOKOUT_DIR } from "../config-locate.js";
+import { idbAvailable, idbBin } from "../mcp/device-commands.js";
 import { execFileAsync, printJson, row, str } from "../util.js";
 import type { Parsed } from "../util.js";
 
@@ -116,6 +117,37 @@ export async function doctor(parsed: Parsed): Promise<number> {
     ok: adb !== null,
     detail: adb ?? `${adbPath} not found (set ADB=/path/to/adb)`,
     fix: "install Android platform-tools for emulator capture",
+  });
+
+  // What an AI can do to a device here, when it is handed lookout's tool
+  // server. simctl opens, photographs and switches appearance and cannot
+  // tap; idb (optional) is what taps, swipes, types and describes the screen.
+  if (process.platform === "darwin") {
+    const idb = await idbAvailable();
+    checks.push({
+      name: "idb",
+      required: false,
+      ok: idb,
+      detail: idb ? `available (${idbBin()})` : "not found on PATH (set LOOKOUT_IDB_BIN, or install it)",
+      fix: "brew install idb-companion; pip install fb-idb: what taps a simulator during a screen walk",
+    });
+    const simctlOk = checks.find((c) => c.name === "simctl")?.ok ?? false;
+    checks.push({
+      name: "ios navigation",
+      required: false,
+      ok: simctlOk && idb,
+      detail: !simctlOk
+        ? "no simctl: nothing"
+        : idb
+          ? "deep links, screenshots, appearance, tap, swipe, type, key, screen description"
+          : "deep links, screenshots and appearance only; taps and screen descriptions need idb",
+    });
+  }
+  checks.push({
+    name: "android navigation",
+    required: false,
+    ok: adb !== null,
+    detail: adb !== null ? "deep links, screenshots, night mode, tap, swipe, type, key, back, screen description" : "no adb: nothing",
   });
 
   // Optional real round-trip through the judge.

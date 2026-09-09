@@ -18,6 +18,7 @@ import { EventLog } from "../report/events.js";
 import { LookoutError } from "../types.js";
 import { nowIso } from "../util.js";
 import { ToolRefusal, type Driver } from "./driver.js";
+import { DeviceDriver } from "./driver-device.js";
 import { WebDriver } from "./driver-web.js";
 import { emptyResult, readNavSession, writeNavResult, type NavResult } from "./session.js";
 import type { ToolState } from "./tool.js";
@@ -29,8 +30,8 @@ const PARENT_POLL_MS = 2000;
 function driverFor(state: Omit<ToolState, "driver" | "actions" | "snapshot" | "calls" | "arrived">, resolved: Awaited<ReturnType<typeof loadConfig>>, targetName: string): Driver {
   const target = resolved.config.targets.find((t) => t.name === targetName);
   if (!target) throw new LookoutError(`unknown target "${targetName}"`);
-  if (state.session.platform === "web") return new WebDriver({ session: state.session, resolved, target, log: state.log });
-  throw new LookoutError(`no navigation driver for ${state.session.platform} yet`);
+  const ctx = { session: state.session, resolved, target, log: state.log };
+  return state.session.platform === "web" ? new WebDriver(ctx) : new DeviceDriver(ctx);
 }
 
 function resultOf(state: ToolState, note: string): NavResult {
