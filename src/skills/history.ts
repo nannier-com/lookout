@@ -33,6 +33,7 @@ export const SKILL_NAMES = [
   "fact-check",
   "design-placement",
   "kit-conformance",
+  "map-screens",
   "plan-navigation",
   "improve-skills",
 ] as const;

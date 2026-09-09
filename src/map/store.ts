@@ -86,6 +86,11 @@ export interface MapTarget {
   signature: string;
   /** Repo-relative, sorted: the files the reader examined, with their content hashes. */
   examined: { path: string; hash: string }[];
+  /** Sorted repo-relative paths the scan offered: a new route-bearing file stales the map. */
+  candidates?: string[];
+  /** The other signature inputs, hashed apart, so freshness can say which one moved. */
+  configHash?: string;
+  skillHash?: string;
   /** Configured routes first, in config order, then discovered routes nobody placed. */
   roots: MapNode[];
   skipped: { what: string; reason: string; source?: MapSource }[];

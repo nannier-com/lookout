@@ -39,6 +39,7 @@ type Verb = (parsed: Parsed) => Promise<number>;
 const NEEDS_CONFIG = new Set([
   "capture",
   "check",
+  "map",
   "verify-fix",
   "verify",
   "ask",
@@ -49,6 +50,7 @@ const NEEDS_CONFIG = new Set([
 const PROJECT_LOCKED_VERBS = new Set([
   "capture",
   "check",
+  "map",
   "verify-fix",
   "verify",
   "ask",
@@ -69,6 +71,10 @@ const VERBS: Record<string, { load: () => Promise<Verb>; summary: string }> = {
   check: {
     load: async () => (await import("./verbs/check.js")).check,
     summary: "capture + AI judge; findings merge into the backlog",
+  },
+  map: {
+    load: async () => (await import("./verbs/map.js")).map,
+    summary: "read the source for its screens and how to reach each; `check` walks that map",
   },
   "verify-fix": {
     load: async () => (await import("./verbs/verify-fix.js")).verifyFix,
@@ -132,6 +138,7 @@ function help(): void {
       "\nexamples:" +
       "\n  lookout targets --url http://localhost:3000" +
       "\n  lookout capture --targets app --routes /,/settings" +
+      "\n  lookout map" +
       "\n  lookout check" +
       "\n  lookout verify-fix --issue 418203 --commit <sha>" +
       '\n  lookout verify --criteria ticket.md --targets app' +

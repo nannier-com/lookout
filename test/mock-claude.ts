@@ -27,6 +27,10 @@
 //   navplan plan an overlay, a destructive click, and a navigation state from
 //           the prompt's own affordance list, plus junk the parser must drop;
 //           MOCK_NAVPLAN overrides the whole reply
+//   map     map the prompt's first configured route with one state child, one
+//           discovered route child citing the first candidate file, one junk
+//           node the parser must drop, and one node citing a file that does
+//           not exist; MOCK_MAP overrides the whole reply
 //   verify  confirm index 0, refute every other index
 //   prose   reply with prose + a trailing fenced json (parser must cope)
 //   ask     plain-text answer
@@ -57,10 +61,15 @@ if (mode === "auto") {
             ? "placement"
             : promptText.includes("conformance reader")
               ? "conform"
-              : promptText.includes("navigation planner")
-                ? "navplan"
-                : "judge";
+              : promptText.includes("screen mapper")
+                ? "map"
+                : promptText.includes("navigation planner")
+                  ? "navplan"
+                  : "judge";
 }
+// Files a mode claims to have opened beyond the prompt's manifest, so the
+// reply's reads look like a reader's.
+let extraReads: string[] = [];
 
 const shotIds = [...promptText.matchAll(/^- shotId: (.+)$/gm)].map((m) => m[1]!);
 
@@ -176,6 +185,56 @@ if (mode === "placement") {
             why: "it is layout scaffolding, not a control",
           })),
         examined: files.slice(1),
+      }) +
+      "\n```";
+} else if (mode === "map") {
+  // A real reply seeds from the prompt's configured routes and cites files
+  // from its own candidate list, so the mock does the same: the first
+  // configured route becomes the root, with a state child and a discovered
+  // route child citing the first candidate file (and a symbol read out of
+  // it), plus one junk node and one fabricated citation the parser must drop.
+  const files = [...promptText.matchAll(/^- (\/.+?) {2}\(/gm)].map((m) => m[1]!);
+  const targetName = promptText.match(/^Target "([^"]+)" at \S+, configured routes:/m)?.[1] ?? "app";
+  const routes = [...promptText.matchAll(/^ {2}- (\S+) {2}"([^"]*)"/gm)].map((m) => ({ path: m[1]!, name: m[2]! }));
+  const first = files[0] ?? "/nowhere.tsx";
+  let symbol = "";
+  try {
+    symbol = readFileSync(first, "utf8").match(/(?:function|const|class)\s+([A-Z][A-Za-z0-9]*)/)?.[1] ?? "";
+  } catch {
+    symbol = "";
+  }
+  const source = { path: first, ...(symbol ? { symbol } : {}), line: 1 };
+  const root = routes[0] ?? { path: "/", name: "Home" };
+  const node = (id: string, kind: string, extra: Record<string, unknown>) => ({
+    id, kind, title: id, risk: "safe", platforms: ["web"], source, why: `mock ${kind}`, children: [], ...extra,
+  });
+  const screens = [
+    node(root.path, "route", {
+      path: root.path,
+      title: root.name,
+      open: null,
+      children: [
+        node("menu-open", "state", { title: "Main menu", open: { affordance: { role: "button", name: "Menu" }, outcome: "overlay" } }),
+        node("/discovered", "route", {
+          path: "/discovered",
+          title: "Discovered",
+          open: { affordance: { role: "link", name: "Discovered", href: "/discovered" }, outcome: "navigation" },
+        }),
+        node("Bad Name", "state", { open: { affordance: { role: "button", name: "Junk" }, outcome: "overlay" } }),
+        node("ghost", "state", {
+          open: { affordance: { role: "button", name: "Ghost" }, outcome: "overlay" },
+          source: { path: "/nowhere/never.tsx", symbol: "Never", line: 1 },
+        }),
+      ],
+    }),
+  ];
+  extraReads = files;
+  result = process.env.MOCK_MAP
+    ? "```json\n" + process.env.MOCK_MAP + "\n```"
+    : "```json\n" +
+      JSON.stringify({
+        targets: { [targetName]: { screens, skipped: [{ what: "/users/:id", reason: "parametrised path" }] } },
+        examined: files,
       }) +
       "\n```";
 } else if (mode === "navplan") {
@@ -386,6 +445,7 @@ if (mode === "placement") {
 const say = (o: unknown) => console.log(JSON.stringify(o));
 say({ type: "system", subtype: "init", cwd: process.cwd() });
 const listed = [
+  ...extraReads,
   ...[...promptText.matchAll(/^ {2,7}file: (.+)$/gm)].map((m) => m[1]!),
   ...[...promptText.matchAll(/^ {4,7}- (\S+\.p\d+of\d+\.png)/gm)].map((m) => m[1]!),
 ];
