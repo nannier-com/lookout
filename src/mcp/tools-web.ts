@@ -4,6 +4,8 @@
  * replay will use, records what happened, and answers with a fresh snapshot
  * so the model sees the screen it now stands on without a second call.
  */
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { z } from "zod";
 import { nowIso } from "../util.js";
 import type { NavAction } from "./actions.js";
@@ -36,7 +38,20 @@ export const look = tool({
   platforms: ["web", "ios", "android"],
   input: {},
   mutating: false,
-  run: async (_args, state) => ({ text: "the screen as it is now", image: await state.driver.look() }),
+  run: async (_args, state) => {
+    const image = await state.driver.look();
+    // Kept on disk as well: when the navigator gives up, the last thing it
+    // saw is what a person needs in order to see why.
+    const name = `look-${state.calls.length}.jpg`;
+    try {
+      await mkdir(state.lookDir.abs, { recursive: true });
+      await writeFile(join(state.lookDir.abs, name), image);
+      state.lastLook = `${state.lookDir.rel}/${name}`;
+    } catch {
+      // A picture that could not be kept is still a picture the model can see.
+    }
+    return { text: "the screen as it is now", image };
+  },
 });
 
 export const open = tool({

@@ -74,3 +74,9 @@ export function readingInstructionFor(key?: string): string {
   const found = ADAPTERS.find((a) => a.key === key);
   return (found ?? adapterFor(PRIMARY_AI)).readingInstruction;
 }
+
+/** How to tell THIS AI to call lookout's navigation tools, for the skill's `{{howToCall}}`. The same rule as above. */
+export function navigateInstructionFor(key?: string): string {
+  const found = ADAPTERS.find((a) => a.key === key);
+  return (found ?? adapterFor(PRIMARY_AI)).navigateInstruction;
+}

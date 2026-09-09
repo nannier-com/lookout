@@ -63,9 +63,11 @@ if (mode === "auto") {
               ? "conform"
               : promptText.includes("screen mapper")
                 ? "map"
-                : promptText.includes("navigation planner")
-                  ? "navplan"
-                  : "judge";
+                : promptText.includes("screen navigator")
+                  ? "navigate"
+                  : promptText.includes("navigation planner")
+                    ? "navplan"
+                    : "judge";
 }
 // Files a mode claims to have opened beyond the prompt's manifest, so the
 // reply's reads look like a reader's.
@@ -237,6 +239,14 @@ if (mode === "placement") {
         examined: files,
       }) +
       "\n```";
+} else if (mode === "navigate") {
+  // The double has no tools, so it cannot drive anything; it answers the way
+  // a navigator that could not reach the screen would. MOCK_NAVIGATE overrides
+  // the reply, which is how "said it arrived but captured nothing" is driven.
+  const screen = promptText.match(/Screen `([^`]+)`/)?.[1] ?? "";
+  result = process.env.MOCK_NAVIGATE
+    ? "```json\n" + process.env.MOCK_NAVIGATE + "\n```"
+    : "```json\n" + JSON.stringify({ arrived: false, screen, steps: 0, note: "the mock does not drive a browser" }) + "\n```";
 } else if (mode === "navplan") {
   // A real reply plans from the prompt's own affordance list, so the mock
   // does the same: first button becomes an overlay state, that same button is

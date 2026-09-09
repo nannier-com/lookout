@@ -16,7 +16,7 @@ import { lookoutDir } from "../config.js";
 import { atomicWriteJson } from "../state/atomic.js";
 import { withStateLock } from "../state/lock.js";
 import type { NavRisk } from "../navigate/store.js";
-import type { NavAction } from "../mcp/actions.js";
+import type { Arrival, NavAction } from "../mcp/actions.js";
 import type { PlatformKind, ResolvedConfig } from "../types.js";
 
 /** Nodes per target, levels below a root, children per node, files offered to the reader. */
@@ -53,7 +53,11 @@ export interface MapWalk {
   verifiedAt?: string;
   /** The actions that reached it, for replay without a navigator. */
   actions?: NavAction[];
+  /** What the screen looked like on arrival, so a replay can tell it reached the same one. */
+  arrival?: Arrival;
   shotIds?: string[];
+  /** Why it could not be reached, when it could not. */
+  reason?: string;
 }
 
 export interface MapNode {

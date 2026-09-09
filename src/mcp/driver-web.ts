@@ -46,7 +46,7 @@ export class WebDriver implements Driver {
     return this.ctx.session.matrix.schemes[0] ?? "dark";
   }
 
-  get replay(): ReplayContext {
+  get replayContext(): ReplayContext {
     const s = this.ctx.session;
     return { targetUrl: this.ctx.target.url, urlFor: (p) => this.urlFor(p), exclude: s.exclude, allowDestructive: s.allowDestructive };
   }
@@ -74,10 +74,10 @@ export class WebDriver implements Driver {
       this.signedIn = true;
     }
     await setScheme(this.ctx.resolved, page, this.scheme());
-    const outcome = await performWeb(page, { tool: "open", args: { path }, outcome: {}, at: nowIso() }, this.replay);
+    const outcome = await performWeb(page, { tool: "open", args: { path }, outcome: {}, at: nowIso() }, this.replayContext);
     await settle(page, this.ctx.session.capture.settleMs);
     // The ancestors' recorded actions: the model starts on the parent screen.
-    if (this.ctx.session.prelude.length > 0) await replayWeb(page, this.ctx.session.prelude, this.replay);
+    if (this.ctx.session.prelude.length > 0) await replayWeb(page, this.ctx.session.prelude, this.replayContext);
     this.harvest = null;
     return outcome;
   }
@@ -90,7 +90,13 @@ export class WebDriver implements Driver {
     const title = await page.title().catch(() => "");
     const lines = [`url: ${page.url()}`, `title: ${title}`, ""];
     lines.push(this.harvest.affordances.length > 0 ? inventoryBrief(this.harvest) : "(no interactive controls found on this screen)");
-    return { text: lines.join("\n"), refs };
+    return { text: lines.join("\n"), refs, arrival: arrivalOf(this.harvest, page.url()) };
+  }
+
+  async replay(actions: readonly NavAction[]): Promise<void> {
+    const page = await this.ensurePage();
+    await replayWeb(page, actions.filter((a) => a.tool !== "open"), this.replayContext);
+    this.harvest = null;
   }
 
   async look(): Promise<Buffer> {
@@ -102,7 +108,7 @@ export class WebDriver implements Driver {
 
   async act(action: NavAction): Promise<NavAction["outcome"]> {
     const page = await this.ensurePage();
-    const outcome = await performWeb(page, action, this.replay);
+    const outcome = await performWeb(page, action, this.replayContext);
     this.harvest = null;
     return outcome;
   }
@@ -118,7 +124,7 @@ export class WebDriver implements Driver {
       session: s,
       def: this.ctx.target,
       actions,
-      replay: this.replay,
+      replay: this.replayContext,
       log: this.ctx.log,
       collectorDrain: () => this.collector?.drain() ?? [],
     });

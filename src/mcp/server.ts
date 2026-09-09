@@ -12,7 +12,8 @@
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { loadConfig } from "../config.js";
+import { basename, join } from "node:path";
+import { evidenceDir, loadConfig } from "../config.js";
 import { NavSkip, NavStateError } from "../navigate/execute.js";
 import { EventLog } from "../report/events.js";
 import { LookoutError } from "../types.js";
@@ -27,7 +28,7 @@ import { toolsFor } from "./tools.js";
 const EXIT_GRACE_MS = 60_000;
 const PARENT_POLL_MS = 2000;
 
-function driverFor(state: Omit<ToolState, "driver" | "actions" | "snapshot" | "calls" | "arrived">, resolved: Awaited<ReturnType<typeof loadConfig>>, targetName: string): Driver {
+function driverFor(state: Pick<ToolState, "session" | "log">, resolved: Awaited<ReturnType<typeof loadConfig>>, targetName: string): Driver {
   const target = resolved.config.targets.find((t) => t.name === targetName);
   if (!target) throw new LookoutError(`unknown target "${targetName}"`);
   const ctx = { session: state.session, resolved, target, log: state.log };
@@ -35,7 +36,8 @@ function driverFor(state: Omit<ToolState, "driver" | "actions" | "snapshot" | "c
 }
 
 function resultOf(state: ToolState, note: string): NavResult {
-  if (!state.arrived) return emptyResult(state.calls, note);
+  const lastLook = state.lastLook ? { lastLook: state.lastLook } : {};
+  if (!state.arrived) return { ...emptyResult(state.calls, note), actions: state.actions, ...lastLook };
   return {
     arrived: true,
     at: nowIso(),
@@ -45,6 +47,7 @@ function resultOf(state: ToolState, note: string): NavResult {
     failures: state.arrived.failures,
     calls: state.calls,
     note,
+    ...lastLook,
   };
 }
 
@@ -54,7 +57,17 @@ export async function serveSession(sessionPath: string, io?: { stdin?: NodeJS.Re
   const resolved = await loadConfig({ configPath: session.configPath });
   const log = EventLog.attach(resolved, session.runId);
   const base = { session, log };
-  const state: ToolState = { ...base, driver: driverFor(base, resolved, session.target), actions: [], snapshot: null, calls: [], arrived: null };
+  const lookRel = `navigate/${basename(sessionPath, ".json")}`;
+  const state: ToolState = {
+    ...base,
+    driver: driverFor(base, resolved, session.target),
+    actions: [],
+    snapshot: null,
+    calls: [],
+    arrived: null,
+    lookDir: { abs: join(evidenceDir(resolved), lookRel), rel: lookRel },
+    lastLook: null,
+  };
 
   const server = new McpServer({ name: "lookout", version: "1" });
   for (const def of toolsFor(session.platform)) {

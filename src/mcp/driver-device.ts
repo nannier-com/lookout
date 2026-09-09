@@ -99,10 +99,17 @@ export class DeviceDriver implements Driver, DeviceActor {
         text: `${header}\n(this simulator cannot describe its screen: ${IDB_HINT}; look at the picture instead)`,
         refs: new Map(),
         image: await this.look(),
+        arrival: { sampleNames: [] },
       };
     }
     const refs: Snapshot["refs"] = new Map([...h.refs].map(([id, r]) => [id, { kind: "node" as const, x: r.x, y: r.y, label: r.label, id: r.id, bounds: r.bounds }]));
-    return { text: hierarchyText(h, header), refs };
+    return { text: hierarchyText(h, header), refs, arrival: { sampleNames: [...h.refs.values()].slice(0, 12).map((r) => r.label) } };
+  }
+
+  async replay(actions: readonly NavAction[]): Promise<void> {
+    await this.devices();
+    await replayDevice(this, actions);
+    this.last = null;
   }
 
   async look(): Promise<Buffer> {

@@ -24,6 +24,8 @@ export interface Snapshot {
   refs: Map<string, RefTarget>;
   /** A picture, when the platform cannot describe the screen in words. */
   image?: Buffer;
+  /** What this screen looks like to a later replay, for recognising it. */
+  arrival: Arrival;
 }
 
 export interface Arrived {
@@ -41,6 +43,8 @@ export interface Driver {
   look(): Promise<Buffer>;
   /** Perform one action live. Throws `ToolRefusal` for anything the rules forbid. */
   act(action: NavAction): Promise<NavAction["outcome"]>;
+  /** Run a recording again, checking each step against what it recorded; throws when the screen differs. */
+  replay(actions: readonly NavAction[]): Promise<void>;
   /** Photograph the screen for the record, across the matrix, using the actions that reached it. */
   arrive(actions: NavAction[]): Promise<Arrived>;
   close(): Promise<void>;

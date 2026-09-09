@@ -61,6 +61,8 @@ export interface NavResult {
   failures: { step: string; message: string }[];
   calls: NavCall[];
   note?: string;
+  /** The last picture the navigator asked for, evidence-relative: what a person sees of a screen it never reached. */
+  lastLook?: string;
 }
 
 export interface NavSession {

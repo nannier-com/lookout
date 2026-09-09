@@ -34,6 +34,7 @@ export const SKILL_NAMES = [
   "design-placement",
   "kit-conformance",
   "map-screens",
+  "navigate-screen",
   "plan-navigation",
   "improve-skills",
 ] as const;

@@ -21,6 +21,9 @@ export interface ToolState {
   calls: NavCall[];
   arrived: Arrived | null;
   log: EventLog;
+  /** Where `look` keeps its pictures, under the capture workspace, and the evidence-relative path of the last one. */
+  lookDir: { abs: string; rel: string };
+  lastLook: string | null;
 }
 
 export interface ToolReply {
