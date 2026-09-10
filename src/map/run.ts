@@ -49,8 +49,17 @@ export interface MapRunOptions {
   model?: string;
   maxScreens?: number;
   maxDepth?: number;
+  /** Source files offered to the reader; the config's `map.fileBudget` when absent. */
+  maxFiles?: number;
   log: (line: string) => void;
 }
+
+/**
+ * How long one scan may take. A source read is a longer job than a judge
+ * call: the reader opens dozens of files and writes a tree, and a project
+ * with a large router was measured past the judge's ten minutes.
+ */
+export const MAP_TIMEOUT_MS = 20 * 60_000;
 
 export interface TargetRun {
   name: string;
@@ -88,7 +97,7 @@ function limitsOf(resolved: ResolvedConfig, opts: MapRunOptions): ParseContext["
     maxScreens: opts.maxScreens ?? m.maxScreens ?? DEFAULT_MAX_SCREENS,
     maxDepth: opts.maxDepth ?? m.maxDepth ?? DEFAULT_MAX_DEPTH,
     maxChildren: m.maxChildren ?? DEFAULT_MAX_CHILDREN,
-    fileBudget: m.fileBudget ?? DEFAULT_MAP_FILE_BUDGET,
+    fileBudget: opts.maxFiles ?? m.fileBudget ?? DEFAULT_MAP_FILE_BUDGET,
   };
 }
 
@@ -164,6 +173,7 @@ export async function runMap(resolved: ResolvedConfig, opts: MapRunOptions): Pro
         cwd: resolved.projectDir,
         model: reader.model,
         capabilities: ["read-files", "search-files"],
+        timeoutMs: MAP_TIMEOUT_MS,
       });
       spent = reply.spend?.usd ?? 0;
       raw = extractJson(reply.text);

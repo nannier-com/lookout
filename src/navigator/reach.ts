@@ -146,8 +146,12 @@ export async function replayScreen(screen: Screen, ctx: ReachContext): Promise<R
       const opened: NavAction = { tool: "open", args: { path: screen.route }, outcome: {}, at: nowIso() };
       opened.outcome = await driver.open(screen.route);
       await driver.replay(recorded);
+      // The screen the replay landed on, held to the one that was recorded,
+      // on every platform: a device replay that ended on the home screen was
+      // measured photographing it under the recorded screen's name while the
+      // check only ran on the web.
       const snap = await driver.snapshot();
-      if (platform === "web" && screen.node.walk?.arrival && !checkArrivalOf(snap.arrival, screen.node.walk.arrival)) {
+      if (screen.node.walk?.arrival && !checkArrivalOf(snap.arrival, screen.node.walk.arrival)) {
         throw new NavStateError("the replay did not land on the screen that was recorded");
       }
       const arrived = await driver.arrive([opened, ...recorded]);

@@ -30,7 +30,7 @@ import {
 } from "./device-commands.js";
 import { androidKeyCode, hierarchyText, iosKeyCode, refsOfIdb, refsOfUiautomator, type Hierarchy } from "./device-hierarchy.js";
 import { photographSchemes } from "./device-shot.js";
-import { ToolRefusal, type Arrived, type Driver, type DriverContext, type Snapshot } from "./driver.js";
+import { ToolRefusal, type Arrived, type Driver, type DriverContext, type Look, type Snapshot } from "./driver.js";
 import { replayDevice, type DeviceActor, type DeviceSize } from "./replay-device.js";
 
 const LOOK_MAX_PX = 1024;
@@ -98,7 +98,7 @@ export class DeviceDriver implements Driver, DeviceActor {
       return {
         text: `${header}\n(this simulator cannot describe its screen: ${IDB_HINT}; look at the picture instead)`,
         refs: new Map(),
-        image: await this.look(),
+        image: (await this.look()).image,
         arrival: { sampleNames: [] },
       };
     }
@@ -112,14 +112,34 @@ export class DeviceDriver implements Driver, DeviceActor {
     this.last = null;
   }
 
-  async look(): Promise<Buffer> {
+  /**
+   * A picture in the coordinates the model taps in, when those fit: an iOS
+   * screen is a few hundred points wide, so the picture is simply that size
+   * and a position read off it is a tap. When the tap space is larger than
+   * a picture should be (Android pixels), the picture is scaled down and the
+   * note says by how much, so a position read off it can still be turned
+   * into a tap. Measured: a model that was not told tapped below the screen.
+   */
+  async look(): Promise<Look> {
     await this.devices();
+    if (!this.size) await this.describe().catch(() => null);
     const dir = mkdtempSync(join(tmpdir(), "lookout-look-"));
     try {
       const file = join(dir, "look.png");
       await shootDevice(this.device, file);
       const sharp = (await import("sharp")).default;
-      return await sharp(await readFile(file)).resize({ width: LOOK_MAX_PX, height: LOOK_MAX_PX, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 60 }).toBuffer();
+      const space = this.size;
+      const target = space && Math.max(space.width, space.height) <= LOOK_MAX_PX ? { width: space.width, height: space.height, fit: "fill" as const } : { width: LOOK_MAX_PX, height: LOOK_MAX_PX, fit: "inside" as const };
+      const image = await sharp(await readFile(file)).resize({ ...target, withoutEnlargement: false }).jpeg({ quality: 60 }).toBuffer();
+      const meta = await sharp(image).metadata();
+      const w = meta.width ?? 0;
+      const h = meta.height ?? 0;
+      const note = !space
+        ? `the picture is ${w}x${h}; the screen's tap coordinates are unknown here, so tap nodes from the snapshot rather than positions`
+        : w === space.width && h === space.height
+          ? `the picture is ${w}x${h}, the same as the screen's tap coordinates: a position read off it is a tap`
+          : `the picture is ${w}x${h}; the screen's tap coordinates run ${space.width}x${space.height}, so multiply a position read off it by ${(space.width / w).toFixed(3)}`;
+      return { image, note };
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -180,23 +200,31 @@ export class DeviceDriver implements Driver, DeviceActor {
   async arrive(actions: NavAction[]): Promise<Arrived> {
     const devices = await this.devices();
     const s = this.ctx.session;
+    // What the screen looks like on arrival, described fresh: the last
+    // description was discarded by the action that reached here.
+    const described = this.last ?? (await this.describe().catch(() => null));
+    const arrival: Arrival = { sampleNames: [...(described?.refs.values() ?? [])].slice(0, 12).map((r) => r.label) };
     const evDir = evidenceDir(this.ctx.resolved);
     const shots: Arrived["shots"] = [];
     const failures: Arrived["failures"] = [];
     const progress = (line: string): void => this.ctx.log.emit(line.startsWith("FAIL") ? "error" : "phase", line);
     const settleMs = deviceSettleMs(this.platform, this.app);
     for (const device of devices) {
+      // Reaching the screen again on a device, in a scheme: cold-start on the
+      // deep link and replay the whole recording. The other booted device
+      // gets the screen this way (a tap that does not transfer is a skip, and
+      // the screen is simply not photographed there), and so does the driven
+      // device for every scheme past the first when the app reads its scheme
+      // off the deep link, the way the web capture replays a state per scheme.
+      const actor = device === this.device ? this : Object.assign(new DeviceDriver({ ...this.ctx }), { booted: [device], driven: device });
+      const reach = async (scheme: (typeof s.matrix.schemes)[number]): Promise<void> => {
+        await openOnDevice(device, this.app.bundleId, deepLink(this.app, s.screen.route, scheme));
+        await sleep(settleMs);
+        await replayDevice(actor, [...s.prelude, ...actions]);
+      };
       if (device !== this.device) {
-        // The other booted device of this platform gets the same screen by
-        // replaying the recording there; a tap that does not transfer is a
-        // skip, and the screen is simply not photographed on that device.
         try {
-          await openOnDevice(device, this.app.bundleId, deepLink(this.app, s.screen.route, this.scheme()));
-          await sleep(settleMs);
-          const actor = new DeviceDriver({ ...this.ctx });
-          actor.booted = [device];
-          actor.driven = device;
-          await replayDevice(actor, [...s.prelude, ...actions]);
+          await reach(this.scheme());
         } catch (e) {
           const why = e instanceof NavSkip || e instanceof NavStateError ? e.message : (e as Error).message.slice(0, 300);
           failures.push({ step: `${this.platform} ${device.formFactor} replay`, message: why });
@@ -214,6 +242,7 @@ export class DeviceDriver implements Driver, DeviceActor {
         routeName: s.screen.routeName,
         description: s.screen.description,
         settleMs,
+        reopen: reach,
         progress,
       });
       shots.push(...r.shots);
@@ -224,7 +253,6 @@ export class DeviceDriver implements Driver, DeviceActor {
         });
       }
     }
-    const arrival: Arrival = { sampleNames: [...(this.last?.refs.values() ?? [])].slice(0, 12).map((r) => r.label) };
     return { shots, failures, arrival };
   }
 

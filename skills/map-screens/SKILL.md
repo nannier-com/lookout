@@ -73,9 +73,11 @@ its routes): {{layoutRoutes}}
   not exist, or a symbol that is not in the file, is the worst thing you can
   produce: somebody will open it.
 - **Roots are the configured routes.** Every configured route is a top-level
-  node. A route you discover that the config does not list is a route node
-  under the route that links to it; one nothing links to is a top-level node
-  with `open` null.
+  node, and lookout adds any you leave out, so include a configured route
+  only when you have something to put under it: a state it shows, or a route
+  it links to that the config does not list. A discovered route sits under
+  the route that links to it; one nothing links to is a top-level node with
+  `open` null. Do not spend your reply restating the configured list.
 - **Concrete paths only.** A pattern such as `/users/:id` or `/blog/[slug]`
   goes in `skipped` with the pattern as `what`, unless the source shows a
   concrete instance you can name.
@@ -88,21 +90,22 @@ its routes): {{layoutRoutes}}
   out or otherwise ends the session). Everything under a destructive parent is
   destructive too; mark the child. Risk orders the walk (risky last); it never
   prevents it, so classify honestly and when in doubt say destructive.
-- **Caps**: at most {{maxScreens}} nodes per target, {{maxDepth}} levels below a
-  root, {{maxChildren}} children per node. Breadth first: every route before
-  the second dialog on one route.
+- **Caps**: at most {{maxScreens}} nodes per target beyond the configured
+  routes (which are always kept), {{maxDepth}} levels below a root,
+  {{maxChildren}} children per node. Breadth first: every route before the
+  second dialog on one route.
 - **Account for what you read**: every file you opened goes in `examined`, by
   absolute path. lookout uses it to know when the map has gone stale.
 
 ## Reply
 
-Reply with ONLY a fenced json block in this exact shape. Target names come
-from the list above.
+Reply with ONLY a fenced json block in this exact shape, keyed by the target
+name exactly as listed above (`{{exampleTarget}}` is one of them).
 
 ```json
 {
   "targets": {
-    "app": {
+    "{{exampleTarget}}": {
       "screens": [
         {
           "id": "/",

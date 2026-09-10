@@ -252,10 +252,14 @@ describe("parseMapReply", () => {
     const childCut = parseMapReply(reply([wide]), ctx({ limits: { maxScreens: 40, maxDepth: 4, maxChildren: 2 } }));
     expect(childCut.targets.app!.roots[0]!.children.map((c) => c.id)).toEqual(["aa", "bb"]);
 
+    // The cap bounds what the map adds; the configured routes are never cut
+    // by it, however many the config lists.
     const many = node("/", "route", { children: [node("aa", "state", { children: [node("deep", "state")] }), node("bb", "state")] });
-    const screenCut = parseMapReply(reply([many]), ctx({ limits: { maxScreens: 3, maxDepth: 4, maxChildren: 8 } }));
-    expect(ids(screenCut.targets.app!.roots)).toEqual(["0:/|rest", "1:/|aa", "0:/settings|rest"]);
-    expect(screenCut.targets.app!.notes).toContain("pruned: 2 node(s) past the screen cap (3)");
+    const screenCut = parseMapReply(reply([many]), ctx({ limits: { maxScreens: 2, maxDepth: 4, maxChildren: 8 } }));
+    expect(ids(screenCut.targets.app!.roots)).toEqual(["0:/|rest", "1:/|aa", "1:/|bb", "0:/settings|rest"]);
+    expect(screenCut.targets.app!.notes).toContain("pruned: 1 node(s) past the screen cap (2)");
+    const onlyRoots = parseMapReply(reply([many]), ctx({ limits: { maxScreens: 0, maxDepth: 4, maxChildren: 8 } }));
+    expect(ids(onlyRoots.targets.app!.roots)).toEqual(["0:/|rest", "0:/settings|rest"]);
   });
 
   test("fabrication is counted apart from the other drops; examined is verified, deduplicated and hashed", () => {
@@ -271,6 +275,15 @@ describe("parseMapReply", () => {
     expect(parsed.examined[0]).toMatchObject({ path: "src/App.tsx" });
     expect(parsed.examined[0]!.hash).toMatch(/^[0-9a-f]{16}$/);
     expect(parsed.notes).toContain("2 examined path(s) do not exist in the repository");
+  });
+
+  test("a single-target scan takes a reply filed under the wrong name, with a note; several names are held to the list", () => {
+    const one = ctx({ targets: [ctx().targets[0]!] });
+    const misnamed = parseMapReply({ targets: { app_misnamed: { screens: [node("/", "route", { children: [node("dlg", "state")] })], skipped: [] } } }, one);
+    expect(misnamed.notes).toContain('the reply named its target "app_misnamed"; taken as "app"');
+    expect(ids(misnamed.targets.app!.roots)).toEqual(["0:/|rest", "1:/|dlg", "0:/settings|rest"]);
+    const several = parseMapReply({ targets: { other: { screens: [] }, app: { screens: [] } } }, one);
+    expect(several.notes).toContain('dropped: unknown target "other"');
   });
 
   test("unknown targets, junk skipped entries, and a reply that is not an object all degrade to notes", () => {

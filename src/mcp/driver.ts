@@ -28,6 +28,12 @@ export interface Snapshot {
   arrival: Arrival;
 }
 
+/** A picture for the model's own eyes, and how its pixels relate to the coordinates it acts in. */
+export interface Look {
+  image: Buffer;
+  note: string;
+}
+
 export interface Arrived {
   shots: ShotRecord[];
   failures: { step: string; message: string }[];
@@ -40,7 +46,7 @@ export interface Driver {
   open(path: string): Promise<NavAction["outcome"]>;
   snapshot(): Promise<Snapshot>;
   /** One picture of the screen as it is, for the model's own eyes; never a capture record. */
-  look(): Promise<Buffer>;
+  look(): Promise<Look>;
   /** Perform one action live. Throws `ToolRefusal` for anything the rules forbid. */
   act(action: NavAction): Promise<NavAction["outcome"]>;
   /** Run a recording again, checking each step against what it recorded; throws when the screen differs. */

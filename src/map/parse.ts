@@ -40,14 +40,22 @@ function orderSiblings(nodes: MapNode[]): MapNode[] {
     .map((x) => x.n);
 }
 
-/** Drop nodes beyond the screen cap, breadth first, so a fifth dialog goes before a second route. */
-function capScreens(roots: MapNode[], max: number): number {
+/**
+ * Drop discovered nodes beyond the screen cap, breadth first, so a fifth
+ * dialog goes before a second route. A configured route is never dropped:
+ * the config is the operator's declared intent, and a project with more
+ * routes than the cap has said so; the cap bounds what the map adds.
+ */
+function capScreens(roots: MapNode[], max: number, configured: ReadonlySet<string>): number {
   const queue: MapNode[] = [...roots];
   const kept = new Set<MapNode>();
+  let added = 0;
   while (queue.length > 0) {
     const n = queue.shift()!;
-    if (kept.size < max) {
+    const free = n.kind === "route" && n.path !== undefined && configured.has(n.path) && roots.includes(n);
+    if (free || added < max) {
       kept.add(n);
+      if (!free) added++;
       queue.push(...n.children);
     }
   }
@@ -176,7 +184,7 @@ function parseTarget(raw: unknown, ctx: ParseContext, target: ParseTarget): Pars
     return ia - ib;
   });
 
-  const dropped = capScreens(roots, ctx.limits.maxScreens);
+  const dropped = capScreens(roots, ctx.limits.maxScreens, new Set(configured.keys()));
   if (dropped > 0) notes.push(`pruned: ${dropped} node(s) past the screen cap (${ctx.limits.maxScreens})`);
 
   const skipped: MapTarget["skipped"] = [];
@@ -212,7 +220,17 @@ function citedFile(raw: unknown, ctx: ParseContext): MapSource | null {
 export function parseMapReply(raw: unknown, ctx: ParseContext): ParsedReply {
   const notes: string[] = [];
   const r = (typeof raw === "object" && raw !== null ? raw : {}) as Record<string, unknown>;
-  const replied = (typeof r.targets === "object" && r.targets !== null ? r.targets : {}) as Record<string, unknown>;
+  const replied = { ...((typeof r.targets === "object" && r.targets !== null ? r.targets : {}) as Record<string, unknown>) };
+  // A scan is one target at a time, and a reply that names its one target
+  // wrongly (the example's name copied over the real one, measured on a
+  // first real run) still describes the target that was scanned. Taken as
+  // such, with a note; a reply naming several is held to the names.
+  const keys = Object.keys(replied);
+  if (ctx.targets.length === 1 && keys.length === 1 && keys[0] !== ctx.targets[0]!.name) {
+    notes.push(`the reply named its target ${JSON.stringify(keys[0])}; taken as ${JSON.stringify(ctx.targets[0]!.name)}`);
+    replied[ctx.targets[0]!.name] = replied[keys[0]!];
+    delete replied[keys[0]!];
+  }
   const targets: Record<string, ParsedTarget> = {};
   for (const target of ctx.targets) {
     targets[target.name] = parseTarget(replied[target.name], ctx, target);

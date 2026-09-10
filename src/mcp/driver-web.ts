@@ -19,7 +19,7 @@ import { resolveRoutes } from "../targets.js";
 import { nowIso } from "../util.js";
 import type { NavAction } from "./actions.js";
 import { arriveWeb } from "./arrive.js";
-import type { Arrived, Driver, DriverContext, Snapshot } from "./driver.js";
+import type { Arrived, Driver, DriverContext, Look, Snapshot } from "./driver.js";
 import { arrivalOf, performWeb, replayWeb, type ReplayContext } from "./replay-web.js";
 
 /** The longest side of a `look` picture: enough to read a screen, cheap enough to send often. */
@@ -99,11 +99,12 @@ export class WebDriver implements Driver {
     this.harvest = null;
   }
 
-  async look(): Promise<Buffer> {
+  async look(): Promise<Look> {
     const page = await this.ensurePage();
     const png = await page.screenshot({ animations: "disabled" });
     const sharp = (await import("sharp")).default;
-    return sharp(png).resize({ width: LOOK_MAX_PX, height: LOOK_MAX_PX, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 60 }).toBuffer();
+    const image = await sharp(png).resize({ width: LOOK_MAX_PX, height: LOOK_MAX_PX, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 60 }).toBuffer();
+    return { image, note: "the page at the navigator's viewport; act on controls by their snapshot id, never by a position in this picture" };
   }
 
   async act(action: NavAction): Promise<NavAction["outcome"]> {

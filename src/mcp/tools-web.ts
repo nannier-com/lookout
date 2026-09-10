@@ -21,8 +21,8 @@ const control = {
 
 export const snapshot = tool({
   name: "snapshot",
-  description: "What is on the screen now: its url and title, and every control a person could act on, one per line with an id you can pass to click, type, hover or scroll. Call this before acting.",
-  platforms: ["web"],
+  description: "What is on the screen now: on the web its url and title and every control a person could act on, on a device every tappable node, one per line with an id you can pass to click, tap, type, hover or scroll. Call this before acting.",
+  platforms: ["web", "ios", "android"],
   input: {},
   mutating: false,
   run: async (_args, state) => {
@@ -39,7 +39,7 @@ export const look = tool({
   input: {},
   mutating: false,
   run: async (_args, state) => {
-    const image = await state.driver.look();
+    const { image, note } = await state.driver.look();
     // Kept on disk as well: when the navigator gives up, the last thing it
     // saw is what a person needs in order to see why.
     const name = `look-${state.calls.length}.jpg`;
@@ -50,7 +50,7 @@ export const look = tool({
     } catch {
       // A picture that could not be kept is still a picture the model can see.
     }
-    return { text: "the screen as it is now", image };
+    return { text: `the screen as it is now: ${note}`, image };
   },
 });
 

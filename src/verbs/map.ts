@@ -20,7 +20,7 @@ export async function map(parsed: Parsed): Promise<number> {
     url: str(parsed.flags.url),
     baseUrl: str(parsed.flags["base-url"]),
   });
-  for (const flag of ["max-screens", "max-depth"] as const) {
+  for (const flag of ["max-screens", "max-depth", "max-files"] as const) {
     if (parsed.flags[flag] !== undefined && num(parsed.flags[flag]) === undefined) {
       throw new LookoutError(`--${flag} needs a number`);
     }
@@ -43,6 +43,7 @@ export async function map(parsed: Parsed): Promise<number> {
       model: str(parsed.flags.model),
       maxScreens: num(parsed.flags["max-screens"]),
       maxDepth: num(parsed.flags["max-depth"]),
+      maxFiles: num(parsed.flags["max-files"]),
       log,
     });
     const screens = result.targets.reduce((sum, t) => sum + t.screens, 0);

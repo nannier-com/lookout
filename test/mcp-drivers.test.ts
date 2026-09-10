@@ -132,8 +132,8 @@ describe("transferTap", () => {
 
 describe("the registry", () => {
   test("a device session sees the device tools and the shared ones, one per name; the web sees its own", () => {
-    expect(toolsFor("ios").map((t) => t.name).sort()).toEqual(["arrive", "key", "look", "open", "swipe", "tap", "type", "wait"]);
-    expect(toolsFor("android").map((t) => t.name).sort()).toEqual(["arrive", "back", "key", "look", "open", "swipe", "tap", "type", "wait"]);
+    expect(toolsFor("ios").map((t) => t.name).sort()).toEqual(["arrive", "key", "look", "open", "snapshot", "swipe", "tap", "type", "wait"]);
+    expect(toolsFor("android").map((t) => t.name).sort()).toEqual(["arrive", "back", "key", "look", "open", "snapshot", "swipe", "tap", "type", "wait"]);
     expect(toolsFor("web").map((t) => t.name)).not.toContain("tap");
     expect(new Set(TOOL_NAMES).size).toBe(TOOL_NAMES.length);
     expect(TOOL_NAMES).toContain("tap");

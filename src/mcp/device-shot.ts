@@ -86,10 +86,12 @@ export async function deviceRecord(args: {
 }
 
 /**
- * Photograph the screen in every scheme the session asked for. The device is
- * switched between them when the app follows the system appearance; an app
- * that reads the scheme off its deep link shows whichever it was opened in,
- * and the read-back says so.
+ * Photograph the screen in every scheme the session asked for. Between
+ * schemes, an app that follows the system appearance gets the device
+ * switched; an app that reads its scheme off the deep link is opened again
+ * in the next scheme and walked back to the screen by `reopen`, the way the
+ * web capture replays a state at every scheme. The read-back on every shot
+ * says whether the app followed.
  */
 export async function photographSchemes(args: {
   device: NativeDevice;
@@ -101,6 +103,8 @@ export async function photographSchemes(args: {
   routeName: string;
   description?: string;
   settleMs: number;
+  /** Cold-start the app in this scheme and reach the screen again; used when the deep link carries the scheme. */
+  reopen?: (scheme: Scheme) => Promise<void>;
   progress: (line: string) => void;
 }): Promise<{ shots: ShotRecord[]; failures: { step: string; message: string }[] }> {
   const shots: ShotRecord[] = [];
@@ -108,7 +112,9 @@ export async function photographSchemes(args: {
   for (const [i, scheme] of args.schemes.entries()) {
     const axes: ShotAxes = { ...args.axes, scheme };
     try {
-      if (i > 0 && !args.app.appearanceParam) {
+      if (i > 0 && args.app.appearanceParam && args.reopen) {
+        await args.reopen(scheme);
+      } else if (i > 0 && !args.app.appearanceParam) {
         await setDeviceAppearance(args.device, scheme).catch((e: Error) => args.progress(`could not switch ${args.device.name} to ${scheme}: ${e.message.slice(0, 120)}`));
         await sleep(args.settleMs);
       }

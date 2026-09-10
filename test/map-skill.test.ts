@@ -35,7 +35,25 @@ describe("the map-screens skill", () => {
     expect(prompt).toContain("web, ios (deep links: acme://)");
     expect(prompt).toContain("- /repo/src/router.tsx  (router)");
     expect(prompt).toContain('"Sign out"');
-    expect(prompt).toContain("at most 40 nodes per target, 4 levels");
+    expect(prompt).toContain("at most 40 nodes per target beyond the configured");
+    // The example is keyed by the scanned target, so a copied key is the right one.
+    expect(prompt).toContain('"app": {');
+    expect(prompt).not.toContain("exampleTarget");
+  });
+
+  test("the example's target key is the target being scanned, whatever it is called", async () => {
+    const skill = await loadSkill(null, "map-screens");
+    const prompt = buildMapPrompt(skill.text, {
+      project: "proj",
+      targets: [{ name: "docs", url: "http://localhost:8081", routes: [{ path: "/", name: "Home", states: [] }] }],
+      platforms: [{ kind: "web" }],
+      configStates: [],
+      excluded: [],
+      candidates: [],
+      limits: { maxScreens: 40, maxDepth: 4, maxChildren: 8 },
+    });
+    expect(prompt).toContain('"docs": {');
+    expect(prompt).toContain("(`docs` is one of them)");
   });
 
   test("a project amendment lands in the slot and raises the version", async () => {

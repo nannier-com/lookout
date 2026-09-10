@@ -49,5 +49,9 @@ export function buildMapPrompt(skillText: string, ctx: MapPromptContext): string
     maxScreens: ctx.limits.maxScreens,
     maxDepth: ctx.limits.maxDepth,
     maxChildren: ctx.limits.maxChildren,
+    // The example is keyed by a real target, never a made-up one: a reader
+    // copies the example's key, and a made-up name filed a whole reply
+    // under a target that did not exist.
+    exampleTarget: ctx.targets[0]?.name ?? "app",
   });
 }
