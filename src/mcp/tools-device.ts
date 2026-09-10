@@ -9,31 +9,53 @@ import { nowIso } from "../util.js";
 import { ToolRefusal } from "./driver.js";
 import { actAndSnapshot as act, tool, type ToolDef, type ToolState } from "./tool.js";
 
-function nodeOf(args: { ref?: string; x?: number; y?: number }, state: ToolState): { x: number; y: number; label?: string; id?: string } {
+/**
+ * Where a tool call means, in the coordinates the device taps in.
+ *
+ * Three ways to say it, and the order matters. A snapshot reference is exact.
+ * A fraction of the screen is what a model reading a picture can actually
+ * give: it looked at a picture, and where a thing sits in that picture is a
+ * proportion, not a pixel count. Pixels are last, because a model asked for
+ * them answers in whatever size it believes the picture to be, and a screen
+ * described in one space and pictured in another is how a navigator came to
+ * tap the middle of a page five times while aiming at the tab bar.
+ */
+export function pointOf(
+  args: { ref?: string; xPct?: number; yPct?: number; x?: number; y?: number },
+  state: ToolState,
+): { x: number; y: number; label?: string; id?: string } {
   if (args.ref) {
     const hit = state.snapshot?.refs.get(args.ref);
     if (!hit) throw new ToolRefusal(`no ${JSON.stringify(args.ref)} in the last snapshot; call snapshot first`);
     if (hit.kind !== "node") throw new ToolRefusal(`${args.ref} is a web control, not a device node`);
     return { x: hit.x, y: hit.y, label: hit.label, id: hit.id };
   }
+  if (typeof args.xPct === "number" && typeof args.yPct === "number") {
+    const size = state.driver.size;
+    if (!size) throw new ToolRefusal("this screen's size is not known here, so a fraction cannot be turned into a tap; use a ref from the snapshot");
+    return { x: Math.round((args.xPct / 100) * size.width), y: Math.round((args.yPct / 100) * size.height) };
+  }
   if (typeof args.x === "number" && typeof args.y === "number") return { x: args.x, y: args.y };
-  throw new ToolRefusal("name the node: a ref from the last snapshot, or x and y in the screen's coordinates");
+  throw new ToolRefusal("say where: a ref from the last snapshot, xPct and yPct as percentages of the screen, or x and y in the screen's own coordinates");
 }
 
 const point = { x: z.number(), y: z.number() };
 
 export const tap = tool({
   name: "tap",
-  description: "Tap a node named by its snapshot id, or a point (x, y) in the screen's own coordinates. Answers with the new snapshot.",
+  description:
+    "Tap the screen. Say where in one of three ways, best first: a node's id from the last snapshot; xPct and yPct, where the thing sits in the picture as percentages of the screen's width and height (what to use after `look`); or x and y in the screen's own coordinates. Answers with the new snapshot.",
   platforms: ["ios", "android"],
   input: {
     ref: z.string().optional().describe("a node's id from the last snapshot (n1, n2, ...)"),
+    xPct: z.number().min(0).max(100).optional().describe("how far across the screen, 0 at the left edge, 100 at the right"),
+    yPct: z.number().min(0).max(100).optional().describe("how far down the screen, 0 at the top, 100 at the bottom"),
     x: z.number().optional(),
     y: z.number().optional(),
   },
   mutating: true,
   run: async (args, state) => {
-    const node = nodeOf(args, state);
+    const node = pointOf(args, state);
     const subject = node.label ? JSON.stringify(node.label) : `(${node.x}, ${node.y})`;
     return { text: await act(state, { tool: "tap", args: { ...node }, outcome: {}, at: nowIso() }, subject) };
   },

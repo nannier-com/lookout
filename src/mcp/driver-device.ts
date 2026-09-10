@@ -24,17 +24,22 @@ import {
   keyCommand,
   requireIdb,
   runDevice,
+  screenSizeCommand,
   swipeCommand,
   tapCommand,
   textCommand,
 } from "./device-commands.js";
-import { androidKeyCode, hierarchyText, iosKeyCode, refsOfIdb, refsOfUiautomator, type Hierarchy } from "./device-hierarchy.js";
+import { androidKeyCode, describeFailure, hierarchyText, iosKeyCode, refsOfIdb, refsOfUiautomator, sizeOfWmSize, type Hierarchy } from "./device-hierarchy.js";
 import { photographSchemes } from "./device-shot.js";
 import { ToolRefusal, type Arrived, type Driver, type DriverContext, type Look, type Snapshot } from "./driver.js";
 import { replayDevice, type DeviceActor, type DeviceSize } from "./replay-device.js";
 
 const LOOK_MAX_PX = 1024;
+/** A tap space this wide or narrower is photographed at its own size, so the picture reads as coordinates. */
+const LOOK_MAX_WIDTH = 1280;
 const ACT_SETTLE_MS = 400;
+/** What a screen gets to finish moving before it is photographed: a native transition outlasts a web one. */
+const ARRIVE_SETTLE_MS = 2000;
 
 export class DeviceDriver implements Driver, DeviceActor {
   readonly platform: NativePlatform;
@@ -42,6 +47,8 @@ export class DeviceDriver implements Driver, DeviceActor {
   private booted: NativeDevice[] | null = null;
   private driven: NativeDevice | null = null;
   private last: Hierarchy | null = null;
+  /** Why the last `describe` came back empty, for the snapshot to pass on. */
+  private describedWhyNot: string | null = null;
   size: DeviceSize | null = null;
 
   constructor(private readonly ctx: DriverContext) {
@@ -80,11 +87,25 @@ export class DeviceDriver implements Driver, DeviceActor {
     return { url };
   }
 
-  /** The screen described by the platform, or null when this platform cannot describe it here. */
+  /** The screen described by the platform, or null with `describedWhyNot` saying why not. */
   async describe(): Promise<Hierarchy | null> {
     await this.devices();
-    if (this.platform === "ios" && !(await idbAvailable())) return null;
-    const out = await runDevice(describeCommand(this.device));
+    if (this.platform === "ios" && !(await idbAvailable())) {
+      this.describedWhyNot = IDB_HINT;
+      return null;
+    }
+    const out = await runDevice(describeCommand(this.device)).catch((e: Error) => `ERROR: ${e.message}`);
+    const why = describeFailure(out);
+    if (why) {
+      this.describedWhyNot = why;
+      // The tap space still has to be known, or the picture that stands in
+      // for the description cannot be read as coordinates either.
+      if (!this.size && this.platform === "android") {
+        this.size = sizeOfWmSize(await runDevice(screenSizeCommand(this.device)).catch(() => "")) ?? null;
+      }
+      return null;
+    }
+    this.describedWhyNot = null;
     const h = this.platform === "ios" ? refsOfIdb(out) : refsOfUiautomator(out);
     if (h.size) this.size = h.size;
     this.last = h;
@@ -95,10 +116,13 @@ export class DeviceDriver implements Driver, DeviceActor {
     const h = await this.describe();
     const header = `${this.platform} ${this.device.name} (${this.device.formFactor})`;
     if (!h) {
+      // No node list: say why, and hand over the picture with the one fact
+      // that makes it actionable, which is how its pixels map to a tap.
+      const look = await this.look();
       return {
-        text: `${header}\n(this simulator cannot describe its screen: ${IDB_HINT}; look at the picture instead)`,
+        text: `${header}\n${this.describedWhyNot ?? "this screen could not be described"}.\nUse the picture instead: ${look.note}.`,
         refs: new Map(),
-        image: (await this.look()).image,
+        image: look.image,
         arrival: { sampleNames: [] },
       };
     }
@@ -129,16 +153,21 @@ export class DeviceDriver implements Driver, DeviceActor {
       await shootDevice(this.device, file);
       const sharp = (await import("sharp")).default;
       const space = this.size;
-      const target = space && Math.max(space.width, space.height) <= LOOK_MAX_PX ? { width: space.width, height: space.height, fit: "fill" as const } : { width: LOOK_MAX_PX, height: LOOK_MAX_PX, fit: "inside" as const };
+      // The picture is the tap space itself whenever that is a reasonable
+      // width, so a position read off it IS a tap: a phone screen is 400 to
+      // 1200 across either way, and only the width has to match.
+      const target = space && space.width <= LOOK_MAX_WIDTH ? { width: space.width, height: space.height, fit: "fill" as const } : { width: LOOK_MAX_PX, height: LOOK_MAX_PX, fit: "inside" as const };
       const image = await sharp(await readFile(file)).resize({ ...target, withoutEnlargement: false }).jpeg({ quality: 60 }).toBuffer();
       const meta = await sharp(image).metadata();
       const w = meta.width ?? 0;
       const h = meta.height ?? 0;
-      const note = !space
-        ? `the picture is ${w}x${h}; the screen's tap coordinates are unknown here, so tap nodes from the snapshot rather than positions`
-        : w === space.width && h === space.height
-          ? `the picture is ${w}x${h}, the same as the screen's tap coordinates: a position read off it is a tap`
-          : `the picture is ${w}x${h}; the screen's tap coordinates run ${space.width}x${space.height}, so multiply a position read off it by ${(space.width / w).toFixed(3)}`;
+      // What to do with it, rather than what it measures: a model reading a
+      // picture knows where a thing sits in it as a proportion, and answers
+      // in whatever pixel size it believes the picture to be. So it is told
+      // to say the proportion and lookout does the arithmetic.
+      const note = space
+        ? `tap what you see in it with xPct and yPct, as percentages of the screen (the picture is ${w}x${h} and the screen taps in ${space.width}x${space.height}, but you do not need either number)`
+        : `this screen's size is not known here, so a position in the picture cannot be turned into a tap; act on nodes from the snapshot`;
       return { image, note };
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -221,6 +250,11 @@ export class DeviceDriver implements Driver, DeviceActor {
         await openOnDevice(device, this.app.bundleId, deepLink(this.app, s.screen.route, scheme));
         await sleep(settleMs);
         await replayDevice(actor, [...s.prelude, ...actions]);
+        // The settle between actions is for the next action, not for a
+        // photograph: a tab switch was measured mid-transition, its bar
+        // already on the new tab and its body still on the old one. A
+        // capture waits longer, once, at the end.
+        await sleep(ARRIVE_SETTLE_MS);
       };
       if (device !== this.device) {
         try {

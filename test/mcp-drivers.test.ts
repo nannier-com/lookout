@@ -6,15 +6,19 @@ import { afterEach, describe, expect, test } from "bun:test";
 import type { NativeDevice } from "../src/capture/native-device.js";
 import {
   androidKeyCode,
+  describeFailure,
   findNode,
   hierarchyText,
   iosKeyCode,
   refsOfIdb,
   refsOfUiautomator,
+  sizeOfWmSize,
 } from "../src/mcp/device-hierarchy.js";
-import { describeCommand, IDB_HINT, keyCommand, requireIdb, swipeCommand, tapCommand, textCommand } from "../src/mcp/device-commands.js";
+import { describeCommand, IDB_HINT, keyCommand, requireIdb, screenSizeCommand, swipeCommand, tapCommand, textCommand } from "../src/mcp/device-commands.js";
 import { transferTap } from "../src/mcp/replay-device.js";
 import { toolsFor, TOOL_NAMES } from "../src/mcp/tools.js";
+import { pointOf } from "../src/mcp/tools-device.js";
+import type { ToolState } from "../src/mcp/tool.js";
 import type { NavAction } from "../src/mcp/actions.js";
 
 const iphone: NativeDevice = { platform: "ios", id: "UDID-1", name: "iPhone 17", formFactor: "phone" };
@@ -89,6 +93,22 @@ describe("the text and the lookup", () => {
   });
 });
 
+describe("describeFailure and sizeOfWmSize", () => {
+  test("an animating screen, any other platform error, and silence each get a reason a model can act on", () => {
+    expect(describeFailure("ERROR: could not get idle state.")).toMatch(/never stops moving/);
+    expect(describeFailure("ERROR: something else went wrong\nmore")).toBe("the platform would not describe this screen: ERROR: something else went wrong");
+    expect(describeFailure("   ")).toBe("the platform described nothing at all");
+    expect(describeFailure(UIAUTOMATOR)).toBeNull();
+    expect(describeFailure(IDB)).toBeNull();
+  });
+
+  test("the tap space comes off wm size, an override winning over the physical size", () => {
+    expect(sizeOfWmSize("Physical size: 1080x2400")).toEqual({ width: 1080, height: 2400 });
+    expect(sizeOfWmSize("Physical size: 1080x2400\nOverride size: 720x1600")).toEqual({ width: 720, height: 1600 });
+    expect(sizeOfWmSize("nothing here")).toBeNull();
+  });
+});
+
 describe("the commands", () => {
   test("iOS goes through idb by udid, Android through adb by serial", () => {
     expect(tapCommand(iphone, 340.4, 82)).toEqual({ bin: "idb", args: ["ui", "tap", "340", "82", "--udid", "UDID-1"] });
@@ -101,6 +121,7 @@ describe("the commands", () => {
     expect(keyCommand(pixel, "KEYCODE_ENTER").args.slice(-2)).toEqual(["keyevent", "KEYCODE_ENTER"]);
     expect(describeCommand(iphone).args).toEqual(["ui", "describe-all", "--json", "--udid", "UDID-1"]);
     expect(describeCommand(pixel).args).toEqual(["-s", "emulator-5554", "exec-out", "uiautomator", "dump", "/dev/tty"]);
+    expect(screenSizeCommand(pixel).args).toEqual(["-s", "emulator-5554", "shell", "wm", "size"]);
   });
 
   test("an iOS action without idb is refused with the install hint", async () => {
@@ -127,6 +148,32 @@ describe("transferTap", () => {
     expect(() => transferTap(tap({ recordedOn }), ipad, { width: 820, height: 1180 }, null)).toThrow(/does not transfer/);
     expect(() => transferTap(tap({ recordedOn }), pixel, null, null)).toThrow(/does not transfer/);
     expect(() => transferTap(tap({ x: undefined, y: undefined }), iphone, null, null)).toThrow(/names no point/);
+  });
+});
+
+describe("where a device tool call means", () => {
+  const state = (over: Partial<ToolState> = {}): ToolState =>
+    ({
+      session: { screen: { id: "app|/|rest" }, limits: { maxActions: 40 } },
+      driver: { size: { width: 1080, height: 2400 } },
+      actions: [],
+      snapshot: { refs: new Map([["n1", { kind: "node", x: 404, y: 2230, label: "Components", id: "", bounds: { x: 0, y: 0, w: 1, h: 1 } }]]) },
+      calls: [],
+      arrived: null,
+      log: { emit: () => {} },
+      ...over,
+    }) as unknown as ToolState;
+
+  test("a snapshot node is exact, a fraction becomes the tap, and pixels are taken as given", () => {
+    expect(pointOf({ ref: "n1" }, state())).toEqual({ x: 404, y: 2230, label: "Components", id: "" });
+    expect(pointOf({ xPct: 37.4, yPct: 92.9 }, state())).toEqual({ x: 404, y: 2230 });
+    expect(pointOf({ x: 12, y: 34 }, state())).toEqual({ x: 12, y: 34 });
+  });
+
+  test("an unknown ref, an unknown screen size and a call that says nothing are each refused by name", () => {
+    expect(() => pointOf({ ref: "n9" }, state())).toThrow(/call snapshot first/);
+    expect(() => pointOf({ xPct: 50, yPct: 50 }, state({ driver: { size: null } as never }))).toThrow(/cannot be turned into a tap/);
+    expect(() => pointOf({}, state())).toThrow(/a ref from the last snapshot, xPct and yPct/);
   });
 });
 

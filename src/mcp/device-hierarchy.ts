@@ -42,6 +42,33 @@ function bounds(text: string | null): { x: number; y: number; w: number; h: numb
 }
 
 /**
+ * Why a platform would not describe its screen, in words a model can act on,
+ * or null when the output is a description.
+ *
+ * Android's uiautomator waits for the app to go idle and refuses when it does
+ * not, which an app with a running animation never does: measured on a React
+ * Native home screen with an animated background, where every dump answered
+ * "ERROR: could not get idle state." A model handed an empty node list and no
+ * reason falls back to guessing coordinates off a picture, which is how a
+ * navigator came to tap the same spot five times and give up.
+ */
+export function describeFailure(raw: string): string | null {
+  const text = raw.trim();
+  if (/could not get idle state/i.test(text)) {
+    return "this screen never stops moving (an animation is running), so the platform will not describe it";
+  }
+  if (/^ERROR/i.test(text)) return `the platform would not describe this screen: ${text.split("\n")[0]!.slice(0, 160)}`;
+  if (text.length === 0) return "the platform described nothing at all";
+  return null;
+}
+
+/** The display's pixel size, from `wm size`: the space Android taps land in. An override wins over the physical size. */
+export function sizeOfWmSize(out: string): { width: number; height: number } | null {
+  const last = [...out.matchAll(/(?:Override|Physical) size:\s*(\d+)x(\d+)/g)].pop();
+  return last ? { width: Number(last[1]), height: Number(last[2]) } : null;
+}
+
+/**
  * The tappable nodes of a uiautomator dump: clickable, or carrying a label a
  * person would tap by, with a non-empty box. Ids are minted in document
  * order, `n1, n2, ...`, and mean nothing outside the snapshot they came from.

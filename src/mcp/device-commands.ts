@@ -71,6 +71,11 @@ export function describeCommand(device: NativeDevice): DeviceCommand {
     : { bin: adbBin(), args: ["-s", device.id, "exec-out", "uiautomator", "dump", "/dev/tty"] };
 }
 
+/** The display's own size, for the coordinate space taps land in. iOS reads it off the description instead. */
+export function screenSizeCommand(device: NativeDevice): DeviceCommand {
+  return { bin: adbBin(), args: ["-s", device.id, "shell", "wm", "size"] };
+}
+
 export async function runDevice(cmd: DeviceCommand, timeoutMs = 30_000): Promise<string> {
   const { stdout } = await execFileAsync(cmd.bin, cmd.args, { timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 });
   return stdout;

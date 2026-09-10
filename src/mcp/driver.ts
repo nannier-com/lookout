@@ -42,6 +42,8 @@ export interface Arrived {
 
 export interface Driver {
   readonly platform: PlatformKind;
+  /** The coordinate space actions land in, when the platform has one; the web acts on controls, not points. */
+  readonly size?: { width: number; height: number } | null;
   /** Reach the screen's route and replay the prelude; the navigator starts from here. */
   open(path: string): Promise<NavAction["outcome"]>;
   snapshot(): Promise<Snapshot>;
